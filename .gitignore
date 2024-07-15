@@ -1,0 +1,4 @@
+.vscode/
+**/sql_app.db
+**/__pycache__
+**/.DS_Store
