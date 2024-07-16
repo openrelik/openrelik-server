@@ -33,7 +33,7 @@ WORKDIR /app
 COPY --from=builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
 
 # Copy needed files
-COPY openrelik_server ./openrelik_server
+COPY src ./openrelik
 
 # Set workdir for Uvicorn to function
-WORKDIR /app/openrelik_server
+WORKDIR /app/openrelik
