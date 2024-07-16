@@ -137,6 +137,7 @@ class FileResponse(BaseModel):
 class FileResponseCompact(BaseModel):
     id: int
     display_name: str
+    filesize: int
 
 
 class FileSummary(BaseModel):
