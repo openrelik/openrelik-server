@@ -26,7 +26,7 @@ from celery.app import Celery
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from auth.google import get_current_user
+from auth.google import get_current_active_user
 from datastores.sql.crud.folder import create_folder_in_db
 from datastores.sql.crud.workflow import (
     get_workflow_from_db,
@@ -93,7 +93,7 @@ async def get_workflow(workflow_id: int, db: Session = Depends(get_db_connection
 async def create_workflow(
     request_body: schemas.WorkflowCreateRequest,
     db: Session = Depends(get_db_connection),
-    current_user: schemas.User = Depends(get_current_user),
+    current_user: schemas.User = Depends(get_current_active_user),
 ):
 
     default_workflow_display_name = "Untitled workflow"
@@ -111,7 +111,7 @@ async def create_workflow(
     new_folder = schemas.FolderCreateRequest(
         display_name=default_workflow_display_name, parent_id=request_body.folder_id
     )
-    new_workflow_folder = create_folder_in_db(db, new_folder.model_dump(), current_user)
+    new_workflow_folder = create_folder_in_db(db, new_folder, current_user)
 
     # Create new workflow
     new_workflow_db = schemas.Workflow(
@@ -150,7 +150,7 @@ async def update_workflow(
 async def copy_workflow(
     workflow_id: int,
     db: Session = Depends(get_db_connection),
-    current_user: schemas.User = Depends(get_current_user),
+    current_user: schemas.User = Depends(get_current_active_user),
 ):
 
     workflow_to_copy = get_workflow_from_db(db, workflow_id)
@@ -162,12 +162,12 @@ async def copy_workflow(
         display_name=f"Copy of {workflow_to_copy.display_name}",
         parent_id=workflow_to_copy.folder.parent_id,
     )
-    new_workflow_folder = create_folder_in_db(db, new_folder.model_dump(), current_user)
+    new_workflow_folder = create_folder_in_db(db, new_folder, current_user)
 
     new_workflow_db = schemas.Workflow(
         display_name=f"Copy of {workflow_to_copy.display_name}",
         spec_json=json.dumps(workflow_spec),
-        file_ids=[file.id for file in workflow_to_copy.files],
+        file_ids=[file.id for file in workflow_to_copy.files if not file.is_deleted],
         folder_id=new_workflow_folder.id,
         user_id=current_user.id,
     )
@@ -181,11 +181,11 @@ async def delete_workflow(workflow_id: int, db: Session = Depends(get_db_connect
 
 
 # Run workflow
-@router.post("/run/")
+@router.post("/run/", response_model=schemas.WorkflowResponse)
 async def run_workflow(
     request: dict,
     db: Session = Depends(get_db_connection),
-    current_user: schemas.User = Depends(get_current_user),
+    current_user: schemas.User = Depends(get_current_active_user),
 ):
     workflow_id = request.get("workflow_id")
     workflow_spec = request.get("workflow_spec")
@@ -267,26 +267,25 @@ async def run_workflow(
 
 
 # Get all workflow templates
-@router.get("/templates/")
-async def get_workflow_templates(
-    db: Session = Depends(get_db_connection),
-) -> List[schemas.WorkflowTemplate]:
+@router.get("/templates/", response_model=List[schemas.WorkflowTemplateResponse])
+async def get_workflow_templates(db: Session = Depends(get_db_connection)):
     return get_workflow_templates_from_db(db)
 
 
 # Create workflow template
-@router.post("/templates/")
+@router.post("/templates/", response_model=schemas.WorkflowTemplateResponse)
 async def create_workflow_template(
-    request: schemas.WorkflowTemplateRequest,
+    new_template_request: schemas.WorkflowTemplateCreateRequest,
     db: Session = Depends(get_db_connection),
-    current_user: schemas.User = Depends(get_current_user),
+    current_user: schemas.User = Depends(get_current_active_user),
 ):
+    workflow_to_save = get_workflow_from_db(db, new_template_request.workflow_id)
     # Replace UUIDs with placeholder value for the template
-    spec_json = json.loads(request.workflow.spec_json)
+    spec_json = json.loads(workflow_to_save.spec_json)
     replace_uuids(spec_json, replace_with="PLACEHOLDER")
 
-    new_template_db = schemas.WorkflowTemplate(
-        display_name=request.display_name,
+    new_template_db = schemas.WorkflowTemplateCreate(
+        display_name=new_template_request.display_name,
         spec_json=json.dumps(spec_json),
         user_id=current_user.id,
     )

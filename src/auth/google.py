@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
+import uuid
 from datetime import datetime, timedelta, timezone
 
 from authlib.integrations.starlette_client import OAuth, OAuthError
@@ -181,19 +181,21 @@ async def auth(request: Request, db: Session = Depends(get_db_connection)):
     except OAuthError as error:
         return HTMLResponse(f"<h1>{error.error}</h1>")
     user_info = token.get("userinfo")
-    user_schema = schemas.User(
-        name=user_info.get("name", ""),
-        email=user_info.get("email", ""),
-        picture=user_info.get("picture", ""),
-    )
-    if not user_schema.email in USER_ALLOW_LIST:
+    user_email = user_info.get("email", "")
+
+    # Return early if the user is not allowed on the server.
+    if not user_email in USER_ALLOW_LIST:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-    db_user = get_user_by_email_from_db(db, email=user_schema.email)
+    db_user = get_user_by_email_from_db(db, email=user_email)
     if not db_user:
-        db_user = create_user_in_db(db, user_schema)
-
-    response = RedirectResponse(url=UI_SERVER_URL)
+        new_user = schemas.UserCreate(
+            name=user_info.get("name", ""),
+            email=user_email,
+            picture=user_info.get("picture", ""),
+            uuid=uuid.uuid4(),
+        )
+        db_user = create_user_in_db(db, new_user)
 
     # Create JWT access token
     access_token = create_access_token(
@@ -201,6 +203,8 @@ async def auth(request: Request, db: Session = Depends(get_db_connection)):
         expires_delta=ACCESS_TOKEN_EXPIRE_MINUTES,
     )
 
+    # Create response redirect
+    response = RedirectResponse(url=UI_SERVER_URL)
     # Set the JWT cookie in the response
     response.set_cookie(key="access_token", value=access_token, httponly=True)
 

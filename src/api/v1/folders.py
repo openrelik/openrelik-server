@@ -11,13 +11,12 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-from typing import List, TYPE_CHECKING
+from typing import List, TYPE_CHECKING, Optional
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from auth.google import get_current_user
+from auth.google import get_current_active_user
 from datastores.sql.crud.file import get_files_from_db
 from datastores.sql.crud.workflow import get_folder_workflows_from_db
 from datastores.sql.crud.folder import (
@@ -45,6 +44,7 @@ def get_root_folders(
 
 
 # Get folder
+# TODO: Return different response if folder is deleted.
 @router.get("/{folder_id}")
 def get_folder(
     folder_id: str, db: Session = Depends(get_db_connection)
@@ -55,30 +55,29 @@ def get_folder(
 # Create folder
 @router.post("/", status_code=status.HTTP_201_CREATED)
 def create_folder(
-    request: schemas.FolderCreateRequest,
+    new_folder_request: schemas.FolderCreateRequest,
     db: Session = Depends(get_db_connection),
-    current_user: schemas.User = Depends(get_current_user),
+    current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.FolderResponse:
-    folder_dict = request.model_dump()
-    return create_folder_in_db(db, folder_dict, current_user)
+    return create_folder_in_db(db, new_folder_request, current_user)
 
 
 # Update folder
 @router.patch("/{folder_id}", response_model=schemas.FolderResponse)
 async def update_folder(
     folder_id: int,
-    folder_from_request: schemas.FolderCreateRequest,
+    folder_from_request: schemas.FolderUpdateRequest,
     db: Session = Depends(get_db_connection),
 ):
     # Fetch folder to update from database
     folder_from_db = get_folder_from_db(db, folder_id)
-    folder_model = schemas.FolderCreateRequest(**folder_from_db.__dict__)
+    folder_model = schemas.FolderCreate(**folder_from_db.__dict__)
 
     # Update workflow data with supplied values
     update_data = folder_from_request.model_dump(exclude_unset=True)
     updated_folder_model = folder_model.model_copy(update=update_data)
 
-    return update_folder_in_db(db, updated_folder_model.model_dump())
+    return update_folder_in_db(db, updated_folder_model)
 
 
 # Get sub-folders for a folder

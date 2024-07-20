@@ -47,7 +47,7 @@ def get_user_by_email_from_db(db: Session, email: str):
     return db.query(User).filter(User.email == email).first()
 
 
-def create_user_in_db(db: Session, user: schemas.User):
+def create_user_in_db(db: Session, new_user: schemas.UserCreate):
     """Create a user in the database.
 
     Args:
@@ -57,11 +57,16 @@ def create_user_in_db(db: Session, user: schemas.User):
     Returns:
         User object
     """
-    new_user = User(name=user.name, email=user.email, picture=user.picture)
-    db.add(new_user)
+    new_db_user = User(
+        name=new_user.name,
+        email=new_user.email,
+        picture=new_user.picture,
+        uuid=new_user.uuid,
+    )
+    db.add(new_db_user)
     db.commit()
-    db.refresh(new_user)
-    return new_user
+    db.refresh(new_db_user)
+    return new_db_user
 
 
 def get_user_api_keys_from_db(db: Session, current_user: User):
@@ -90,7 +95,7 @@ def get_user_access_token_from_db(db: Session, api_key: str):
     return db.query(UserApiKey).filter(UserApiKey.api_key == api_key).first()
 
 
-def create_user_api_key_in_db(db: Session, apikey: schemas.UserApiKey):
+def create_user_api_key_in_db(db: Session, apikey: schemas.UserApiKeyCreate):
     """Create a user api key in the database.
 
     Args:

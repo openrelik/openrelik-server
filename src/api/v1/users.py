@@ -30,8 +30,10 @@ from api.v1 import schemas
 router = APIRouter()
 
 
-@router.get("/me/", response_model=schemas.User)
-def get_current_user(user: schemas.User = Depends(get_current_active_user)):
+@router.get("/me/")
+def get_current_user(
+    user: schemas.User = Depends(get_current_active_user),
+) -> schemas.UserResponse:
     """
     Get the current user.
 
@@ -64,10 +66,10 @@ async def get_api_key_for_current_user(
 
 @router.post("/me/apikeys/")
 async def create_api_key_for_current_user(
-    user_api_key: schemas.UserApiKey,
+    request: schemas.UserApiKeyRequest,
     current_user: schemas.User = Depends(get_current_active_user),
     db: Session = Depends(get_db_connection),
-):
+) -> schemas.UserApiKeyResponse:
     """Create an API key for the current user.
 
     Args:
@@ -78,10 +80,15 @@ async def create_api_key_for_current_user(
     Returns:
         schemas.UserApiKeyResponse: The created API key.
     """
-    user_api_key.access_token = create_access_token(
-        data={"sub": current_user.email},
-        expires_delta=user_api_key.expire_minutes,
+    new_api_key = schemas.UserApiKeyCreate(
+        display_name=request.display_name,
+        description=request.description,
+        api_key=secrets.token_hex(32),
+        access_token=create_access_token(
+            data={"sub": current_user.email},
+            expires_delta=request.expire_minutes,
+        ),
+        expire_minutes=request.expire_minutes,
+        user_id=current_user.id,
     )
-    user_api_key.user_id = current_user.id
-    user_api_key.api_key = secrets.token_hex(32)
-    return create_user_api_key_in_db(db, user_api_key)
+    return create_user_api_key_in_db(db, new_api_key)

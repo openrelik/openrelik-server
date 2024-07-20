@@ -11,10 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import uuid as uuid_module
 
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, UnicodeText
+from sqlalchemy import Boolean, DateTime, ForeignKey, UnicodeText, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import BaseModel
@@ -54,6 +55,7 @@ class User(BaseModel):
         UnicodeText, unique=False, index=False
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    uuid: Mapped[uuid_module.UUID] = mapped_column(UUID(as_uuid=True))
     # Relationships
     folders: Mapped[List["Folder"]] = relationship(back_populates="user")
     files: Mapped[List["File"]] = relationship(back_populates="user")

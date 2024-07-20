@@ -24,6 +24,7 @@ from sqlalchemy import (
     ForeignKey,
     create_engine,
     func,
+    event,
 )
 from sqlalchemy.orm import (
     DeclarativeBase,
@@ -31,6 +32,8 @@ from sqlalchemy.orm import (
     declared_attr,
     mapped_column,
     sessionmaker,
+    Session,
+    Query,
 )
 
 from config import config
@@ -69,6 +72,13 @@ class BaseModel(DeclarativeBase):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
+    deleted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_deleted: Mapped[bool] = mapped_column(default=False)
+
+    def soft_delete(self, db: Session):
+        self.deleted_at = func.now()
+        self.is_deleted = True
+        db.commit()
 
 
 file_workflow_association_table = Table(
@@ -77,6 +87,16 @@ file_workflow_association_table = Table(
     Column("file_id", ForeignKey("file.id"), primary_key=True),
     Column("workflow_id", ForeignKey("workflow.id"), primary_key=True),
 )
+
+
+@event.listens_for(Query, "before_compile", retval=True)
+def before_compile(query):
+    for desc in query.column_descriptions:
+        entity = desc["entity"]
+        query = query.enable_assertions(False).filter(
+            (entity.is_deleted == False) | (entity.is_deleted == None)
+        )
+    return query
 
 
 # Database connection, used as a dependency inhjection.

@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import uuid as uuid_module
+
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import ForeignKey, Unicode, UnicodeText
+from sqlalchemy import ForeignKey, UnicodeText, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import BaseModel
@@ -29,7 +31,7 @@ if TYPE_CHECKING:
 class Workflow(BaseModel):
     display_name: Mapped[str] = mapped_column(UnicodeText, index=True)
     description: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
-    uuid: Mapped[Optional[str]] = mapped_column(Unicode(45), index=True)
+    uuid: Mapped[uuid_module.UUID] = mapped_column(UUID(as_uuid=True))
     spec_json: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
     # Relationships
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
@@ -58,7 +60,7 @@ class WorkflowTemplate(BaseModel):
 class Task(BaseModel):
     display_name: Mapped[str] = mapped_column(UnicodeText, index=True)
     description: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
-    uuid: Mapped[str] = mapped_column(Unicode(45), index=True)
+    uuid: Mapped[uuid_module.UUID] = mapped_column(UUID(as_uuid=True))
     config: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
     status_short: Mapped[Optional[str]] = mapped_column(UnicodeText, index=True)
     status_detail: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)

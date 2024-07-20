@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from uuid import uuid4
+import uuid
 
 from sqlalchemy.orm import Session
 
@@ -80,7 +80,7 @@ def create_workflow_in_db(db: Session, workflow: schemas.Workflow, template_id: 
         display_name=workflow.display_name,
         description=workflow.description,
         spec_json=workflow.spec_json,
-        uuid=uuid4().hex,
+        uuid=uuid.uuid4(),
         files=[get_file_from_db(db, file_id) for file_id in workflow.file_ids],
         folder_id=workflow.folder_id,
         user_id=workflow.user_id,
@@ -147,7 +147,9 @@ def get_workflow_templates_from_db(db: Session):
     return db.query(WorkflowTemplate).order_by(WorkflowTemplate.id.desc()).all()
 
 
-def create_workflow_template_in_db(db: Session, template: schemas.WorkflowTemplate):
+def create_workflow_template_in_db(
+    db: Session, template: schemas.WorkflowTemplateResponse
+):
     """Create a new workflow template.
 
     Args:
@@ -181,17 +183,17 @@ def get_task_from_db(db: Session, task_id: str):
     return db.get(Task, task_id)
 
 
-def get_task_by_uuid_from_db(db: Session, uuid: str):
+def get_task_by_uuid_from_db(db: Session, uuid_string: str):
     """Get a task by Celery task ID.
 
     Args:
         db (Session): SQLAlchemy session object
-        celery_task_id (str): Celery task ID
+        uuid_string (str): Celery task ID
 
     Returns:
         Task object
     """
-    return db.query(Task).filter_by(uuid=uuid).first()
+    return db.query(Task).filter_by(uuid=uuid.UUID(uuid_string)).first()
 
 
 def create_task_in_db(db: Session, task: schemas.Task):

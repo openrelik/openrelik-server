@@ -13,12 +13,14 @@
 # limitations under the License.
 
 import os
-from uuid import uuid4
+import uuid
 
 from sqlalchemy.orm import Session
 
 from datastores.sql.models.folder import Folder
 from datastores.sql.models.user import User
+
+from api.v1 import schemas
 
 
 def get_folders_from_db(db: Session, folder_id: str):
@@ -36,7 +38,7 @@ def get_folders_from_db(db: Session, folder_id: str):
     )
 
 
-def get_folder_from_db(db: Session, folder_id: int):
+def get_folder_from_db(db: Session, folder_id: str):
     """Get a folder
 
     Args:
@@ -51,7 +53,7 @@ def get_folder_from_db(db: Session, folder_id: int):
 
 def create_folder_in_db(
     db: Session,
-    folder: dict,
+    new_folder: schemas.FolderCreateRequest,
     current_user: User,
 ):
     """Create a folder
@@ -64,23 +66,23 @@ def create_folder_in_db(
     Returns:
         Folder: folder
     """
-    new_folder = Folder(
-        display_name=folder.get("display_name"),
-        uuid=uuid4().hex,
+    new_db_folder = Folder(
+        display_name=new_folder.display_name,
+        uuid=uuid.uuid4(),
         user=current_user,
-        parent_id=folder.get("parent_id"),
+        parent_id=new_folder.parent_id,
     )
-    db.add(new_folder)
+    db.add(new_db_folder)
     db.commit()
-    db.refresh(new_folder)
+    db.refresh(new_db_folder)
 
-    if not os.path.exists(new_folder.path):
-        os.mkdir(new_folder.path)
+    if not os.path.exists(new_db_folder.path):
+        os.mkdir(new_db_folder.path)
 
-    return new_folder
+    return new_db_folder
 
 
-def update_folder_in_db(db: Session, folder: dict):
+def update_folder_in_db(db: Session, folder: schemas.FolderUpdateRequest):
     """Update a folder in the database.
 
     Args:
@@ -90,8 +92,9 @@ def update_folder_in_db(db: Session, folder: dict):
     Returns:
         Folder object
     """
-    folder_in_db = get_folder_from_db(db, folder.get("id"))
-    for key, value in folder.items():
+    folder_dict = folder.model_dump()
+    folder_in_db = get_folder_from_db(db, folder.id)
+    for key, value in folder_dict.items():
         setattr(folder_in_db, key, value) if value else None
     db.commit()
     db.refresh(folder_in_db)
@@ -105,7 +108,17 @@ def delete_folder_from_db(db: Session, folder_id: int):
         db (Session): A SQLAlchemy database session object.
         folder_id (int): The ID of the folder to be deleted.
     """
-
     folder = db.get(Folder, folder_id)
-    db.delete(folder)
+
+    def _recursive_soft_delete(folder: Folder):
+        """Recursive function to delete all files and subfolders."""
+        for file in folder.files:
+            file.soft_delete(db)
+
+        for child_folder in folder.children:
+            _recursive_soft_delete(child_folder)
+
+        folder.soft_delete(db)
+
+    _recursive_soft_delete(folder)
     db.commit()

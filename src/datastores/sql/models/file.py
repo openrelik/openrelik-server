@@ -13,12 +13,14 @@
 # limitations under the License.
 
 import os
+import uuid as uuid_module
 
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import BigInteger, ForeignKey, Unicode, UnicodeText, event
+from sqlalchemy import BigInteger, ForeignKey, Unicode, UnicodeText, UUID, event
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
 
 from ..database import BaseModel
 from ..database import file_workflow_association_table
@@ -41,7 +43,7 @@ class File(BaseModel):
         filesize (int): The size of the file.
         extension (str): The file extension of the file.
         magic_text (str): The magic text of the file.
-        agic_mime (str): The magic mime of the file.
+        magic_mime (str): The magic mime of the file.
         data_type (str): The data type of the file.
         hash_md5 (str): The MD5 hash of the file.
         hash_sha1 (str): The SHA1 hash of the file.
@@ -57,7 +59,8 @@ class File(BaseModel):
 
     display_name: Mapped[Optional[str]] = mapped_column(UnicodeText, index=True)
     description: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
-    uuid: Mapped[str] = mapped_column(Unicode(45), index=True)
+    # uuid: Mapped[str] = mapped_column(Unicode(45), index=True)
+    uuid: Mapped[uuid_module.UUID] = mapped_column(UUID(as_uuid=True))
     data_type: Mapped[str] = mapped_column(UnicodeText, index=True)
 
     # From the original file
@@ -91,9 +94,6 @@ class File(BaseModel):
         back_populates="output_files", foreign_keys=[task_output_id]
     )
 
-    # task_id: Mapped[Optional[int]] = mapped_column(ForeignKey("task.id"))
-    # task: Mapped["Task"] = relationship(back_populates="output_files")
-
     workflows: Mapped[List["Workflow"]] = relationship(
         secondary=file_workflow_association_table,
         back_populates="files",
@@ -105,10 +105,10 @@ class File(BaseModel):
 
     @hybrid_property
     def path(self):
-        """Returns the full path of the folder."""
-        filename = self.uuid
+        """Returns the full path of the file."""
+        filename = self.uuid.hex
         if self.extension:
-            filename = f"{self.uuid}.{self.extension}"
+            filename = f"{filename}.{self.extension}"
         return os.path.join(self.folder.path, filename)
 
 

@@ -16,6 +16,7 @@ import base64
 import json
 import os
 import time
+import uuid
 
 from celery import Celery
 from celery.result import AsyncResult
@@ -92,20 +93,20 @@ def my_monitor(app, db):
             for file in result_dict.get("output_files"):
                 workflow = get_workflow_from_db(db, result_dict.get("workflow_id"))
                 filename = file.get("filename")
+                file_uuid = uuid.UUID(file.get("uuid"))
                 _, file_extension = os.path.splitext(filename)
-                new_file_db = schemas.NewFileRequest(
+                new_file = schemas.FileCreate(
                     display_name=filename,
-                    uuid=file.get("uuid"),
+                    uuid=file_uuid,
                     filename=filename,
                     extension=file_extension.lstrip("."),
                     folder_id=workflow.folder.id,
                     user_id=workflow.user.id,
                     task_output_id=db_task.id,
                 )
-                print(new_file_db.model_dump())
-                new_file = create_file_in_db(db, new_file_db.model_dump())
+                new_file_db = create_file_in_db(db, new_file)
                 # TODO: Move this to a celery task to run in the background
-                generate_hashes(new_file.id)
+                generate_hashes(new_file_db.id)
 
         if celery_task.state == "FAILURE":
             db_task.error_exception = celery_task_info.get("exception")

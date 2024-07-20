@@ -11,11 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import os
 from typing import TYPE_CHECKING, List, Optional
+import uuid as uuid_module
 
-from sqlalchemy import BigInteger, ForeignKey, Integer, Unicode, UnicodeText
+from sqlalchemy import BigInteger, ForeignKey, Integer, UnicodeText, UUID
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -47,7 +47,9 @@ class Folder(BaseModel):
 
     display_name: Mapped[str] = mapped_column(UnicodeText, index=True)
     description: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
-    uuid: Mapped[str] = mapped_column(Unicode(45), index=True)
+    # uuid: Mapped[str] = mapped_column(Unicode(45), index=True)
+    uuid: Mapped[uuid_module.UUID] = mapped_column(UUID(as_uuid=True))
+
     # Relationships
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
     user: Mapped["User"] = relationship(back_populates="folders")
@@ -61,6 +63,7 @@ class Folder(BaseModel):
     parent_id: Mapped[Optional[int]] = mapped_column(
         BigInteger().with_variant(Integer, "sqlite"), ForeignKey("folder.id")
     )
+
     parent: Mapped[Optional["Folder"]] = relationship(
         "Folder", back_populates="children", remote_side="Folder.id"
     )
@@ -70,4 +73,4 @@ class Folder(BaseModel):
     def path(self):
         """Returns the full path of the folder."""
         base_storage_path = config.get("server").get("storage_path")
-        return os.path.join(base_storage_path, self.uuid)
+        return os.path.join(base_storage_path, self.uuid.hex)

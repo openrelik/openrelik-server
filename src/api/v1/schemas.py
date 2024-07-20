@@ -12,16 +12,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from uuid import UUID
+
 from pydantic import BaseModel
 
 from datetime import datetime
 from typing import Optional, List
 
 
+def custom_uuid_encoder(uuid_object):
+    """Return the HEX string representation of the UUID field."""
+    if isinstance(uuid_object, UUID):
+        return uuid_object.hex
+
+
 class BaseSchema(BaseModel):
     id: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    deleted_at: Optional[datetime] = None
+    is_deleted: Optional[bool] = False
+
+    class Config:
+        json_encoders = {UUID: custom_uuid_encoder}
+
+
+class BaseSchemaCompact(BaseModel):
+    id: Optional[int] = None
+
+    class Config:
+        json_encoders = {UUID: custom_uuid_encoder}
 
 
 # User schemas
@@ -29,46 +49,64 @@ class User(BaseSchema):
     name: str
     email: str
     picture: str
-    is_active: Optional[bool] = True
-
-    class Config:
-        from_attributes = True
+    uuid: UUID
+    is_active: bool
 
 
-class UserResponseCompact(BaseModel):
-    id: int
+class UserCreate(BaseModel):
     name: str
     email: str
     picture: str
+    uuid: UUID
 
 
-class UserApiKey(BaseSchema):
-    display_name: Optional[str] = None
-    description: Optional[str] = None
-    api_key: Optional[str] = None
-    access_token: Optional[str] = None
-    expire_minutes: Optional[int] = None
-    user_id: Optional[int] = None
+class UserResponse(BaseSchema):
+    name: str
+    email: str
+    picture: str
+    uuid: UUID
 
-    class Config:
-        from_attributes = True
+
+class UserResponseCompact(BaseSchemaCompact):
+    name: str
+    email: str
+    picture: str
+    uuid: UUID
+
+
+class UserApiKeyRequest(BaseModel):
+    display_name: str
+    description: Optional[str] = ""
+    expire_minutes: int
+
+
+class UserApiKeyCreate(BaseSchema):
+    display_name: str
+    description: str
+    api_key: str
+    access_token: str
+    expire_minutes: int
+    user_id: int
 
 
 class UserApiKeyResponse(BaseSchema):
-    display_name: Optional[str] = None
-    description: Optional[str] = None
-    api_key: Optional[str] = None
-    expires_at: Optional[datetime] = None
-
-
-# class Folder(BaseSchema):
-#    display_name: str
-#    description: Optional[str] = None
-#    user: Optional[User] = None
+    display_name: str
+    description: str
+    api_key: str
+    expires_at: datetime
 
 
 # Folder schemas
-class FolderCreateRequest(BaseSchema):
+class FolderCreateRequest(BaseModel):
+    display_name: str
+    parent_id: Optional[int] = None
+
+
+class FolderUpdateRequest(BaseModel):
+    display_name: str
+
+
+class FolderCreate(BaseSchema):
     display_name: str
     parent_id: Optional[int] = None
 
@@ -76,22 +114,18 @@ class FolderCreateRequest(BaseSchema):
 class FolderResponse(BaseSchema):
     display_name: str
     description: Optional[str]
-    uuid: str
+    uuid: UUID
     user: UserResponseCompact
     parent: Optional["FolderResponse"] = None
     selectable: Optional[bool] = False
     workflows: Optional[List["WorkflowResponse"]]
 
 
-class FolderResponseCompact(BaseSchema):
-    id: int
-
-
 # File schemas
-class NewFileRequest(BaseModel):
+class FileCreate(BaseModel):
     display_name: str
     description: Optional[str] = None
-    uuid: str
+    uuid: UUID
     filename: str
     filesize: Optional[int] = None
     extension: Optional[str] = None
@@ -106,17 +140,11 @@ class NewFileRequest(BaseModel):
     folder_id: Optional[int] = None
     task_output_id: Optional[int] = None
 
-    class Config:
-        from_attributes = True
 
-
-class FileResponse(BaseModel):
-    id: Optional[int] = None
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+class FileResponse(BaseSchema):
     display_name: str
     description: Optional[str]
-    uuid: str
+    uuid: UUID
     filename: str
     filesize: int
     extension: Optional[str] = None
@@ -134,27 +162,22 @@ class FileResponse(BaseModel):
     summaries: List["FileSummaryResponse"]
 
 
-class FileResponseCompact(BaseModel):
-    id: int
+class FileResponseCompact(BaseSchemaCompact):
+    uuid: UUID
+    is_deleted: Optional[bool] = False
     display_name: str
     filesize: int
 
 
-class FileSummary(BaseModel):
+class FileSummaryCreate(BaseModel):
     summary: str = ""
     llm_model_prompt: str = ""
     status_short: str = ""
     runtime: float = 0.0
     file_id: int
 
-    class Config:
-        from_attributes = True
 
-
-class FileSummaryResponse(BaseModel):
-    id: Optional[int] = None
-    created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
+class FileSummaryResponse(BaseSchemaCompact):
     summary: Optional[str] = ""
     status_short: Optional[str] = None
     status_detail: Optional[str] = None
@@ -172,31 +195,27 @@ class Workflow(BaseSchema):
     display_name: str | None = None
     description: Optional[str] = None
     spec_json: Optional[str] = None
-    uuid: Optional[str] = None
+    uuid: Optional[UUID] = None
     user_id: int | None = None
     file_ids: List[int] = []
     folder_id: Optional[int] = None
 
-    class Config:
-        from_attributes = True
 
-
-class WorkflowFile(BaseSchema):
-    id: int
+class WorkflowInputFile(BaseSchemaCompact):
     display_name: str
 
 
-class WorkflowFolder(BaseSchema):
-    id: int
+class WorkflowFolder(BaseSchemaCompact):
+    pass
 
 
 class WorkflowResponse(BaseSchema):
     display_name: str
     description: Optional[str] = None
     spec_json: Optional[str] = None
-    uuid: Optional[str] = None
+    uuid: Optional[UUID] = None
     user: UserResponseCompact
-    files: Optional[List["WorkflowFile"]]
+    files: Optional[List["WorkflowInputFile"]]
     tasks: Optional[List["TaskResponse"]]
     folder: Optional["WorkflowFolder"]
 
@@ -205,32 +224,36 @@ class WorkflowStatusResponse(BaseSchema):
     tasks: Optional[List["TaskResponse"]]
 
 
-class WorkflowCreateRequest(BaseSchema):
+class WorkflowCreateRequest(BaseModel):
     folder_id: int
     file_ids: List[int]
     template_id: Optional[int] = None
 
 
-class WorkflowTemplate(BaseSchema):
+class WorkflowTemplateCreateRequest(BaseModel):
+    display_name: str
+    description: Optional[str] = ""
+    workflow_id: int
+
+
+class WorkflowTemplateCreate(BaseModel):
     display_name: str
     description: Optional[str] = None
     spec_json: str
     user_id: int
 
-    class Config:
-        from_attributes = True
 
-
-class WorkflowTemplateRequest(BaseSchema):
-    display_name: Optional[str] = None
+class WorkflowTemplateResponse(BaseSchema):
+    display_name: str
     description: Optional[str] = None
-    workflow: WorkflowResponse
+    spec_json: str
+    user_id: int
 
 
 class Task(BaseSchema):
     display_name: str
     description: Optional[str]
-    uuid: Optional[str]
+    uuid: Optional[UUID] = None
     config: Optional[str]
     status_short: Optional[str]
     status_detail: Optional[str]
@@ -249,7 +272,7 @@ class Task(BaseSchema):
 class TaskResponse(BaseSchema):
     display_name: Optional[str]
     description: Optional[str]
-    uuid: Optional[str]
+    uuid: Optional[UUID] = None
     status_short: Optional[str]
     status_detail: Optional[str]
     status_progress: Optional[str]

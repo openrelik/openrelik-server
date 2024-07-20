@@ -16,13 +16,15 @@ from sqlalchemy.orm import Session
 
 from datastores.sql.models.file import File, FileSummary
 
+from api.v1 import schemas
+
 from .folder import get_folder_from_db
 
 import magic
 import os
 
 
-def get_files_from_db(db: Session, folder_id: str):
+def get_files_from_db(db: Session, folder_id: int):
     """Retrieves a list of files from the database for a specific folder.
 
     Args:
@@ -48,7 +50,7 @@ def get_file_from_db(db: Session, file_id: int):
     return db.get(File, file_id)
 
 
-def create_file_in_db(db: Session, file: dict):
+def create_file_in_db(db: Session, file: schemas.FileCreate):
     """Creates a new file in the database.
 
     Args:
@@ -58,21 +60,22 @@ def create_file_in_db(db: Session, file: dict):
     Returns:
         File: The newly created File object.
     """
-    folder = get_folder_from_db(db, file.get("folder_id"))
-    filename = f"{file.get("uuid")}"
-    if file.get("extension"):
-        filename = f"{file.get("uuid")}.{file.get("extension")}"
+    folder = get_folder_from_db(db, file.folder_id)
+    uuid = file.uuid
+    filename = uuid.hex
+    if file.extension:
+        filename = f"{uuid.hex}.{file.extension}"
     output_file = os.path.join(folder.path, filename)
 
     # File metadata
-    file["magic_text"] = magic.from_file(output_file)
-    file["magic_mime"] = magic.from_file(output_file, mime=True)
-    file["filesize"] = os.stat(output_file).st_size
+    file.magic_text = magic.from_file(output_file)
+    file.magic_mime = magic.from_file(output_file, mime=True)
+    file.filesize = os.stat(output_file).st_size
     # TODO: Get data type from KB
-    if not file.get("data_type"):
-        file["data_type"] = "file:generic"
+    if not file.data_type:
+        file.data_type = "file:generic"
 
-    db_file = File(**file)
+    db_file = File(**file.model_dump())
     db.add(db_file)
     db.commit()
     db.refresh(db_file)
@@ -86,10 +89,8 @@ def delete_file_from_db(db: Session, file_id: int):
         db (Session): A SQLAlchemy database session object.
         file_id (int): The ID of the file representing the file to be deleted.
     """
-
     file = db.get(File, file_id)
-    db.delete(file)
-    db.commit()
+    file.soft_delete(db)
 
 
 def get_file_summary_from_db(db: Session, file_summary_id: int):
@@ -97,7 +98,7 @@ def get_file_summary_from_db(db: Session, file_summary_id: int):
     return db.get(FileSummary, file_summary_id)
 
 
-def create_file_summary_in_db(db: Session, file_summary: dict):
+def create_file_summary_in_db(db: Session, file_summary: schemas.FileSummaryCreate):
     """Creates a new file summary in the database using generative AI.
 
     Args:
@@ -107,7 +108,7 @@ def create_file_summary_in_db(db: Session, file_summary: dict):
     Returns:
         FileSummary: The newly created FileSummary object.
     """
-    db_file_summary = FileSummary(**file_summary)
+    db_file_summary = FileSummary(**file_summary.model_dump())
     db.add(db_file_summary)
     db.commit()
     db.refresh(db_file_summary)

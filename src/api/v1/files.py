@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import html
 import json
 import os
@@ -23,7 +22,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Form, UploadFile, statu
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
-from auth.google import get_current_user
+from auth.google import get_current_active_user
 
 from datastores.sql.crud.file import (
     get_file_from_db,
@@ -47,6 +46,7 @@ router = APIRouter()
 
 
 # Get file
+# TODO: Return different response if folder is deleted.
 @router.get("/{file_id}")
 def get_file(
     file_id: str, db: Session = Depends(get_db_connection)
@@ -110,7 +110,6 @@ async def download_file_stream(file_id: int, db: Session = Depends(get_db_connec
     async def iterfile():
         async with aiofiles.open(file_path, "rb") as f:
             while chunk := await f.read(CHUNK_SIZE):
-                print("chunk")
                 yield chunk
 
     headers = {
@@ -119,19 +118,15 @@ async def download_file_stream(file_id: int, db: Session = Depends(get_db_connec
         "Content-Length": str(file.filesize),
     }
 
-    print("return streaming response", headers)
     return StreamingResponse(
         iterfile(), headers=headers, media_type="application/octet-stream"
     )
 
 
-# DISABLED: Delete file
-# Deleting a file is complicated. E.g. This affects workflows that the file is part of.
-# This needs a design and plan to handle such cases.
+# Delete file
 @router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_file(file_id: int, db: Session = Depends(get_db_connection)):
-    print("NOT IMPLEMENTED: Delete file")
-    # delete_file_from_db(db, file_id)
+    delete_file_from_db(db, file_id)
 
 
 # Create file
@@ -141,7 +136,7 @@ async def create_file(
     background_tasks: BackgroundTasks,
     folder_id: str = Form(),
     db: Session = Depends(get_db_connection),
-    current_user: schemas.User = Depends(get_current_user),
+    current_user: schemas.User = Depends(get_current_active_user),
 ) -> List[schemas.FileResponse]:
 
     folder = get_folder_from_db(db, folder_id)
@@ -150,15 +145,15 @@ async def create_file(
     # Save file to disk
     for file in files:
         _, file_extension = os.path.splitext(file.filename)
-        uuid = uuid4().hex
-        output_filename = f"{uuid}{file_extension}"
+        uuid = uuid4()
+        output_filename = f"{uuid.hex}{file_extension}"
         output_path = os.path.join(folder.path, output_filename)
         async with aiofiles.open(output_path, "wb") as fh:
             while content := await file.read(1024000):  # Read 1MB chunks
                 await fh.write(content)
 
         # Save to database
-        new_file_db = schemas.NewFileRequest(
+        new_file = schemas.FileCreate(
             display_name=file.filename,
             uuid=uuid,
             filename=file.filename,
@@ -166,12 +161,12 @@ async def create_file(
             user_id=current_user.id,
         )
         if folder_id != "null":
-            new_file_db.folder_id = int(folder_id)
+            new_file.folder_id = int(folder_id)
 
-        new_file = create_file_in_db(db, new_file_db.model_dump())
-        files_in_db.append(new_file)
+        new_file_db = create_file_in_db(db, new_file)
+        files_in_db.append(new_file_db)
 
-        background_tasks.add_task(generate_hashes, file_id=new_file.id)
+        background_tasks.add_task(generate_hashes, file_id=new_file_db.id)
 
     return files_in_db
 
@@ -233,15 +228,15 @@ def generate_file_summary(
     db: Session = Depends(get_db_connection),
 ):
 
-    _file_summary = schemas.FileSummary(
+    new_file_summary = schemas.FileSummaryCreate(
         status_short="in_progress",
         file_id=file_id,
     )
-    file_summary = create_file_summary_in_db(db, _file_summary.model_dump())
+    file_summary_db = create_file_summary_in_db(db, new_file_summary)
     background_tasks.add_task(
         generate_summary,
         llm_provider="ollama",
         llm_model="gemma2:9b",
         file_id=file_id,
-        file_summary_id=file_summary.id,
+        file_summary_id=file_summary_db.id,
     )
