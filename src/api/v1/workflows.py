@@ -50,7 +50,7 @@ celery = Celery(broker=redis_url, backend=redis_url)
 # Setup the queues
 # TODO: Generate this from TaskInfo
 celery.conf.task_routes = {
-    "strings_worker.tasks.*": {"queue": "strings_worker"},
+    "openrelik_worker_strings.tasks.*": {"queue": "openrelik_worker_strings"},
     "plaso_worker.tasks.*": {"queue": "plaso_worker"},
     "timesketch_worker.tasks.*": {"queue": "timesketch_worker"},
 }
