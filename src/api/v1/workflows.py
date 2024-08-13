@@ -50,9 +50,9 @@ celery = Celery(broker=redis_url, backend=redis_url)
 # Setup the queues
 # TODO: Generate this from TaskInfo
 celery.conf.task_routes = {
-    "strings_worker.tasks.*": {"queue": "strings_worker"},
-    "plaso_worker.tasks.*": {"queue": "plaso_worker"},
-    "timesketch_worker.tasks.*": {"queue": "timesketch_worker"},
+    "openrelik_worker_strings.tasks.*": {"queue": "openrelik_worker_strings"},
+    "openrelik_worker_plaso.tasks.*": {"queue": "openrelik_worker_plaso"},
+    "openrelik_worker_hayabusa.tasks.*": {"queue": "openrelik_worker_hayabusa"},
 }
 
 router = APIRouter()
@@ -196,7 +196,7 @@ async def run_workflow(
     input_files = [
         {
             "filename": file.display_name,
-            "uuid": file.uuid,
+            "uuid": file.uuid.hex,
             "path": file.path,
         }
         for file in workflow.files
