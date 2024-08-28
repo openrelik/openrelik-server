@@ -1,0 +1,56 @@
+[server]
+
+# This should be set to the URL of your frontend server.
+ui_server_url = "http://localhost"
+
+# This should be set to the URL of your frontend server.
+allowed_origins = ["http://localhost"]
+
+# Path to files
+storage_path = "<REPLACE_WITH_STORAGE_PATH>"
+
+[datastores.sqlalchemy]
+# Postgresql: postgresql://user:password@postgresserver/db
+database_url = "postgresql://<REPLACE_WITH_POSTGRES_USER>:<REPLACE_WITH_POSTGRES_PASSWORD>@<REPLACE_WITH_POSTGRES_SERVER>/<REPLACE_WITH_POSTGRES_DATABASE_NAME>"
+
+[auth]
+# Secret key for the Session middleware and JWT signing.
+# IMPORTANT: Create a random string, e.g: openssl rand -base64 32
+secret_session_key = "<REPLACE_WITH_RANDOM_SESSION_STRING>"
+secret_jwt_key = "<REPLACE_WITH_RANDOM_JWT_STRING>"
+
+# Algorithm to use for JWT.
+jwt_algorithm = "HS256"
+
+# Access token expire minutes.
+jwt_expire_minutes = 10080
+
+# Allow only these users (email address) to access the server.
+allowlist = ['']
+
+[auth.google]
+# Google OAuth authentication. You need to create credentials in a Google Cloud project:
+# https://developers.google.com/workspace/guides/create-credentials#oauth-client-id
+client_id = ""
+client_secret = ""
+
+[llms.ollama]
+# Ollama - Local LLM
+# Instructions: https://ollama.ai/
+name = "ollama"
+display_name = "Ollama"
+model = ""
+enabled = false
+server_url = "http://localhost:11434"
+
+[llms.vertexai]
+# VertexAI - Google Cloud
+# Set the environment variable GOOGLE_APPLICATION_CREDENTIALS to the path of the
+# JSON file that contains your credentials. This variable applies only to your
+# current shell session, so if you open a new session, set the variable again.
+# Instructions: https://cloud.google.com/docs/authentication/provide-credentials-adc
+name = "vertexai"
+display_name = "VertexAI"
+model = ""
+enabled = false
+project_name = ""  # GCP project for billing
