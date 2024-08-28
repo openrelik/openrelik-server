@@ -1,5 +1,5 @@
 # The build image
-FROM python:3.12-slim-bookworm as builder
+FROM python:3.12-slim-bookworm AS builder
 
 # Install and configure poetry
 RUN pip install poetry
@@ -18,7 +18,7 @@ RUN touch README.md
 RUN poetry install --without dev --no-root && rm -rf $POETRY_CACHE_DIR
 
 # The runtime image
-FROM python:3.12-slim-bookworm as runtime
+FROM python:3.12-slim-bookworm AS runtime
 
 # libmagic is needed for python-magic package
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -35,7 +35,7 @@ COPY --from=builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
 # Copy needed files
 COPY src ./openrelik_server
 COPY src/mediator/mediator.py ./openrelik_server/mediator.py
-COPY settings.toml .
+COPY settings_example.toml ./settings.toml
 
 # Set workdir for the server to function
 WORKDIR /mediator/openrelik_server

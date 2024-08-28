@@ -172,7 +172,10 @@ async def create_file(
 
 
 # Get all workflows for a file
-@router.get("/{file_id}/workflows")
+@router.get(
+    "/{file_id}/workflows",
+    summary="Get all workflows for a file",
+)
 def get_workflows(
     file_id: str, db: Session = Depends(get_db_connection)
 ) -> List[schemas.WorkflowResponse]:
