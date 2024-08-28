@@ -299,6 +299,10 @@ def get_registered_tasks():
     registered_task_names = set()
     registered_tasks_formatted = []
 
+    # This happens when there are no workers running.
+    if not registered_celery_tasks:
+        return []
+
     for _, tasks in registered_celery_tasks.items():
         for task in tasks:
             task_name = task.split()[0]
