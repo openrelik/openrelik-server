@@ -12,10 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import ast
 import json
 import os
-import re
 from typing import List
 from uuid import uuid4
 
@@ -29,31 +27,27 @@ from sqlalchemy.orm import Session
 from auth.google import get_current_active_user
 from datastores.sql.crud.folder import create_folder_in_db
 from datastores.sql.crud.workflow import (
-    get_workflow_from_db,
-    create_workflow_in_db,
-    delete_workflow_from_db,
-    update_workflow_in_db,
     create_task_in_db,
+    create_workflow_in_db,
     create_workflow_template_in_db,
+    delete_workflow_from_db,
+    get_workflow_from_db,
     get_workflow_template_from_db,
     get_workflow_templates_from_db,
+    update_workflow_in_db,
 )
-from datastores.sql.models.workflow import Task
 from datastores.sql.database import get_db_connection
+from datastores.sql.models.workflow import Task
+from lib.celery_utils import get_registered_celery_tasks, update_celery_task_queues
 
 from . import schemas
-from config import config
 
 redis_url = os.getenv("REDIS_URL")
 celery = Celery(broker=redis_url, backend=redis_url)
 
-# Setup the queues
-# TODO: Generate this from TaskInfo
-celery.conf.task_routes = {
-    "openrelik_worker_strings.tasks.*": {"queue": "openrelik_worker_strings"},
-    "openrelik_worker_plaso.tasks.*": {"queue": "openrelik_worker_plaso"},
-    "openrelik_worker_hayabusa.tasks.*": {"queue": "openrelik_worker_hayabusa"},
-}
+# Setup the queues. This function take all registerd tasks on the celery task queue and
+# generate the task queue config automatically.
+update_celery_task_queues(celery)
 
 router = APIRouter()
 
@@ -295,27 +289,4 @@ async def create_workflow_template(
 # Get registered tasks from Celery
 @router.get("/registered_tasks/")
 def get_registered_tasks():
-    registered_celery_tasks = celery.control.inspect().registered("metadata")
-    registered_task_names = set()
-    registered_tasks_formatted = []
-
-    # This happens when there are no workers running.
-    if not registered_celery_tasks:
-        return []
-
-    for _, tasks in registered_celery_tasks.items():
-        for task in tasks:
-            task_name = task.split()[0]
-            metadata = ast.literal_eval(re.search("({.+})", task).group(0))
-            if task_name in registered_task_names:
-                continue
-            registered_tasks_formatted.append(
-                {
-                    "task_name": task_name,
-                    "queue_name": task_name.split(".")[0],
-                    "display_name": metadata.get("display_name"),
-                    "description": metadata.get("description"),
-                }
-            )
-            registered_task_names.add(task_name)
-    return registered_tasks_formatted
+    return get_registered_celery_tasks(celery)

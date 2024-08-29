@@ -35,7 +35,6 @@ COPY --from=builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
 # Copy needed files
 COPY src ./openrelik_server
 COPY src/mediator/mediator.py ./openrelik_server/mediator.py
-COPY settings_example.toml ./settings.toml
 
 # Set workdir for the server to function
 WORKDIR /mediator/openrelik_server
