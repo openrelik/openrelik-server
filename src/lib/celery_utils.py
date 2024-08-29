@@ -20,7 +20,7 @@ def get_registered_celery_tasks(celery_instance):
     """Get a list of registered celery tasks.
 
     Args:
-        celery_instance (Celery): The celery instance.
+        celery_instance (Celery): A celery instance.
 
     Returns:
         list: A list of registered celery tasks.
