@@ -18,7 +18,7 @@ import tomllib
 project_dir = os.path.normpath(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
-settings_from_env = os.getenv("API_SERVER_SETTINGS")
+settings_from_env = os.getenv("OPENRELIK_SERVER_SETTINGS")
 settings_file = os.path.join(project_dir, "settings.toml")
 
 # Read path to settings file from the environment and use that is avalable.

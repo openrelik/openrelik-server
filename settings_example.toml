@@ -1,25 +1,29 @@
 [server]
 
 # This should be set to the URL of your frontend server.
-ui_server_url = "http://localhost:3000"
+ui_server_url = "http://localhost"
 
 # This should be set to the URL of your frontend server.
-allowed_origins = ["http://localhost:3000"]
+allowed_origins = ["http://localhost"]
 
 # Path to files
-storage_path = ""
+storage_path = "<REPLACE_WITH_STORAGE_PATH>"
 
 [datastores.sqlalchemy]
-# Local SQLite: sqlite:///./sql_app.
 # Postgresql: postgresql://user:password@postgresserver/db
-#database_url = "sqlite:///./sql_app.db"
-database_url = "postgresql://<USER>:<PASSWORD>@<POSTGRES SERVER>/<DATABASE NAME>"
+database_url = "postgresql://<REPLACE_WITH_POSTGRES_USER>:<REPLACE_WITH_POSTGRES_PASSWORD>@<REPLACE_WITH_POSTGRES_SERVER>/<REPLACE_WITH_POSTGRES_DATABASE_NAME>"
 
 [auth]
 # Secret key for the Session middleware and JWT signing.
 # IMPORTANT: Create a random string, e.g: openssl rand -base64 32
-secret_session_key = "<CHANGE THIS TO A RANDOMIZED STRING>"
-secret_jwt_key = "<CHANGE THIS TO A RANDOMIZED STRING>"
+secret_session_key = "<REPLACE_WITH_RANDOM_SESSION_STRING>"
+secret_jwt_key = "<REPLACE_WITH_RANDOM_JWT_STRING>"
+
+# Algorithm to use for JWT.
+jwt_algorithm = "HS256"
+
+# Access token expire minutes.
+jwt_expire_minutes = 10080
 
 # Allow only these users (email address) to access the server.
 allowlist = ['']

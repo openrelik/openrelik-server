@@ -52,9 +52,9 @@ oauth.register(
 )
 
 # JWT settings
-SECRET_KEY = "secret"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 10080
+SECRET_KEY = config["auth"]["secret_jwt_key"]
+ALGORITHM = config["auth"]["jwt_algorithm"]
+ACCESS_TOKEN_EXPIRE_MINUTES = config["auth"]["jwt_expire_minutes"]
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
