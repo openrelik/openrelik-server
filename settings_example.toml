@@ -1,10 +1,10 @@
 [server]
 
 # This should be set to the URL of your frontend server.
-ui_server_url = "http://localhost"
+ui_server_url = "http://localhost:8711"
 
 # This should be set to the URL of your frontend server.
-allowed_origins = ["http://localhost"]
+allowed_origins = ["http://localhost:8711"]
 
 # Path to files
 storage_path = "<REPLACE_WITH_STORAGE_PATH>"
@@ -26,7 +26,7 @@ jwt_algorithm = "HS256"
 jwt_expire_minutes = 10080
 
 # Allow only these users (email address) to access the server.
-allowlist = ['']
+allowlist = ["<REPLACE_WITH_USERNAME>@gmail.com"]
 
 [auth.google]
 # Google OAuth authentication. You need to create credentials in a Google Cloud project:
