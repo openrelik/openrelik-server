@@ -192,6 +192,7 @@ async def run_workflow(
             "filename": file.display_name,
             "uuid": file.uuid.hex,
             "path": file.path,
+            "data_type": file.data_type,
         }
         for file in workflow.files
     ]
@@ -202,11 +203,16 @@ async def run_workflow(
 
     def get_task_signature(task_data):
         task_uuid = task_data.get("uuid", uuid4().hex)
+        task_config = {
+            option["name"]: option.get("value")
+            for option in task_data.get("task_config", {})
+        }
 
         # Create a new DB task
         new_task_db = Task(
             display_name=task_data.get("display_name"),
             description=task_data.get("description"),
+            config=json.dumps(task_config),
             uuid=task_uuid,
             user=current_user,
             workflow=workflow,
@@ -219,6 +225,7 @@ async def run_workflow(
                 "input_files": input_files,
                 "output_path": output_path,
                 "workflow_id": workflow.id,
+                "task_config": task_config,
             },
             queue=task_data.get("queue_name"),
             task_id=task_uuid,

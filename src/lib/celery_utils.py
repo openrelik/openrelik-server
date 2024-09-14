@@ -29,24 +29,31 @@ def get_registered_celery_tasks(celery_instance):
     registered_task_names = set()
     registered_tasks_formatted = []
 
-    # This happens when there are no workers running.
+    # If no Celery workers are currently active, return an empty list.
     if not registered_celery_tasks:
         return []
 
     for _, tasks in registered_celery_tasks.items():
         for task in tasks:
             task_name = task.split()[0]
+            # Extract metadata embedded within the task string.
+            # Metadata is stored as a Python dictionary enclosed in curly braces within the string.
+            # This regular expression captures the entire dictionary using curly braces as delimiters.
+            # group(0) retrieves the full match, i.e., the dictionary string.
+            # ast.literal_eval() safely converts the dictionary string into an actual Python dictionary object.
             metadata = ast.literal_eval(re.search("({.+})", task).group(0))
             if task_name in registered_task_names:
                 continue
-            registered_tasks_formatted.append(
-                {
-                    "task_name": task_name,
-                    "queue_name": task_name.split(".")[0],
-                    "display_name": metadata.get("display_name"),
-                    "description": metadata.get("description"),
-                }
-            )
+
+            # Create a dictionary for task information
+            task_info = {"task_name": task_name, "queue_name": task_name.split(".")[0]}
+
+            # Merge metadata into task information
+            task_info.update(metadata)  # Extend with metadata
+
+            # Add the enriched task information to the list
+            registered_tasks_formatted.append(task_info)
+
             registered_task_names.add(task_name)
     return registered_tasks_formatted
 
