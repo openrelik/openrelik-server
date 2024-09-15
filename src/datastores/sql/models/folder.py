@@ -21,7 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from config import config
 
-from ..database import BaseModel
+from ..database import BaseModel, AttributeMixin
 from datastores.sql.models.workflow import Workflow
 
 if TYPE_CHECKING:
@@ -47,7 +47,6 @@ class Folder(BaseModel):
 
     display_name: Mapped[str] = mapped_column(UnicodeText, index=True)
     description: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
-    # uuid: Mapped[str] = mapped_column(Unicode(45), index=True)
     uuid: Mapped[uuid_module.UUID] = mapped_column(UUID(as_uuid=True))
 
     # Relationships
@@ -59,6 +58,10 @@ class Folder(BaseModel):
     workflows: Mapped[List["Workflow"]] = relationship(
         back_populates="folder", cascade="all, delete-orphan"
     )
+    attributes: Mapped[List["FolderAttribute"]] = relationship(
+        back_populates="folder", cascade="all, delete-orphan"
+    )
+
     # Implements an adjacency list relationship to support folders in folders.
     parent_id: Mapped[Optional[int]] = mapped_column(
         BigInteger().with_variant(Integer, "sqlite"), ForeignKey("folder.id")
@@ -74,3 +77,49 @@ class Folder(BaseModel):
         """Returns the full path of the folder."""
         base_storage_path = config.get("server").get("storage_path")
         return os.path.join(base_storage_path, self.uuid.hex)
+
+
+class FolderAttribute(BaseModel, AttributeMixin):
+    """Represents an attribute associated with a folder.
+
+    This class get base attributes from AttributeMixin and adds a relationship to the
+    Folder model.
+
+    Attributes from AttributeMixin:
+        key (str): The key of the attribute.
+        value (str): The value of the attribute.
+        ontology (str): The ontology of the attribute.
+        description (str): The description of the attribute.
+        user_id (int): The ID of the user who created the attribute.
+        user (User): The user who created the attribute.
+    """
+
+    folder_id: Mapped[int] = mapped_column(ForeignKey("folder.id"))
+    folder: Mapped["Folder"] = relationship(back_populates="attributes")
+
+
+class FolderSummary(BaseModel):
+    """Represents a summary of a folder in the database.
+
+    Attributes:
+        summary (str): The summary of the folder.
+        runtime (float): The runtime of the folder.
+        status_short (str): The short status of the folder.
+        status_detail (str): The detail status of the folder.
+        status_progress (str): The progress status of the folder.
+        model_prompt (str): The prompt used to generate the folder.
+        model_provider (str): The provider of the model used to generate the folder.
+        model_name (str): The name of the model used to generate the folder.
+        model_config (str): The configuration of the model used to generate the folder.
+        folder_id (int): The ID of the folder being summarized.
+        folder (Folder): The folder being summarized.
+    """
+
+    summary: Mapped[str] = mapped_column(UnicodeText, index=False)
+    runtime: Mapped[Optional[float]] = mapped_column(index=True)
+    status_short: Mapped[Optional[str]] = mapped_column(UnicodeText, index=True)
+    status_detail: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
+    status_progress: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
+    # LLM model details
+    llm_model_prompt: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
+    llm_model_provider: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)

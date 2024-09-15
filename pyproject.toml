@@ -1,6 +1,6 @@
 [tool.poetry]
-name = "openrelik"
-version = "20240716"
+name = "openrelik-server"
+version = "2024.09.15"
 description = "Experimental forensic workflow system"
 authors = ["Johan Berggren <jberggren@gmail.com>"]
 license = "Apache 2.0"

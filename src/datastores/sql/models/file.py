@@ -14,22 +14,30 @@
 
 import os
 import uuid as uuid_module
-
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import BigInteger, ForeignKey, Unicode, UnicodeText, UUID, event
+from sqlalchemy import (
+    UUID,
+    BigInteger,
+    ForeignKey,
+    Unicode,
+    UnicodeText,
+    event,
+)
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-
-from ..database import BaseModel
-from ..database import file_workflow_association_table
+from ..database import (
+    AttributeMixin,
+    BaseModel,
+    FeedbackMixin,
+    file_workflow_association_table,
+)
 
 if TYPE_CHECKING:
     from .folder import Folder
     from .user import User
-    from .workflow import Workflow
-    from .workflow import Task
+    from .workflow import Task, Workflow
 
 
 class File(BaseModel):
@@ -59,7 +67,6 @@ class File(BaseModel):
 
     display_name: Mapped[Optional[str]] = mapped_column(UnicodeText, index=True)
     description: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
-    # uuid: Mapped[str] = mapped_column(Unicode(45), index=True)
     uuid: Mapped[uuid_module.UUID] = mapped_column(UUID(as_uuid=True))
     data_type: Mapped[str] = mapped_column(UnicodeText, index=True)
 
@@ -99,6 +106,9 @@ class File(BaseModel):
         back_populates="files",
         order_by="Workflow.id.desc()",
     )
+    attributes: Mapped[List["FileAttribute"]] = relationship(
+        back_populates="file", cascade="all, delete-orphan"
+    )
     summaries: Mapped[List["FileSummary"]] = relationship(
         back_populates="file", cascade="all, delete-orphan"
     )
@@ -110,6 +120,29 @@ class File(BaseModel):
         if self.extension:
             filename = f"{filename}.{self.extension}"
         return os.path.join(self.folder.path, filename)
+
+
+class FileAttribute(BaseModel, AttributeMixin):
+    """Represents an attribute associated with a file.
+
+    This class get base attributes from AttributeMixin and adds a relationship to the
+    File model.
+
+    Attributes from AttributeMixin:
+        key (str): The key of the attribute.
+        value (str): The value of the attribute.
+        ontology (str): The ontology of the attribute.
+        description (str): The description of the attribute.
+        user_id (int): The ID of the user who created the attribute.
+        user (User): The user who created the attribute.
+
+    Atrributes:
+        file_id (int): The ID of the file the attribute is associated with.
+        file (File): The file the attribute is associated with.
+    """
+
+    file_id: Mapped[int] = mapped_column(ForeignKey("file.id"))
+    file: Mapped["File"] = relationship(back_populates="attributes")
 
 
 class FileSummary(BaseModel):
@@ -127,6 +160,7 @@ class FileSummary(BaseModel):
         model_config (str): The configuration of the model used to generate the file.
         file_id (int): The ID of the file being summarized.
         file (File): The file being summarized.
+        feedbacks (List[FileSummaryFeedback]): The feedbacks on the summary.
     """
 
     summary: Mapped[str] = mapped_column(UnicodeText, index=False)
@@ -142,6 +176,33 @@ class FileSummary(BaseModel):
     # Relationships
     file_id: Mapped[int] = mapped_column(ForeignKey("file.id"))
     file: Mapped["File"] = relationship(back_populates="summaries")
+
+    feedbacks: Mapped[List["FileSummaryFeedback"]] = relationship(
+        back_populates="filesummary", cascade="all, delete-orphan"
+    )
+
+
+class FileSummaryFeedback(BaseModel, FeedbackMixin):
+    """Represents feedback on a FileSummary.
+
+    This class get base attributes from FeedbackMixin and adds a relationship to the
+    FileSummary model.
+
+    Attributes from FeedbackMixin:
+        upvote (bool): Indicates whether the user upvoted the summary.
+        downvote (bool): Indicates whether the user downvoted the summary.
+        feedback_text (str): Optional text feedback from the user.
+        user_id (int): The ID of the user who created the feedback
+        user (User): The user who created the feedback
+
+    Attributes:
+        filesummary_id (int): The ID of the FileSummary being given feedback on.
+        filesummary (FileSummary): The FileSummary being given feedback on.
+    """
+
+    # Relationships
+    filesummary_id: Mapped[int] = mapped_column(ForeignKey("filesummary.id"))
+    filesummary: Mapped["FileSummary"] = relationship(back_populates="feedbacks")
 
 
 # Delete file from the filsystem when the database row is deleted.
