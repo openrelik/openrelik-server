@@ -190,6 +190,11 @@ class FileSummaryResponse(BaseSchemaCompact):
     file_id: Optional[int] = None
 
 
+class CloudDiskCreateRequest(BaseModel):
+    folder_id: int
+    disk_name: str
+
+
 # Workflow schemas
 class Workflow(BaseSchema):
     display_name: str | None = None
@@ -203,6 +208,7 @@ class Workflow(BaseSchema):
 
 class WorkflowInputFile(BaseSchemaCompact):
     display_name: str
+    data_type: str
 
 
 class WorkflowFolder(BaseSchemaCompact):

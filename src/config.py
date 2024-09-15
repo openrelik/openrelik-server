@@ -15,6 +15,11 @@
 import os
 import tomllib
 
+from fastapi import HTTPException
+
+from lib.constants import cloud_provider_data_type_mapping
+
+
 project_dir = os.path.normpath(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 )
@@ -31,6 +36,23 @@ def get_config() -> dict:
     with open(settings_file, "rb") as fh:
         config = tomllib.load(fh)
     return config
+
+
+def get_active_cloud_provider() -> dict:
+    """Get the active cloud provider from config."""
+    clouds = config.get("cloud", [])
+    if len(clouds) > 1:
+        raise HTTPException(
+            status_code=500,
+            detail="More than one cloud enabled, you can only run on one cloud at a time",
+        )
+    active_cloud = [
+        cloud_provider
+        for cloud_provider in clouds.values()
+        if cloud_provider.get("enabled", False)
+    ][0]
+
+    return active_cloud
 
 
 config = get_config()

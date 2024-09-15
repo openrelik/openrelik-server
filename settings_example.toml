@@ -34,6 +34,15 @@ allowlist = ["<REPLACE_WITH_USERNAME>@gmail.com"]
 client_id = ""
 client_secret = ""
 
+# Enable cloud features such as adding cloud disks.
+# This requires your OpenRelik installation to run on cloud VMs.
+[cloud.gcp]
+name = "gcp"
+display_name = "Google Cloud Platform"
+project_name = ""
+zone = ""
+enabled = false
+
 [llms.ollama]
 # Ollama - Local LLM
 # Instructions: https://ollama.ai/

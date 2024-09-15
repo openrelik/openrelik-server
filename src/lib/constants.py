@@ -12,27 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from fastapi import APIRouter
-
-from config import config, get_active_cloud_provider
-
-router = APIRouter()
-
-
-@router.get("/system/")
-def get_system_config():
-    llms = config.get("llms", [])
-    active_llms = [
-        service for service in llms.values() if service.get("enabled", False)
-    ]
-    data_types = [
-        "text/csv",
-        "text/json",
-    ]
-    active_cloud = get_active_cloud_provider()
-
-    return {
-        "active_llms": active_llms,
-        "data_types": data_types,
-        "active_cloud": active_cloud,
-    }
+cloud_provider_data_type_mapping = {
+    "gcp": "cloud:gcp:disk",
+    "aws": "cloud:aws:disk",
+    "azure": "cloud:azure:disk",
+}
