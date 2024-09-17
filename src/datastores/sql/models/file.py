@@ -136,7 +136,7 @@ class FileAttribute(BaseModel, AttributeMixin):
         user_id (int): The ID of the user who created the attribute.
         user (User): The user who created the attribute.
 
-    Atrributes:
+    Attributes:
         file_id (int): The ID of the file the attribute is associated with.
         file (File): The file the attribute is associated with.
     """
@@ -205,7 +205,7 @@ class FileSummaryFeedback(BaseModel, FeedbackMixin):
     filesummary: Mapped["FileSummary"] = relationship(back_populates="feedbacks")
 
 
-# Delete file from the filsystem when the database row is deleted.
+# Delete file from the filesystem when the database row is deleted.
 @event.listens_for(File, "after_delete")
 def delete_file_after_row_delete(mapper, connection, file_to_delete):
     if os.path.exists(file_to_delete.path):

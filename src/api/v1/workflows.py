@@ -45,7 +45,7 @@ from . import schemas
 redis_url = os.getenv("REDIS_URL")
 celery = Celery(broker=redis_url, backend=redis_url)
 
-# Setup the queues. This function take all registerd tasks on the celery task queue and
+# Setup the queues. This function take all registered tasks on the celery task queue and
 # generate the task queue config automatically.
 update_celery_task_queues(celery)
 

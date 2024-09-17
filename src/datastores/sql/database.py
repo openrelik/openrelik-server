@@ -75,7 +75,7 @@ class BaseModel(DeclarativeBase):
     """
 
     @declared_attr.directive
-    # Automaticaly create column name from class name
+    # Automatically create column name from class name
     def __tablename__(cls) -> str:
         return cls.__name__.lower()
 
