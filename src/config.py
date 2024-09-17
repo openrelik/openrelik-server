@@ -26,7 +26,7 @@ project_dir = os.path.normpath(
 settings_from_env = os.getenv("OPENRELIK_SERVER_SETTINGS")
 settings_file = os.path.join(project_dir, "settings.toml")
 
-# Read path to settings file from the environment and use that is avalable.
+# Read path to settings file from the environment and use that is available.
 if settings_from_env and os.path.isfile(settings_from_env):
     settings_file = settings_from_env
 
