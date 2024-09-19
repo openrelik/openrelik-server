@@ -50,9 +50,9 @@ def get_active_cloud_provider() -> dict:
         cloud_provider
         for cloud_provider in clouds.values()
         if cloud_provider.get("enabled", False)
-    ][0]
+    ]
 
-    return active_cloud
+    return active_cloud[0] if active_cloud else {}
 
 
 config = get_config()
