@@ -123,6 +123,14 @@ class File(BaseModel):
         back_populates="file", cascade="all, delete-orphan"
     )
 
+    # Optional relationship to represent files extracted from a source file
+    # (e.g., from a disk image). This is a self reference, i.e. pointing to
+    # another File object.
+    source_file_id: Mapped[Optional[int]] = mapped_column(ForeignKey("file.id"))
+    source_file: Mapped[Optional["File"]] = relationship(
+        "File", remote_side="File.id", backref="extracted_files"
+    )
+
     @hybrid_property
     def path(self):
         """Returns the full path of the file."""
