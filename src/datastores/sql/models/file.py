@@ -58,6 +58,7 @@ class File(BaseModel):
         filename (str): The filename of the file.
         filesize (int): The size of the file.
         extension (str): The file extension of the file.
+        original_path (str): The original path of the file.
         magic_text (str): The magic text of the file.
         magic_mime (str): The magic mime of the file.
         data_type (str): The data type of the file.
@@ -82,6 +83,7 @@ class File(BaseModel):
     filename: Mapped[str] = mapped_column(UnicodeText, index=True)
     filesize: Mapped[Optional[int]] = mapped_column(BigInteger, index=False)
     extension: Mapped[str] = mapped_column(UnicodeText, index=True)
+    original_path: Mapped[Optional[str]] = mapped_column(UnicodeText, index=True)
 
     # Metadata
     magic_text: Mapped[Optional[str]] = mapped_column(UnicodeText, index=True)
