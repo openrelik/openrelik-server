@@ -178,14 +178,6 @@ class FeedbackMixin:
         return relationship("User")  # No back_populates needed
 
 
-file_workflow_association_table = Table(
-    "file_workflow_association_table",
-    BaseModel.metadata,
-    Column("file_id", ForeignKey("file.id"), primary_key=True),
-    Column("workflow_id", ForeignKey("workflow.id"), primary_key=True),
-)
-
-
 @event.listens_for(Query, "before_compile", retval=True)
 def before_compile(query):
     for desc in query.column_descriptions:

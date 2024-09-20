@@ -23,6 +23,8 @@ from sqlalchemy import (
     Unicode,
     UnicodeText,
     event,
+    Column,
+    Table,
 )
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -31,13 +33,19 @@ from ..database import (
     AttributeMixin,
     BaseModel,
     FeedbackMixin,
-    file_workflow_association_table,
 )
 
 if TYPE_CHECKING:
     from .folder import Folder
     from .user import User
     from .workflow import Task, Workflow
+
+file_workflow_association_table = Table(
+    "file_workflow_association_table",
+    BaseModel.metadata,
+    Column("file_id", ForeignKey("file.id"), primary_key=True),
+    Column("workflow_id", ForeignKey("workflow.id"), primary_key=True),
+)
 
 
 class File(BaseModel):

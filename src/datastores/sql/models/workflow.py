@@ -20,7 +20,7 @@ from sqlalchemy import ForeignKey, UnicodeText, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import BaseModel
-from ..database import file_workflow_association_table
+from .file import file_workflow_association_table
 
 if TYPE_CHECKING:
     from .file import File
