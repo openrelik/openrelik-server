@@ -107,6 +107,7 @@ def process_successful_task(db, celery_task, db_task, celery_app):
     for file_data in result_dict.get("output_files", []):
         workflow = get_workflow_from_db(db, result_dict.get("workflow_id"))
         display_name = file_data.get("display_name")
+        data_type = file_data.get("data_type")
         file_uuid = uuid.UUID(file_data.get("uuid"))
         _, file_extension = os.path.splitext(display_name)
         new_file = schemas.FileCreate(
@@ -114,6 +115,7 @@ def process_successful_task(db, celery_task, db_task, celery_app):
             uuid=file_uuid,
             filename=display_name,
             extension=file_extension.lstrip("."),
+            data_type=data_type,
             folder_id=workflow.folder.id,
             user_id=workflow.user.id,
             task_output_id=db_task.id,

@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from auth.google import get_current_active_user
-from config import get_active_cloud_provider
+from config import config, get_active_cloud_provider
 from datastores.sql.crud.file import (
     create_file_in_db,
     create_file_summary_in_db,
@@ -43,6 +43,9 @@ from . import schemas
 
 router = APIRouter()
 
+# File types that are trusted to be returned unescaped to the client
+ALLOWED_DATA_TYPES_PREVIEW = config.get("ui", {}).get("allowed_data_types_preview", [])
+
 
 # Get file
 # TODO: Return different response if folder is deleted.
@@ -56,7 +59,10 @@ def get_file(
 # Get file content
 @router.get("/{file_id}/content", response_class=HTMLResponse)
 def get_file_content(
-    file_id: str, theme: str = "light", db: Session = Depends(get_db_connection)
+    file_id: str,
+    theme: str = "light",
+    unescaped: bool = False,
+    db: Session = Depends(get_db_connection),
 ):
     file = get_file_from_db(db, file_id)
     encodings_to_try = ["utf-8", "utf-16", "ISO-8859-1"]
@@ -76,10 +82,14 @@ def get_file_content(
         background_color = "#000"
         font_color = "#fff"
 
-    html_escaped_content = html.escape(content)
+    html_source_content = html.escape(content)
+    if unescaped:
+        if file.data_type in ALLOWED_DATA_TYPES_PREVIEW:
+            html_source_content = content
+
     html_content = f"""
     <html style="background:{background_color}">
-        <pre style="color:{font_color};padding:10px;white-space: pre-wrap;">{ html_escaped_content }</pre>
+        <pre style="color:{font_color};padding:10px;white-space: pre-wrap;">{ html_source_content }</pre>
     </html>
     """
     # return content

@@ -21,18 +21,20 @@ router = APIRouter()
 
 @router.get("/system/")
 def get_system_config():
-    llms = config.get("llms", [])
+    _llms = config.get("llms", [])
     active_llms = [
-        service for service in llms.values() if service.get("enabled", False)
-    ]
-    data_types = [
-        "text/csv",
-        "text/json",
+        service for service in _llms.values() if service.get("enabled", False)
     ]
     active_cloud = get_active_cloud_provider()
 
+    # Data types that will be allowed to be returned as unescaped HTML for use in
+    # sandboxed iframe preview.
+    allowed_data_types_preview = config.get("ui", {}).get(
+        "allowed_data_types_preview", []
+    )
+
     return {
         "active_llms": active_llms,
-        "data_types": data_types,
+        "allowed_data_types_preview": allowed_data_types_preview,
         "active_cloud": active_cloud,
     }
