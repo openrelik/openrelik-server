@@ -1,5 +1,8 @@
 [server]
 
+# This should be set to the URL of your backend server.
+api_server_url = "http://localhost:8710"
+
 # This should be set to the URL of your frontend server.
 ui_server_url = "http://localhost:8711"
 
@@ -22,17 +25,22 @@ secret_jwt_key = "<REPLACE_WITH_RANDOM_JWT_STRING>"
 # Algorithm to use for JWT.
 jwt_algorithm = "HS256"
 
-# Access token expire minutes.
-jwt_expire_minutes = 10080
+# UI token expiration in minutes.
+jwt_cookie_refresh_expire_minutes = 1440  # 24 hours
+jwt_cookie_access_expire_minutes = 5  # 5 minutes
 
-# Allow only these users (email address) to access the server.
-allowlist = ["<REPLACE_WITH_USERNAME>@gmail.com"]
+# API key token expiration in minutes, if not set by the user upon creation.
+jwt_header_default_refresh_expire_minutes = 10080  # 7 days
+jwt_header_default_access_expire_minutes = 5  # 5 minutes
 
 [auth.google]
 # Google OAuth authentication. You need to create credentials in a Google Cloud project:
 # https://developers.google.com/workspace/guides/create-credentials#oauth-client-id
 client_id = ""
 client_secret = ""
+
+# Allow only these users (email address) to access the server.
+allowlist = ["<REPLACE_WITH_USERNAME>@gmail.com"]
 
 [ui]
 # data_types that will be rendered using unescaped HTML in a sandboxed iframe in the

@@ -12,20 +12,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import secrets
-
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from auth.google import create_access_token, get_current_active_user, get_db_connection
+from auth.common import (
+    create_jwt_token,
+    validate_jwt_token,
+    get_current_active_user,
+    get_db_connection,
+)
 
 from datastores.sql.crud.user import (
     get_user_api_keys_from_db,
     create_user_api_key_in_db,
+    delete_user_api_key_from_db,
 )
 
 from api.v1 import schemas
-
+from config import config
 
 router = APIRouter()
 
@@ -69,7 +73,7 @@ async def create_api_key_for_current_user(
     request: schemas.UserApiKeyRequest,
     current_user: schemas.User = Depends(get_current_active_user),
     db: Session = Depends(get_db_connection),
-) -> schemas.UserApiKeyResponse:
+):
     """Create an API key for the current user.
 
     Args:
@@ -80,15 +84,40 @@ async def create_api_key_for_current_user(
     Returns:
         schemas.UserApiKeyResponse: The created API key.
     """
+    TOKEN_EXPIRE_MINUTES = config["auth"]["jwt_header_default_refresh_expire_minutes"]
+    refresh_token = create_jwt_token(
+        audience="api-client",
+        expire_minutes=TOKEN_EXPIRE_MINUTES,
+        subject=current_user.uuid.hex,
+        token_type="refresh",
+    )
+    payload = validate_jwt_token(
+        refresh_token,
+        expected_token_type="refresh",
+        expected_audience="api-client",
+    )
     new_api_key = schemas.UserApiKeyCreate(
         display_name=request.display_name,
         description=request.description,
-        api_key=secrets.token_hex(32),
-        access_token=create_access_token(
-            data={"sub": current_user.email},
-            expires_delta=request.expire_minutes,
-        ),
-        expire_minutes=request.expire_minutes,
+        token_jti=payload["jti"],
+        token_exp=payload["exp"],
         user_id=current_user.id,
     )
-    return create_user_api_key_in_db(db, new_api_key)
+    create_user_api_key_in_db(db, new_api_key)
+    return {"token": refresh_token, "display_name": request.display_name}
+
+
+@router.delete("/me/apikeys/{apikey_id}")
+async def delete_api_key(
+    apikey_id: int,
+    current_user: schemas.User = Depends(get_current_active_user),
+    db: Session = Depends(get_db_connection),
+):
+    """Delete an API key for the current user.
+
+    Args:
+        apikey_id (int): The ID of the API key to delete.
+        current_user (schemas.User): The current user.
+        db (Session): The database session.
+    """
+    delete_user_api_key_from_db(db, apikey_id=apikey_id, current_user=current_user)

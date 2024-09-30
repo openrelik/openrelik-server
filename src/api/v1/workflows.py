@@ -24,7 +24,7 @@ from celery.app import Celery
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from auth.google import get_current_active_user
+from auth.common import get_current_active_user
 from datastores.sql.crud.folder import create_folder_in_db
 from datastores.sql.crud.workflow import (
     create_task_in_db,
