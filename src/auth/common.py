@@ -159,7 +159,7 @@ async def get_current_user(
     if not access_token_from_cookie and not access_token_from_header:
         raise_credentials_exception(detail="Token is missing from request")
 
-    # Only allow tokens from cookie or header, not both. This prevents clients to diable
+    # Only allow tokens from cookie or header, not both. This prevents clients to disable
     # CSRF checks by setting both cookies and headers.
     if access_token_from_cookie and access_token_from_header:
         raise_credentials_exception(detail="Only one authentication method allowed")
@@ -212,7 +212,6 @@ async def refresh(
     Refresh access token using a refresh token.
     """
     if not refresh_token_from_cookie and not refresh_token_from_header:
-        # raise credentials_exception
         raise_credentials_exception(detail="Token is missing from request")
 
     refresh_token = refresh_token_from_cookie or refresh_token_from_header
