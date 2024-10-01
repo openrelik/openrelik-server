@@ -69,13 +69,8 @@ async def auth_local(
         token_type="access",
     )
 
-    print(refresh_token)
-    print(access_token)
-
     # Create response redirect
     response = Response()
-
-    print(response, UI_SERVER_URL)
 
     # Set the JWT cookie in the response
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True)
