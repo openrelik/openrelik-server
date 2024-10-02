@@ -69,29 +69,44 @@ api_v1.include_router(
     users_v1.router,
     prefix="/users",
     tags=["users"],
-    dependencies=[Depends(common_auth.get_current_active_user)],
+    dependencies=[
+        Depends(common_auth.get_current_active_user),
+        Depends(common_auth.verify_csrf),
+    ],
 )
 api_v1.include_router(
     configs_v1.router,
     prefix="/configs",
     tags=["configs"],
-    dependencies=[Depends(common_auth.get_current_active_user)],
+    dependencies=[
+        Depends(common_auth.get_current_active_user),
+        Depends(common_auth.verify_csrf),
+    ],
 )
 api_v1.include_router(
     files_v1.router,
     prefix="/files",
     tags=["files"],
-    dependencies=[Depends(common_auth.get_current_active_user)],
+    dependencies=[
+        Depends(common_auth.get_current_active_user),
+        Depends(common_auth.verify_csrf),
+    ],
 )
 api_v1.include_router(
     folders_v1.router,
     prefix="/folders",
     tags=["folders"],
-    dependencies=[Depends(common_auth.get_current_active_user)],
+    dependencies=[
+        Depends(common_auth.get_current_active_user),
+        Depends(common_auth.verify_csrf),
+    ],
 )
 api_v1.include_router(
     workflows_v1.router,
     prefix="/workflows",
     tags=["workflows"],
-    dependencies=[Depends(common_auth.get_current_active_user)],
+    dependencies=[
+        Depends(common_auth.get_current_active_user),
+        Depends(common_auth.verify_csrf),
+    ],
 )

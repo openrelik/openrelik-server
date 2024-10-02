@@ -1,7 +1,19 @@
+import json
+import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import (
+    APIRouter,
+    Cookie,
+    Depends,
+    Header,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
+from fastapi.encoders import jsonable_encoder
 from fastapi.security import APIKeyCookie, APIKeyHeader
 from jose import JWTError, jwt
 from sqlalchemy.orm import Session
@@ -9,6 +21,7 @@ from sqlalchemy.orm import Session
 from api.v1 import schemas
 from config import config
 from datastores.sql.crud.user import get_user_by_uuid_from_db
+from datastores.sql.models.user import UserApiKey
 from datastores.sql.database import get_db_connection
 
 router = APIRouter()
@@ -19,6 +32,9 @@ refresh_token_header = APIKeyHeader(name="x-openrelik-refresh-token", auto_error
 access_token_cookie = APIKeyCookie(name="access_token", auto_error=False)
 access_token_header = APIKeyHeader(name="x-openrelik-access-token", auto_error=False)
 
+csrf_token_cookie = APIKeyCookie(name="csrf_token", auto_error=False)
+
+
 # JWT settings
 JWT_SECRET_KEY = config["auth"]["secret_jwt_key"]
 JWT_ALGORITHM = config["auth"]["jwt_algorithm"]
@@ -26,6 +42,11 @@ JWT_ALGORITHM = config["auth"]["jwt_algorithm"]
 # Server settings
 API_SERVER_URL = config["server"].get("api_server_url")
 UI_SERVER_URL = config["server"].get("ui_server_url")
+
+
+def generate_csrf_token():
+    """Generates a CSRF token."""
+    return secrets.token_urlsafe(32)
 
 
 def raise_credentials_exception(detail: str = "Could not validate credentials"):
@@ -82,6 +103,7 @@ def validate_jwt_token(
     expected_token_type: str,
     expected_audience: str,
     check_denylist: bool = False,
+    db: Session = Depends(get_db_connection),
 ):
     """Validates a JWT token.
 
@@ -130,11 +152,69 @@ def validate_jwt_token(
             detail=f"Wrong token type: Expected {expected_token_type} but got {payload['token_type']}"
         )
 
-    # TODO: Implement denylist to support revocation of tokens.
-    if check_denylist:
-        print(f"TODO: Check denylist for JIT:{payload['jti']}")
+    # Check if the API key has been revoked, i.e it has been deleted by the user.
+    # Note: This only check api-client API keys and not Browser tokens.
+    # TODO: Consider supporting revoking Browser based tokens as well.
+    if check_denylist and expected_audience == "api-client":
+        api_key_db = (
+            db.query(UserApiKey).filter(UserApiKey.token_jti == payload["jti"]).first()
+        )
+        if not api_key_db:
+            raise_credentials_exception(detail="Invalid API key")
 
     return payload
+
+
+async def verify_csrf(
+    request: Request,
+    access_token_from_cookie: str | None = Depends(access_token_cookie),
+    access_token_from_header: str | None = Depends(access_token_header),
+    x_csrf_token: str = Header(None),
+    csrf_token: str = Cookie(None),
+    db: Session = Depends(get_db_connection),
+):
+    """
+    Dependency to verify CSRF token only for non-GET requests.
+
+    Args:
+        request (Request): The FastAPI request object.
+        access_token_from_cookie (str, optional): The access token from the cookie.
+        access_token_from_header (str, optional): The access token from the header.
+        x_csrf_token (str, optional): The CSRF token from the X-CSRF-Token header.
+        csrf_token (str, optional): The CSRF token from the cookie.
+
+    Yields:
+        None: Yields nothing (importand for FastAPI dependency injection).
+
+    Raises:
+        HTTPException: If the CSRF token is invalid.
+    """
+    access_token = access_token_from_cookie or access_token_from_header
+
+    # Determine the expected audience based on the token source.
+    expected_audience = "browser-client" if access_token_from_cookie else "api-client"
+
+    validated_token = validate_jwt_token(
+        token=access_token,
+        expected_token_type="access",
+        expected_audience=expected_audience,
+        db=db,
+    )
+    audience = validated_token.get("aud")
+
+    # Check CSRF for Browser clients only, and for state changing set of methods.
+    if audience == "browser-client" and request.method not in (
+        "GET",
+        "HEAD",
+        "OPTIONS",
+        "TRACE",
+    ):
+        if not csrf_token or x_csrf_token != csrf_token:
+            raise HTTPException(status_code=400, detail="X-CSRF-Token is invalid")
+    else:
+        pass
+
+    yield
 
 
 async def get_current_user(
@@ -175,6 +255,7 @@ async def get_current_user(
         token=access_token,
         expected_token_type="access",
         expected_audience=expected_audience,
+        db=db,
     )
     user_uuid: str = payload.get("sub")
     user = get_user_by_uuid_from_db(db, uuid=user_uuid)
@@ -207,9 +288,20 @@ async def get_current_active_user(
 async def refresh(
     refresh_token_from_cookie: str | None = Depends(refresh_token_cookie),
     refresh_token_from_header: str | None = Depends(refresh_token_header),
+    db: Session = Depends(get_db_connection),
 ):
     """
     Refresh access token using a refresh token.
+
+    Args:
+        refresh_token_from_cookie (str, optional): Refresh token from the cookie (browser clients).
+        refresh_token_from_header (str, optional): Refresh token from the header (api clients).
+
+    Returns:
+        Response: The FastAPI response object.
+
+    Raises:
+        HTTPException: If the user is not authorized or the token is invalid.
     """
     if not refresh_token_from_cookie and not refresh_token_from_header:
         raise_credentials_exception(detail="Token is missing from request")
@@ -224,6 +316,7 @@ async def refresh(
         expected_token_type="refresh",
         expected_audience=expected_audience,
         check_denylist=True,
+        db=db,
     )
 
     if refresh_token_from_cookie:
@@ -239,9 +332,35 @@ async def refresh(
         token_type="access",
     )
 
-    response = Response()
+    # Create a new CSRF token
+    new_csrf_token = generate_csrf_token()
+    data = jsonable_encoder(
+        {"new_access_token": new_access_token, "new_csrf_token": new_csrf_token}
+    )
+
+    response = Response(content=json.dumps(data), media_type="application/json")
     response.set_cookie(key="access_token", value=new_access_token, httponly=True)
+    response.set_cookie(key="csrf_token", value=new_csrf_token, httponly=True)
+
     return response
+
+
+@router.get("/auth/csrf")
+async def csrf(
+    csrf_token_from_cookie: str | None = Depends(csrf_token_cookie),
+    current_user: schemas.User = Depends(get_current_active_user),
+):
+    """
+    Returns the CSRF token from the users cookie.
+
+    Args:
+        csrf_token_from_cookie (str, optional): CSRF token from the cookie.
+        current_user (User): The currently logged-in user.
+
+    Returns:
+        str: The CSRF token.
+    """
+    return csrf_token_from_cookie
 
 
 @router.delete("/auth/logout")
@@ -254,7 +373,8 @@ async def logout(response: Response):
     Returns:
         dict: A dictionary containing a message indicating the success of the operation.
     """
-    # TODO: Remove refresh token from ActiveRefreshTokens list (db)
     response.delete_cookie(key="refresh_token")
     response.delete_cookie(key="access_token")
+    response.delete_cookie(key="csrf_token")
+
     return {"message": "Logged out"}

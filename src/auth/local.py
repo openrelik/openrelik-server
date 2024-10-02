@@ -2,15 +2,13 @@ import argon2
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from starlette.responses import Response
 
+from config import config
 from datastores.sql.crud.user import get_user_by_username_from_db
 from datastores.sql.database import get_db_connection
 
-from config import config
-from .common import UI_SERVER_URL, create_jwt_token
-
-from starlette.responses import RedirectResponse, Response
-
+from .common import create_jwt_token, generate_csrf_token, UI_SERVER_URL
 
 router = APIRouter()
 password_hasher = argon2.PasswordHasher()
@@ -75,5 +73,6 @@ async def auth_local(
     # Set the JWT cookie in the response
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True)
     response.set_cookie(key="access_token", value=access_token, httponly=True)
+    response.set_cookie(key="csrf_token", value=generate_csrf_token(), httponly=True)
 
     return response

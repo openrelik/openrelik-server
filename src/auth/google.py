@@ -24,7 +24,7 @@ from config import config
 from datastores.sql.crud.user import create_user_in_db, get_user_by_email_from_db
 from datastores.sql.database import get_db_connection
 
-from .common import UI_SERVER_URL, create_jwt_token
+from .common import UI_SERVER_URL, create_jwt_token, generate_csrf_token
 
 router = APIRouter()
 oauth = OAuth()
@@ -121,5 +121,6 @@ async def auth(request: Request, db: Session = Depends(get_db_connection)):
     # Set the JWT cookie in the response
     response.set_cookie(key="refresh_token", value=refresh_token, httponly=True)
     response.set_cookie(key="access_token", value=access_token, httponly=True)
+    response.set_cookie(key="csrf_token", value=generate_csrf_token(), httponly=True)
 
     return response

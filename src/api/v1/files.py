@@ -245,6 +245,8 @@ def get_task(
 # Download task result file
 @router.post("/{file_id}/workflows/{workflow_id}/tasks/{task_id}/download")
 def download_task_result(
+    file_id: int,
+    workflow_id: int,
     task_id: str,
     db: Session = Depends(get_db_connection),
 ):
