@@ -21,7 +21,9 @@ from api.v1 import files as files_v1
 from api.v1 import folders as folders_v1
 from api.v1 import users as users_v1
 from api.v1 import workflows as workflows_v1
+from auth import common as common_auth
 from auth import google as google_auth
+from auth import local as local_auth
 from config import config
 from datastores.sql import database
 
@@ -57,36 +59,54 @@ api_v1.add_middleware(
     allow_headers=["*"],
 )
 
-# Routes
+# Authentication providers
+app.include_router(common_auth.router)
+app.include_router(local_auth.router)
 app.include_router(google_auth.router)
 
+# Routes
 api_v1.include_router(
     users_v1.router,
     prefix="/users",
     tags=["users"],
-    dependencies=[Depends(google_auth.get_current_active_user)],
+    dependencies=[
+        Depends(common_auth.get_current_active_user),
+        Depends(common_auth.verify_csrf),
+    ],
 )
 api_v1.include_router(
     configs_v1.router,
     prefix="/configs",
     tags=["configs"],
-    dependencies=[Depends(google_auth.get_current_active_user)],
+    dependencies=[
+        Depends(common_auth.get_current_active_user),
+        Depends(common_auth.verify_csrf),
+    ],
 )
 api_v1.include_router(
     files_v1.router,
     prefix="/files",
     tags=["files"],
-    dependencies=[Depends(google_auth.get_current_active_user)],
+    dependencies=[
+        Depends(common_auth.get_current_active_user),
+        Depends(common_auth.verify_csrf),
+    ],
 )
 api_v1.include_router(
     folders_v1.router,
     prefix="/folders",
     tags=["folders"],
-    dependencies=[Depends(google_auth.get_current_active_user)],
+    dependencies=[
+        Depends(common_auth.get_current_active_user),
+        Depends(common_auth.verify_csrf),
+    ],
 )
 api_v1.include_router(
     workflows_v1.router,
     prefix="/workflows",
     tags=["workflows"],
-    dependencies=[Depends(google_auth.get_current_active_user)],
+    dependencies=[
+        Depends(common_auth.get_current_active_user),
+        Depends(common_auth.verify_csrf),
+    ],
 )

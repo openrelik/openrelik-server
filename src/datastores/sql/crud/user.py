@@ -12,13 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from datetime import datetime, timedelta
-
 from sqlalchemy.orm import Session
 
+from api.v1 import schemas
 from datastores.sql.models.user import User, UserApiKey
 
-from api.v1 import schemas
+
+def get_users_from_db(db: Session):
+    """Get all users.
+
+    Args:
+        db (Session): database session
+
+    Returns:
+        list: list of users
+    """
+    return db.query(User).all()
 
 
 def get_user_from_db(db: Session, user_id: int):
@@ -47,6 +56,32 @@ def get_user_by_email_from_db(db: Session, email: str):
     return db.query(User).filter(User.email == email).first()
 
 
+def get_user_by_uuid_from_db(db: Session, uuid: str):
+    """Get a user by UUID.
+
+    Args:
+        db: SQLAlchemy session
+        uuid: User UUID
+
+    Returns:
+        User object
+    """
+    return db.query(User).filter(User.uuid == uuid).first()
+
+
+def get_user_by_username_from_db(db: Session, username: str):
+    """Get a user by username.
+
+    Args:
+        db: SQLAlchemy session
+        username: User username
+
+    Returns:
+        User object
+    """
+    return db.query(User).filter(User.username == username).first()
+
+
 def create_user_in_db(db: Session, new_user: schemas.UserCreate):
     """Create a user in the database.
 
@@ -58,9 +93,11 @@ def create_user_in_db(db: Session, new_user: schemas.UserCreate):
         User object
     """
     new_db_user = User(
-        name=new_user.name,
+        display_name=new_user.display_name,
+        username=new_user.username,
         email=new_user.email,
-        picture=new_user.picture,
+        auth_method=new_user.auth_method,
+        profile_picture_url=new_user.profile_picture_url,
         uuid=new_user.uuid,
     )
     db.add(new_db_user)
@@ -82,19 +119,6 @@ def get_user_api_keys_from_db(db: Session, current_user: User):
     return db.query(UserApiKey).filter(UserApiKey.user_id == current_user.id).all()
 
 
-def get_user_access_token_from_db(db: Session, api_key: str):
-    """Get a user access token from an api key.
-
-    Args:
-        db: SQLAlchemy session
-        api_key: API key
-
-    Returns:
-        UserApiKey object
-    """
-    return db.query(UserApiKey).filter(UserApiKey.api_key == api_key).first()
-
-
 def create_user_api_key_in_db(db: Session, apikey: schemas.UserApiKeyCreate):
     """Create a user api key in the database.
 
@@ -108,12 +132,29 @@ def create_user_api_key_in_db(db: Session, apikey: schemas.UserApiKeyCreate):
     new_apikey = UserApiKey(
         display_name=apikey.display_name,
         description=apikey.description,
-        api_key=apikey.api_key,
-        access_token=apikey.access_token,
+        token_jti=apikey.token_jti,
+        token_exp=apikey.token_exp,
         user_id=apikey.user_id,
     )
-    new_apikey.expires_at = datetime.now() + timedelta(minutes=apikey.expire_minutes)
     db.add(new_apikey)
     db.commit()
     db.refresh(new_apikey)
     return new_apikey
+
+
+def delete_user_api_key_from_db(db: Session, apikey_id: int, current_user: User):
+    """Delete a user api key from the database.
+
+    Args:
+        db: SQLAlchemy session
+        apikey_id: UserApiKey ID
+        current_user: User object
+    """
+    api_key = (
+        db.query(UserApiKey)
+        .filter(UserApiKey.id == apikey_id, UserApiKey.user_id == current_user.id)
+        .first()
+    )
+    if api_key:
+        db.delete(api_key)
+        db.commit()

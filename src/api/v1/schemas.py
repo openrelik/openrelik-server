@@ -46,54 +46,60 @@ class BaseSchemaCompact(BaseModel):
 
 # User schemas
 class User(BaseSchema):
-    name: str
+    display_name: str
+    username: str
     email: str
-    picture: str
+    profile_picture_url: str
     uuid: UUID
     is_active: bool
 
 
 class UserCreate(BaseModel):
-    name: str
-    email: str
-    picture: str
+    display_name: str
+    username: str
+    email: Optional[str] = None
+    auth_method: str
+    profile_picture_url: Optional[str] = None
     uuid: UUID
+    is_admin: Optional[bool] = False
+    password_hash: Optional[str] = None
 
 
 class UserResponse(BaseSchema):
-    name: str
-    email: str
-    picture: str
+    display_name: str
+    username: str
+    email: Optional[str]
+    auth_method: str
+    profile_picture_url: Optional[str]
     uuid: UUID
 
 
 class UserResponseCompact(BaseSchemaCompact):
-    name: str
-    email: str
-    picture: str
+    display_name: str
+    username: str
+    email: Optional[str]
+    auth_method: str
+    profile_picture_url: Optional[str]
     uuid: UUID
 
 
 class UserApiKeyRequest(BaseModel):
     display_name: str
     description: Optional[str] = ""
-    expire_minutes: int
 
 
 class UserApiKeyCreate(BaseSchema):
     display_name: str
     description: str
-    api_key: str
-    access_token: str
-    expire_minutes: int
+    token_jti: str
+    token_exp: datetime
     user_id: int
 
 
 class UserApiKeyResponse(BaseSchema):
     display_name: str
     description: str
-    api_key: str
-    expires_at: datetime
+    token_exp: datetime
 
 
 # Folder schemas

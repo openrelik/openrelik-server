@@ -16,7 +16,7 @@ from typing import List, TYPE_CHECKING, Optional
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
-from auth.google import get_current_active_user
+from auth.common import get_current_active_user
 from datastores.sql.crud.file import get_files_from_db
 from datastores.sql.crud.workflow import get_folder_workflows_from_db
 from datastores.sql.crud.folder import (

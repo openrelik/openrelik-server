@@ -22,7 +22,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Form, UploadFile, statu
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
-from auth.google import get_current_active_user
+from auth.common import get_current_active_user
 from config import config, get_active_cloud_provider
 from datastores.sql.crud.file import (
     create_file_in_db,
@@ -245,6 +245,8 @@ def get_task(
 # Download task result file
 @router.post("/{file_id}/workflows/{workflow_id}/tasks/{task_id}/download")
 def download_task_result(
+    file_id: int,
+    workflow_id: int,
     task_id: str,
     db: Session = Depends(get_db_connection),
 ):
