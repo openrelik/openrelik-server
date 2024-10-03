@@ -201,6 +201,5 @@ if __name__ == "__main__":
     redis_url = os.getenv("REDIS_URL")
     celery_app = Celery(broker=redis_url, backend=redis_url)
     db = database.SessionLocal()
-
     # Start the Celery task monitoring loop
     monitor_celery_tasks(celery_app, db)
