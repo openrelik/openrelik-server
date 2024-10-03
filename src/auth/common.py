@@ -339,8 +339,11 @@ async def refresh(
     )
 
     response = Response(content=json.dumps(data), media_type="application/json")
-    response.set_cookie(key="access_token", value=new_access_token, httponly=True)
-    response.set_cookie(key="csrf_token", value=new_csrf_token, httponly=True)
+    # If the client (e.g API client) sends the tokens in the header instead, skip
+    # setting cookies.
+    if not refresh_token_from_header:
+        response.set_cookie(key="access_token", value=new_access_token, httponly=True)
+        response.set_cookie(key="csrf_token", value=new_csrf_token, httponly=True)
 
     return response
 
