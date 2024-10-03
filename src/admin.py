@@ -23,13 +23,14 @@ from rich.table import Table
 
 from api.v1 import schemas
 
-# Import models to make the ORM register correctly.
 from datastores.sql import database
 from datastores.sql.crud.user import (
     create_user_in_db,
     get_user_by_username_from_db,
     get_users_from_db,
 )
+
+# Import models to make the ORM register correctly.
 from datastores.sql.models import file, folder, user, workflow
 
 password_hasher = PasswordHasher()
@@ -81,11 +82,11 @@ def create_user(
     new_user = schemas.UserCreate(
         display_name=username,
         username=username,
+        password_hash=hashed_password,
+        password_hash_algorithm="argon2id",
         auth_method="local",
         uuid=uuid.uuid4(),
         is_admin=admin,
-        password_hash=hashed_password,
-        password_hash_algorithm="argon2id",
     )
     create_user_in_db(db, new_user)
     print(f"User with username '{username}' created and password set.")
@@ -175,7 +176,6 @@ def user_details(
     table.add_row("Username", existing_user.username)
     table.add_row("Auth Method", existing_user.auth_method)
     table.add_row("Is Admin", str(existing_user.is_admin))
-    # Add more rows for other attributes as needed
 
     print(table)
 
@@ -187,21 +187,23 @@ def list_users():
     users = get_users_from_db(db)
 
     table = Table(title="List of Users")
-    table.add_column("UUID", style="cyan")
-    table.add_column("Display Name", style="magenta")
     table.add_column("Username", style="green")
+    table.add_column("Display Name", style="magenta")
+    table.add_column("UUID", style="cyan")
     table.add_column("Is Admin", style="yellow")
     table.add_column("Is Active", style="yellow")
     table.add_column("Is Robot", style="yellow")
+    table.add_column("Created", style="steel_blue")
 
     for user in users:
         table.add_row(
-            str(user.uuid),
-            user.display_name,
             user.username,
+            user.display_name,
+            str(user.uuid),
             str(user.is_admin),
             str(user.is_active),
             str(user.is_robot),
+            str(user.created_at),
         )
 
     print(table)

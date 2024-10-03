@@ -57,12 +57,15 @@ class User(BaseSchema):
 class UserCreate(BaseModel):
     display_name: str
     username: str
-    email: Optional[str] = None
+    password_hash: Optional[str] = None
+    password_hash_algorithm: Optional[str] = None
     auth_method: str
+    email: Optional[str] = None
     profile_picture_url: Optional[str] = None
     uuid: UUID
     is_admin: Optional[bool] = False
-    password_hash: Optional[str] = None
+    is_active: Optional[bool] = True
+    is_robot: Optional[bool] = False
 
 
 class UserResponse(BaseSchema):

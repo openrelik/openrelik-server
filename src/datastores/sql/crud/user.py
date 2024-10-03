@@ -95,10 +95,15 @@ def create_user_in_db(db: Session, new_user: schemas.UserCreate):
     new_db_user = User(
         display_name=new_user.display_name,
         username=new_user.username,
-        email=new_user.email,
+        password_hash=new_user.password_hash,
+        password_hash_algorithm=new_user.password_hash_algorithm,
         auth_method=new_user.auth_method,
+        email=new_user.email,
         profile_picture_url=new_user.profile_picture_url,
         uuid=new_user.uuid,
+        is_admin=new_user.is_admin,
+        is_active=new_user.is_active,
+        is_robot=new_user.is_robot,
     )
     db.add(new_db_user)
     db.commit()
