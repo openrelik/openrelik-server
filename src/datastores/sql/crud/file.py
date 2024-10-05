@@ -34,8 +34,7 @@ def get_files_from_db(db: Session, folder_id: int):
     Returns:
         List[File]: A list of File objects representing the files in the folder.
     """
-    return db.query(File).filter_by(folder_id=folder_id).order_by(
-        File.id.desc()).all()
+    return db.query(File).filter_by(folder_id=folder_id).order_by(File.id.desc()).all()
 
 
 def get_file_from_db(db: Session, file_id: int):
@@ -63,7 +62,7 @@ def create_file_in_db(db: Session, file: schemas.FileCreate):
     """
     folder = get_folder_from_db(db, file.folder_id)
     uuid = file.uuid
-    filename = f'{uuid.hex}'
+    filename = f"{uuid.hex}"
     output_file = os.path.join(folder.path, filename)
 
     # File metadata
@@ -97,8 +96,7 @@ def get_file_summary_from_db(db: Session, file_summary_id: int):
     return db.get(FileSummary, file_summary_id)
 
 
-def create_file_summary_in_db(db: Session,
-                              file_summary: schemas.FileSummaryCreate):
+def create_file_summary_in_db(db: Session, file_summary: schemas.FileSummaryCreate):
     """Creates a new file summary in the database using generative AI.
 
     Args:

@@ -44,9 +44,7 @@ from . import schemas
 router = APIRouter()
 
 # File types that are trusted to be returned unescaped to the client
-ALLOWED_DATA_TYPES_PREVIEW = config.get("ui",
-                                        {}).get("allowed_data_types_preview",
-                                                [])
+ALLOWED_DATA_TYPES_PREVIEW = config.get("ui", {}).get("allowed_data_types_preview", [])
 
 
 # Get file
@@ -61,10 +59,10 @@ def get_file(
 # Get file content
 @router.get("/{file_id}/content", response_class=HTMLResponse)
 def get_file_content(
-        file_id: str,
-        theme: str = "light",
-        unescaped: bool = False,
-        db: Session = Depends(get_db_connection),
+    file_id: str,
+    theme: str = "light",
+    unescaped: bool = False,
+    db: Session = Depends(get_db_connection),
 ):
     file = get_file_from_db(db, file_id)
     encodings_to_try = ["utf-8", "utf-16", "ISO-8859-1"]
@@ -113,8 +111,7 @@ def download_file(file_id: int, db: Session = Depends(get_db_connection)):
 
 # Download file stream
 @router.get("/{file_id}/download_stream")
-async def download_file_stream(file_id: int,
-                               db: Session = Depends(get_db_connection)):
+async def download_file_stream(file_id: int, db: Session = Depends(get_db_connection)):
     file = get_file_from_db(db, file_id)
     file_path = file.path
     CHUNK_SIZE = 10 * 1024 * 1024  # 10MB
@@ -130,9 +127,9 @@ async def download_file_stream(file_id: int,
         "Content-Length": str(file.filesize),
     }
 
-    return StreamingResponse(iterfile(),
-                             headers=headers,
-                             media_type="application/octet-stream")
+    return StreamingResponse(
+        iterfile(), headers=headers, media_type="application/octet-stream"
+    )
 
 
 # Delete file
@@ -237,10 +234,10 @@ def get_workflows(
 # Get task
 @router.get("/{file_id}/workflows/{workflow_id}/tasks/{task_id}")
 def get_task(
-        file_id: int,
-        workflow_id: int,
-        task_id: int,
-        db: Session = Depends(get_db_connection),
+    file_id: int,
+    workflow_id: int,
+    task_id: int,
+    db: Session = Depends(get_db_connection),
 ) -> List[schemas.Task]:
     return get_task_from_db(db, task_id)
 
@@ -248,10 +245,10 @@ def get_task(
 # Download task result file
 @router.post("/{file_id}/workflows/{workflow_id}/tasks/{task_id}/download")
 def download_task_result(
-        file_id: int,
-        workflow_id: int,
-        task_id: str,
-        db: Session = Depends(get_db_connection),
+    file_id: int,
+    workflow_id: int,
+    task_id: str,
+    db: Session = Depends(get_db_connection),
 ):
     task = db.get(Task, task_id)
     result = json.loads(task.result)
@@ -267,21 +264,22 @@ def download_task_result(
     )
 
 
-@router.get("/{file_id}/summaries/{summary_id}",
-            response_model=schemas.FileSummaryResponse)
+@router.get(
+    "/{file_id}/summaries/{summary_id}", response_model=schemas.FileSummaryResponse
+)
 def get_file_summary(
-        file_id: int,
-        summary_id: int,
-        db: Session = Depends(get_db_connection),
+    file_id: int,
+    summary_id: int,
+    db: Session = Depends(get_db_connection),
 ):
     return get_file_summary_from_db(db, summary_id)
 
 
 @router.post("/{file_id}/summaries")
 def generate_file_summary(
-        file_id: int,
-        background_tasks: BackgroundTasks,
-        db: Session = Depends(get_db_connection),
+    file_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db_connection),
 ):
 
     new_file_summary = schemas.FileSummaryCreate(
