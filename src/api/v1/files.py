@@ -155,7 +155,7 @@ async def create_file(
     for file in files:
         _, file_extension = os.path.splitext(file.filename)
         uuid = uuid4()
-        output_filename = f"{uuid.hex}"
+        output_filename = f"{uuid.hex}{file_extension}"
         output_path = os.path.join(folder.path, output_filename)
         async with aiofiles.open(output_path, "wb") as fh:
             while content := await file.read(1024000):  # Read 1MB chunks

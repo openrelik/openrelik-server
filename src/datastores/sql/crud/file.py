@@ -20,6 +20,7 @@ from api.v1 import schemas
 
 from .folder import get_folder_from_db
 
+
 import magic
 import os
 
@@ -62,7 +63,9 @@ def create_file_in_db(db: Session, file: schemas.FileCreate):
     """
     folder = get_folder_from_db(db, file.folder_id)
     uuid = file.uuid
-    filename = f"{uuid.hex}"
+    filename = uuid.hex
+    if file.extension:
+        filename = f"{uuid.hex}.{file.extension}"
     output_file = os.path.join(folder.path, filename)
 
     # File metadata
