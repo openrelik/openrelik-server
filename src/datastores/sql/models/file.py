@@ -134,7 +134,9 @@ class File(BaseModel):
     @hybrid_property
     def path(self):
         """Returns the full path of the file."""
-        filename = f"{self.uuid.hex}"
+        filename = self.uuid.hex
+        if self.extension:
+            filename = f"{filename}.{self.extension}"
         return os.path.join(self.folder.path, filename)
 
 
