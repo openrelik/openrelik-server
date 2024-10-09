@@ -63,15 +63,16 @@ def create_file_in_db(db: Session, file: schemas.FileCreate):
     """
     folder = get_folder_from_db(db, file.folder_id)
     uuid = file.uuid
-    filename = uuid.hex
+    output_filename = uuid.hex
     if file.extension:
-        filename = f"{uuid.hex}.{file.extension}"
-    output_file = os.path.join(folder.path, filename)
+        output_filename = f"{uuid.hex}.{file.extension}"
+    output_file = os.path.join(folder.path, output_filename)
 
     # File metadata
     file.magic_text = magic.from_file(output_file)
     file.magic_mime = magic.from_file(output_file, mime=True)
     file.filesize = os.stat(output_file).st_size
+
     # TODO: Get data type from KB
     if not file.data_type:
         file.data_type = "file:generic"
