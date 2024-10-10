@@ -138,6 +138,7 @@ class FileCreate(BaseModel):
     filename: str
     filesize: Optional[int] = None
     extension: Optional[str] = None
+    original_path: Optional[str] = None
     magic_text: Optional[str] = None
     magic_mime: Optional[str] = None
     data_type: Optional[str] = None
@@ -157,6 +158,7 @@ class FileResponse(BaseSchema):
     filename: str
     filesize: int
     extension: Optional[str] = None
+    original_path: Optional[str] = None
     magic_text: Optional[str] = None
     magic_mime: Optional[str] = None
     data_type: str
@@ -164,6 +166,7 @@ class FileResponse(BaseSchema):
     hash_sha1: Optional[str] = None
     hash_sha256: Optional[str] = None
     hash_ssdeep: Optional[str] = None
+
     user_id: int
     user: UserResponseCompact
     folder: Optional[FolderResponse]

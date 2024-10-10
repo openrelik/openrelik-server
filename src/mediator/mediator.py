@@ -110,11 +110,13 @@ def process_successful_task(db, celery_task, db_task, celery_app):
         data_type = file_data.get("data_type")
         file_uuid = uuid.UUID(file_data.get("uuid"))
         _, file_extension = os.path.splitext(display_name)
+        original_path = file_data.get("original_path")
         new_file = schemas.FileCreate(
             display_name=display_name,
             uuid=file_uuid,
             filename=display_name,
             extension=file_extension.lstrip("."),
+            original_path=original_path,
             data_type=data_type,
             folder_id=workflow.folder.id,
             user_id=workflow.user.id,
