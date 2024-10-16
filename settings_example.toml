@@ -46,7 +46,7 @@ allowlist = ["<REPLACE_WITH_USERNAME>@gmail.com"]
 # data_types that will be rendered using unescaped HTML in a sandboxed iframe in the
 # frontend UI.
 allowed_data_types_preview = [
-    "openrelik:worker:hayabusa:file:html"
+    "openrelik:hayabusa:html_report"
 ]
 
 # Enable cloud features such as adding cloud disks.
