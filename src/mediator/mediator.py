@@ -109,7 +109,7 @@ def process_successful_task(db, celery_task, db_task, celery_app):
         display_name = file_data.get("display_name")
         data_type = file_data.get("data_type")
         file_uuid = uuid.UUID(file_data.get("uuid"))
-        _, file_extension = os.path.splitext(display_name)
+        file_extension = file_data.get("extension")
         original_path = file_data.get("original_path")
         new_file = schemas.FileCreate(
             display_name=display_name,

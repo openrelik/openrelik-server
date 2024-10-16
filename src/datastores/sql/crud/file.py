@@ -73,7 +73,6 @@ def create_file_in_db(db: Session, file: schemas.FileCreate):
     file.magic_mime = magic.from_file(output_file, mime=True)
     file.filesize = os.stat(output_file).st_size
 
-    # TODO: Get data type from KB
     if not file.data_type:
         file.data_type = "file:generic"
 

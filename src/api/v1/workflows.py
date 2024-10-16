@@ -189,10 +189,11 @@ async def run_workflow(
 
     input_files = [
         {
-            "filename": file.display_name,
             "uuid": file.uuid.hex,
-            "path": file.path,
+            "display_name": file.display_name,
+            "extension": file.extension,
             "data_type": file.data_type,
+            "path": file.path,
         }
         for file in workflow.files
     ]
