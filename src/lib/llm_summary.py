@@ -20,7 +20,7 @@ from datastores.sql.crud.file import (
     get_file_summary_from_db,
     update_file_summary_in_db,
 )
-from plugins.llm import manager
+from openrelik_ai_common.providers import manager
 
 
 from . import llm_prompts
@@ -37,8 +37,8 @@ def generate_summary(
         file_summary_id (int): The ID of the file summary to update.
     """
     db = database.SessionLocal()
-    llm_class = manager.LLMManager().get_provider(llm_provider)
-    llm = llm_class(model_name=llm_model)
+    provider = manager.LLMManager().get_provider(llm_provider)
+    llm = provider(model_name=llm_model)
     file = get_file_from_db(db, file_id)
     file_summary = get_file_summary_from_db(db, file_summary_id)
     prompt = llm_prompts.registry.get(file.data_type)
