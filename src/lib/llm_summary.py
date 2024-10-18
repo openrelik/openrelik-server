@@ -118,7 +118,7 @@ def generate_summary(
     duration = end_time - start_time
 
     file_summary.summary = summary.replace("http", "hXXp")
-    file_summary.llm_model_provider = llm.config.get("display_name")
+    file_summary.llm_model_provider = llm.DISPLAY_NAME
     file_summary.llm_model_name = llm.config.get("model")
     file_summary.llm_model_prompt = prompt.get("triage")
     file_summary.status_short = "complete"
