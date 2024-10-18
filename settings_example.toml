@@ -57,24 +57,3 @@ display_name = "Google Cloud Platform"
 project_name = ""
 zone = ""
 enabled = false
-
-[llms.ollama]
-# Ollama - Local LLM
-# Instructions: https://ollama.ai/
-name = "ollama"
-display_name = "Ollama"
-model = ""
-enabled = false
-server_url = "http://localhost:11434"
-
-[llms.vertexai]
-# VertexAI - Google Cloud
-# Set the environment variable GOOGLE_APPLICATION_CREDENTIALS to the path of the
-# JSON file that contains your credentials. This variable applies only to your
-# current shell session, so if you open a new session, set the variable again.
-# Instructions: https://cloud.google.com/docs/authentication/provide-credentials-adc
-name = "vertexai"
-display_name = "VertexAI"
-model = ""
-enabled = false
-project_name = ""  # GCP project for billing
