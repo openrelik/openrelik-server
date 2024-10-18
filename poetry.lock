@@ -1592,13 +1592,13 @@ httpx = ">=0.27.0,<0.28.0"
 
 [[package]]
 name = "openrelik-ai-common"
-version = "2024.10.17"
+version = "2024.10.18"
 description = "Common utilities for OpenRelik AI functionality"
 optional = false
 python-versions = "<4.0,>=3.12"
 files = [
-    {file = "openrelik_ai_common-2024.10.17-py3-none-any.whl", hash = "sha256:7a43ba320ee03445381271d4135848542171c861e52912fce859e4d100ca5468"},
-    {file = "openrelik_ai_common-2024.10.17.tar.gz", hash = "sha256:64dcc96b8f8f14516d4abfd81829394733cb351f42c61476dc4f475f37916d55"},
+    {file = "openrelik_ai_common-2024.10.18-py3-none-any.whl", hash = "sha256:8f752b194e57b4cd2d290127973a67f05cef41fe4ccd4cf40c32bed520871ffc"},
+    {file = "openrelik_ai_common-2024.10.18.tar.gz", hash = "sha256:a9a3c713be0a690f208d85399638dda617f4c945761bd3d9d0bbd2fc5e25fb17"},
 ]
 
 [package.dependencies]
@@ -2533,4 +2533,4 @@ files = [
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.12"
-content-hash = "9f5830aee2a4d76f362d9f8a11853eb60a2dac765a5595618d458e7e346ef8b9"
+content-hash = "fca4b94a77ead4eb65d8f1e542e0a249e8304b624a43b97b320fffda8e807a8c"
