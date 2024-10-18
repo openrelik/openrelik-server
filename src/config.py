@@ -18,6 +18,7 @@ import tomllib
 from fastapi import HTTPException
 
 from lib.constants import cloud_provider_data_type_mapping
+from openrelik_ai_common.providers import manager
 
 
 project_dir = os.path.normpath(
@@ -53,6 +54,14 @@ def get_active_cloud_provider() -> dict:
     ]
 
     return active_cloud[0] if active_cloud else {}
+
+
+def get_active_llms() -> dict:
+    """Get active LLM providers from the LLM manager."""
+    llm_manager = manager.LLMManager()
+    llm_providers = list(llm_manager.get_providers())
+    active_llms = [provider_class().to_dict() for _, provider_class in llm_providers]
+    return active_llms
 
 
 config = get_config()

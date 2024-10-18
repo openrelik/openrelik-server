@@ -25,18 +25,6 @@ Please provide a summary of the given summary of a shell history log. The summar
 """
 
 registry = {
-    "shell:bash:history": {
-        "triage": SHELL_HISTORY,
-        "summary": SHELL_HISTORY_SUMMARY,
-    },
-    "shell:zsh:history": {
-        "triage": SHELL_HISTORY,
-        "summary": SHELL_HISTORY_SUMMARY,
-    },
-    "shell:powershell:history": {
-        "triage": SHELL_HISTORY,
-        "summary": SHELL_HISTORY_SUMMARY,
-    },
     "file:generic": {
         "triage": SHELL_HISTORY,
         "summary": SHELL_HISTORY_SUMMARY,
