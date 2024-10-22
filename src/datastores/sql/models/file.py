@@ -47,6 +47,15 @@ file_workflow_association_table = Table(
     Column("workflow_id", ForeignKey("workflow.id"), primary_key=True),
 )
 
+# Many to many relationship for File and Task, where a File can be an input to a Task
+# and a Task can have many input files.
+file_task_input_association_table = Table(
+    "file_task_input_association",
+    BaseModel.metadata,
+    Column("task_id", ForeignKey("task.id"), primary_key=True),
+    Column("file_id", ForeignKey("file.id"), primary_key=True),
+)
+
 
 class File(BaseModel):
     """Represents a file in the database.
@@ -99,10 +108,11 @@ class File(BaseModel):
     folder_id: Mapped[Optional[int]] = mapped_column(ForeignKey("folder.id"))
     folder: Mapped[Optional["Folder"]] = relationship(back_populates="files")
 
-    # Relationship to Task (Input File)
-    task_input_id: Mapped[Optional[int]] = mapped_column(ForeignKey("task.id"))
-    task_input: Mapped[Optional["Task"]] = relationship(
-        back_populates="input_files", foreign_keys=[task_input_id]
+    # Many-to-Many Relationship with Task (only for input files)
+    tasks_input: Mapped[List["Task"]] = relationship(
+        secondary=file_task_input_association_table,
+        back_populates="input_files",
+        order_by="Task.id.desc()",
     )
 
     # Relationship to Task (Output File)
@@ -116,9 +126,11 @@ class File(BaseModel):
         back_populates="files",
         order_by="Workflow.id.desc()",
     )
+
     attributes: Mapped[List["FileAttribute"]] = relationship(
         back_populates="file", cascade="all, delete-orphan"
     )
+
     summaries: Mapped[List["FileSummary"]] = relationship(
         back_populates="file", cascade="all, delete-orphan"
     )
