@@ -20,7 +20,7 @@ from sqlalchemy import ForeignKey, UnicodeText, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import BaseModel
-from .file import file_workflow_association_table
+from .file import file_workflow_association_table, file_task_input_association_table
 
 if TYPE_CHECKING:
     from .file import File
@@ -75,9 +75,11 @@ class Task(BaseModel):
     workflow_id: Mapped[int] = mapped_column(ForeignKey("workflow.id"))
     workflow: Mapped["Workflow"] = relationship(back_populates="tasks")
 
-    # Input Files Relationship (One-to-Many)
+    # Many-to-Many Relationship with File (only for input)
+    # A task can have many input files, and a File can be input to many tasks.
     input_files: Mapped[List["File"]] = relationship(
-        back_populates="task_input", foreign_keys="[File.task_input_id]"
+        secondary=file_task_input_association_table,
+        back_populates="tasks_input",
     )
 
     # Output Files Relationship (One-to-Many)
