@@ -25,7 +25,7 @@ from celery.result import AsyncResult
 from datastores.sql import database
 from datastores.sql.models import file, folder, user, workflow
 
-from datastores.sql.crud.file import create_file_in_db
+from datastores.sql.crud.file import create_file_in_db, create_file_report_in_db
 from datastores.sql.crud.workflow import get_task_by_uuid_from_db, get_workflow_from_db
 
 from api.v1 import schemas
@@ -103,8 +103,11 @@ def process_successful_task(db, celery_task, db_task, celery_app):
     )
     db_task.result = json.dumps(result_dict)
 
+    output_files = result_dict.get("output_files", [])
+    file_reports = result_dict.get("file_reports", [])
+
     # Create files from the resulting output files
-    for file_data in result_dict.get("output_files", []):
+    for file_data in output_files:
         workflow = get_workflow_from_db(db, result_dict.get("workflow_id"))
         display_name = file_data.get("display_name")
         data_type = file_data.get("data_type")
@@ -125,6 +128,17 @@ def process_successful_task(db, celery_task, db_task, celery_app):
         new_file_db = create_file_in_db(db, new_file)
         # TODO: Move this to a celery task to run in the background
         generate_hashes(new_file_db.id)
+
+    for file_report in file_reports:
+        new_file_report = schemas.FileReportCreate(
+            summary=file_report.get("summary"),
+            priority=file_report.get("priority"),
+            input_file_uuid=file_report.get("input_file_uuid"),
+            content_file_uuid=file_report.get("content_file_uuid"),
+        )
+        file_report_db = create_file_report_in_db(
+            db, new_file_report, task_id=db_task.id
+        )
 
 
 def process_failed_task(db, celery_task, db_task):

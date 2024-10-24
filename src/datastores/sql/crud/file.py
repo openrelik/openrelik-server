@@ -12,17 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from sqlalchemy.orm import Session
-
-from datastores.sql.models.file import File, FileSummary
-
-from api.v1 import schemas
-
-from .folder import get_folder_from_db
-
+import os
+import uuid
 
 import magic
-import os
+from sqlalchemy.orm import Session
+
+from api.v1 import schemas
+from datastores.sql.models.file import File, FileReport, FileSummary
+
+from .folder import get_folder_from_db
 
 
 def get_files_from_db(db: Session, folder_id: int):
@@ -49,6 +48,19 @@ def get_file_from_db(db: Session, file_id: int):
         File: A File object representing the file with the specified ID.
     """
     return db.get(File, file_id)
+
+
+def get_file_by_uuid_from_db(db: Session, uuid_string: str):
+    """Get a file by uuid.
+
+    Args:
+        db (Session): SQLAlchemy session object
+        uuid (uuid.UUID): File uuid
+
+    Returns:
+        File object
+    """
+    return db.query(File).filter_by(uuid=uuid.UUID(uuid_string)).first()
 
 
 def create_file_in_db(db: Session, file: schemas.FileCreate):
@@ -130,3 +142,35 @@ def update_file_summary_in_db(db: Session, file_summary: FileSummary):
     db.commit()
     db.refresh(file_summary)
     return file_summary
+
+
+def create_file_report_in_db(
+    db: Session, file_report: schemas.FileReportCreate, task_id: int
+):
+    """Creates a new file report in the database.
+
+    Args:
+        db (Session): A SQLAlchemy database session object.
+        file_report (dict): A dictionary representing a FileReport.
+
+    Returns:
+        FileReport: The newly created FileReport object.
+    """
+    input_file = get_file_by_uuid_from_db(db, file_report.input_file_uuid)
+    content_file = get_file_by_uuid_from_db(db, file_report.content_file_uuid)
+
+    with open(content_file.path, "r") as fh:
+        content = fh.read()
+
+    db_file_report = FileReport(
+        summary=file_report.summary,
+        priority=file_report.priority,
+        markdown=content,
+        file=input_file,
+        content_file=content_file,
+        task_id=task_id,
+    )
+    db.add(db_file_report)
+    db.commit()
+    db.refresh(db_file_report)
+    return db_file_report

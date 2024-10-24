@@ -166,12 +166,12 @@ class FileResponse(BaseSchema):
     hash_sha1: Optional[str] = None
     hash_sha256: Optional[str] = None
     hash_ssdeep: Optional[str] = None
-
     user_id: int
     user: UserResponseCompact
     folder: Optional[FolderResponse]
     workflows: List["WorkflowResponse"]
     summaries: List["FileSummaryResponse"]
+    reports: List["FileReportResponse"]
 
 
 class FileResponseCompact(BaseSchemaCompact):
@@ -202,6 +202,28 @@ class FileSummaryResponse(BaseSchemaCompact):
     file_id: Optional[int] = None
 
 
+class FileReportCreate(BaseModel):
+    summary: str = ""
+    priority: int = 100
+    input_file_uuid: str = None
+    content_file_uuid: str = None
+
+
+class FileReportResponse(BaseModel):
+    summary: str = ""
+    priority: int = 100
+    markdown: str = ""
+    task: "TaskResponseCompact" = None
+
+
+class FileReportResponseCompact(BaseModel):
+    summary: str = ""
+    priority: int = 100
+    markdown: str = ""
+    file: "FileResponseCompact" = None
+
+
+# Cloud disk schemas
 class CloudDiskCreateRequest(BaseModel):
     folder_id: int
     disk_name: str
@@ -300,3 +322,12 @@ class TaskResponse(BaseSchema):
     error_traceback: Optional[str]
     user: UserResponseCompact
     output_files: Optional[List[FileResponseCompact]]
+    file_reports: Optional[List[FileReportResponseCompact]]
+
+
+class TaskResponseCompact(BaseSchema):
+    display_name: Optional[str]
+    description: Optional[str]
+    uuid: Optional[UUID] = None
+    status_short: Optional[str]
+    user: UserResponseCompact
