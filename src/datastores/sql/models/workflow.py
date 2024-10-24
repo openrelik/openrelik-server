@@ -23,7 +23,7 @@ from ..database import BaseModel
 from .file import file_workflow_association_table, file_task_input_association_table
 
 if TYPE_CHECKING:
-    from .file import File
+    from .file import File, FileReport
     from .folder import Folder
     from .user import User
 
@@ -82,7 +82,12 @@ class Task(BaseModel):
         back_populates="tasks_input",
     )
 
-    # Output Files Relationship (One-to-Many)
+    # Output Files Relationship (One-to-Many).
     output_files: Mapped[List["File"]] = relationship(
         back_populates="task_output", foreign_keys="[File.task_output_id]"
+    )
+
+    # Processing and analysis reports for a task.
+    file_reports: Mapped[List["FileReport"]] = relationship(
+        back_populates="task", cascade="all, delete-orphan"
     )

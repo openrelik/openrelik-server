@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import (
     UUID,
+    Integer,
     BigInteger,
     ForeignKey,
     Unicode,
@@ -135,6 +136,20 @@ class File(BaseModel):
         back_populates="file", cascade="all, delete-orphan"
     )
 
+    reports: Mapped[List["FileReport"]] = relationship(
+        back_populates="file",
+        cascade="all, delete-orphan",
+        foreign_keys="FileReport.file_id",
+    )
+
+    # One-to-one relationship for report content
+    report_content: Mapped["FileReport"] = relationship(
+        back_populates="content_file",
+        cascade="all, delete-orphan",
+        foreign_keys="FileReport.content_file_id",
+        uselist=False,
+    )
+
     # Optional relationship to represent files extracted from a source file
     # (e.g., from a disk image). This is a self reference, i.e. pointing to
     # another File object.
@@ -233,6 +248,40 @@ class FileSummaryFeedback(BaseModel, FeedbackMixin):
     # Relationships
     filesummary_id: Mapped[int] = mapped_column(ForeignKey("filesummary.id"))
     filesummary: Mapped["FileSummary"] = relationship(back_populates="feedbacks")
+
+
+class FileReport(BaseModel):
+    """Represents a report on a file.
+
+    Attributes:
+        summary (str): The summary of the report.
+        priority (int): The priority of the report.
+        markdown (str): The markdown content of the report.
+    """
+
+    summary: Mapped[str] = mapped_column(UnicodeText, index=False)
+    priority: Mapped[int] = mapped_column(Integer, index=True)
+    markdown: Mapped[str] = mapped_column(UnicodeText, index=False)
+
+    # The file that this report is about.
+    file_id: Mapped[int] = mapped_column(ForeignKey("file.id"))
+    file: Mapped["File"] = relationship(
+        back_populates="reports", foreign_keys=[file_id]
+    )
+
+    # The task that created this report.
+    task_id: Mapped[Optional[int]] = mapped_column(ForeignKey("task.id"))
+    task: Mapped[Optional["Task"]] = relationship(
+        back_populates="file_reports", foreign_keys=[task_id]
+    )
+
+    # The file containing the report content. One-to-one relationship.
+    content_file_id: Mapped[int] = mapped_column(ForeignKey("file.id"))
+    content_file: Mapped["File"] = relationship(
+        back_populates="report_content",
+        foreign_keys=[content_file_id],
+        uselist=False,
+    )
 
 
 # Delete file from the filesystem when the database row is deleted.
