@@ -25,13 +25,9 @@ from auth import common as common_auth
 from auth import google as google_auth
 from auth import local as local_auth
 from config import config
-from datastores.sql import database
 
 # Allow Frontend origin to make API calls.
 origins = config["server"]["allowed_origins"]
-
-# Initialize database
-database.BaseModel.metadata.create_all(bind=database.engine)
 
 # Create the main app
 app = FastAPI()
