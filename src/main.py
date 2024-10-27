@@ -19,6 +19,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from api.v1 import configs as configs_v1
 from api.v1 import files as files_v1
 from api.v1 import folders as folders_v1
+from api.v1 import taskqueue as taskqueue_v1
 from api.v1 import users as users_v1
 from api.v1 import workflows as workflows_v1
 from auth import common as common_auth
@@ -92,6 +93,15 @@ api_v1.include_router(
     folders_v1.router,
     prefix="/folders",
     tags=["folders"],
+    dependencies=[
+        Depends(common_auth.get_current_active_user),
+        Depends(common_auth.verify_csrf),
+    ],
+)
+api_v1.include_router(
+    taskqueue_v1.router,
+    prefix="/taskqueue",
+    tags=["taskqueue"],
     dependencies=[
         Depends(common_auth.get_current_active_user),
         Depends(common_auth.verify_csrf),

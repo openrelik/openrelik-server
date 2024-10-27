@@ -38,16 +38,11 @@ from datastores.sql.crud.workflow import (
 )
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.workflow import Task
-from lib.celery_utils import get_registered_celery_tasks, update_celery_task_queues
 
 from . import schemas
 
 redis_url = os.getenv("REDIS_URL")
 celery = Celery(broker=redis_url, backend=redis_url)
-
-# Setup the queues. This function take all registered tasks on the celery task queue and
-# generate the task queue config automatically.
-update_celery_task_queues(celery)
 
 router = APIRouter()
 
@@ -292,9 +287,3 @@ async def create_workflow_template(
         user_id=current_user.id,
     )
     return create_workflow_template_in_db(db, new_template_db)
-
-
-# Get registered tasks from Celery
-@router.get("/registered_tasks/")
-def get_registered_tasks():
-    return get_registered_celery_tasks(celery)
