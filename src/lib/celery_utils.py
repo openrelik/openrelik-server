@@ -16,7 +16,7 @@ import ast
 import re
 
 
-def get_registered_celery_tasks(celery_instance):
+def get_registered_tasks(celery_instance):
     """Get a list of registered celery tasks.
 
     Args:
@@ -58,14 +58,59 @@ def get_registered_celery_tasks(celery_instance):
     return registered_tasks_formatted
 
 
-def update_celery_task_queues(celery_instance):
+def update_task_queues(celery_instance):
     """Update the task queues for the celery instance.
 
     Args:
         celery_instance (Celery): The celery instance.
     """
-    registered_tasks = get_registered_celery_tasks(celery_instance)
+    registered_tasks = get_registered_tasks(celery_instance)
     task_routes = {}
     for task in registered_tasks:
         task_routes[task.get("task_name")] = {"queue": task.get("queue_name")}
     celery_instance.conf.task_routes = task_routes
+
+
+def get_worker_stats(celery_instance):
+    """Retrieves worker statistics."""
+    return celery_instance.control.inspect().stats()
+
+
+def get_worker_configurations(celery_instance):
+    """Retrieves worker configurations."""
+    return celery_instance.control.inspect().conf()
+
+
+def get_worker_reports(celery_instance):
+    """Retrieves worker reports."""
+    return celery_instance.control.inspect().report()
+
+
+def ping_workers(celery_instance):
+    """Pings workers to check their status."""
+    return celery_instance.control.ping()
+
+
+def get_active_tasks(celery_instance):
+    """Retrieves active tasks."""
+    return celery_instance.control.inspect().active(safe=True)
+
+
+def get_scheduled_tasks(celery_instance):
+    """Retrieves scheduled tasks."""
+    return celery_instance.control.inspect().scheduled(safe=True)
+
+
+def get_reserved_tasks(celery_instance):
+    """Retrieves reserved tasks."""
+    return celery_instance.control.inspect().reserved(safe=True)
+
+
+def get_revoked_tasks(celery_instance):
+    """Retrieves revoked tasks."""
+    return celery_instance.control.inspect().revoked(safe=True)
+
+
+def get_active_queues(celery_instance):
+    """Retrieves active queues."""
+    return celery_instance.control.inspect().active_queues()
