@@ -366,7 +366,7 @@ async def csrf(
     return csrf_token_from_cookie
 
 
-@router.delete("/auth/logout")
+@router.post("/auth/logout")
 async def logout(response: Response):
     """Logs out the currently logged-in user by deleting the access token cookie.
 
