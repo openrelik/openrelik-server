@@ -18,7 +18,16 @@ from typing import List
 from uuid import uuid4
 
 import aiofiles
-from fastapi import APIRouter, BackgroundTasks, Depends, Form, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    Form,
+    Query,
+    File,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -138,46 +147,73 @@ def delete_file(file_id: int, db: Session = Depends(get_db_connection)):
     delete_file_from_db(db, file_id)
 
 
-# Create file
-@router.post("/", status_code=status.HTTP_201_CREATED)
-async def create_file(
-    files: List[UploadFile],
-    background_tasks: BackgroundTasks,
-    folder_id: str = Form(),
+# Upload file
+@router.post("/upload", status_code=status.HTTP_201_CREATED)
+async def upload_files(
+    file: UploadFile = File(...),
+    resumableChunkNumber: int = Query(...),
+    resumableChunkSize: int = Query(...),
+    resumableCurrentChunkSize: int = Query(...),
+    resumableTotalChunks: int = Query(...),
+    resumableTotalSize: int = Query(...),
+    resumableIdentifier: str = Query(...),
+    resumableFilename: str = Query(...),
+    resumableRelativePath: str = Query(...),
+    folder_id: int = Query(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
-) -> List[schemas.FileResponse]:
-
+):
+    is_last_chunk = resumableChunkNumber == resumableTotalChunks
     folder = get_folder_from_db(db, folder_id)
-    files_in_db = []
 
-    # Save file to disk
-    for file in files:
-        _, file_extension = os.path.splitext(file.filename)
-        uuid = uuid4()
-        output_filename = f"{uuid.hex}{file_extension}"
-        output_path = os.path.join(folder.path, output_filename)
-        async with aiofiles.open(output_path, "wb") as fh:
-            while content := await file.read(1024000):  # Read 1MB chunks
-                await fh.write(content)
+    # Construct the chunk file path
+    chunk_file_path = os.path.join(
+        folder.path, f"{resumableIdentifier}.{resumableChunkNumber}"
+    )
 
-        # Save to database
-        new_file = schemas.FileCreate(
-            display_name=file.filename,
-            uuid=uuid,
-            filename=file.filename,
-            extension=file_extension.lstrip("."),
-            user_id=current_user.id,
-        )
-        if folder_id != "null":
-            new_file.folder_id = int(folder_id)
+    # Save the chunk to disk
+    async with aiofiles.open(chunk_file_path, "wb") as fh:
+        while content := await file.read(1024000):  # Read 1MB chunks
+            await fh.write(content)
 
-        new_file_db = create_file_in_db(db, new_file)
-        files_in_db.append(new_file_db)
+    # Return early if this is NOT the last chunk.
+    if not is_last_chunk:
+        return
 
-        background_tasks.add_task(generate_hashes, file_id=new_file_db.id)
+    # If all chunks has been uploaded then assemble the complete file.
+    _, file_extension = os.path.splitext(resumableFilename)
+    uuid = uuid4()
+    output_filename = f"{uuid.hex}{file_extension}"
+    output_path = os.path.join(folder.path, output_filename)
 
-    return files_in_db
+    async with aiofiles.open(output_path, "wb") as outfile:
+        for chunk_number in range(1, resumableTotalChunks + 1):
+            chunk_path = os.path.join(
+                folder.path, f"{resumableIdentifier}.{chunk_number}"
+            )
+            async with aiofiles.open(chunk_path, "rb") as infile:
+                while content := await infile.read(1024000):  # Read 1MB chunks
+                    await outfile.write(content)
+            # Remove the temporary chunk file.
+            os.remove(chunk_path)
+
+    # Save to database
+    new_file = schemas.FileCreate(
+        display_name=resumableFilename,
+        uuid=uuid,
+        filename=resumableFilename,
+        extension=file_extension.lstrip("."),
+        user_id=current_user.id,
+    )
+
+    if folder_id != "null":
+        new_file.folder_id = int(folder_id)
+
+    new_file_db = create_file_in_db(db, new_file)
+    background_tasks.add_task(generate_hashes, file_id=new_file_db.id)
+
+    return new_file_db
 
 
 # Create cloud disk file
