@@ -32,6 +32,8 @@ oauth = OAuth()
 GOOGLE_CLIENT_ID = config["auth"]["google"]["client_id"]
 GOOGLE_CLIENT_SECRET = config["auth"]["google"]["client_secret"]
 GOOGLE_ALLOW_LIST = config["auth"]["google"]["allowlist"]
+GOOGLE_PUBLIC_ACCESS = config["auth"]["google"].get("public_access", False)
+GOOGLE_WORKSPACE_DOMAIN = config["auth"]["google"].get("workspace_domain", False)
 
 REFRESH_TOKEN_EXPIRE_MINUTES = config["auth"]["jwt_cookie_refresh_expire_minutes"]
 ACCESS_TOKEN_EXPIRE_MINUTES = config["auth"]["jwt_cookie_access_expire_minutes"]
@@ -56,7 +58,14 @@ async def login(request: Request):
         Response: The FastAPI response object.
     """
     redirect_uri = str(request.url_for("auth"))
-    return await oauth.google.authorize_redirect(request, redirect_uri)
+
+    workspace_domain = None
+    if GOOGLE_WORKSPACE_DOMAIN:
+        workspace_domain = GOOGLE_WORKSPACE_DOMAIN
+
+    return await oauth.google.authorize_redirect(
+        request, redirect_uri, hd=workspace_domain
+    )
 
 
 @router.get("/auth/google")
@@ -84,8 +93,14 @@ async def auth(request: Request, db: Session = Depends(get_db_connection)):
     user_info = token.get("userinfo")
     user_email = user_info.get("email", "")
 
-    # Return early if the user is not allowed on the server.
-    if not user_email in GOOGLE_ALLOW_LIST:
+    # Restrict logins to Google Workspace Domain if configured.
+    if GOOGLE_WORKSPACE_DOMAIN and user_info.get("hd") != GOOGLE_WORKSPACE_DOMAIN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    # Check if the user is allowed to login.
+    if GOOGLE_PUBLIC_ACCESS:
+        pass  # Let everyone in.
+    elif not user_email in GOOGLE_ALLOW_LIST:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     db_user = get_user_by_email_from_db(db, email=user_email)
