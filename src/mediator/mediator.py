@@ -136,9 +136,7 @@ def process_successful_task(db, celery_task, db_task, celery_app):
             input_file_uuid=file_report.get("input_file_uuid"),
             content_file_uuid=file_report.get("content_file_uuid"),
         )
-        file_report_db = create_file_report_in_db(
-            db, new_file_report, task_id=db_task.id
-        )
+        create_file_report_in_db(db, new_file_report, task_id=db_task.id)
 
 
 def process_failed_task(db, celery_task, db_task):
