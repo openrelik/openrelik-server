@@ -17,13 +17,31 @@ import uuid
 
 from sqlalchemy.orm import Session
 
+from api.v1 import schemas
 from datastores.sql.models.folder import Folder
+from datastores.sql.models.roles import Role, UserRole
 from datastores.sql.models.user import User
 
-from api.v1 import schemas
+
+def get_root_folders_from_db(db: Session, current_user: User):
+    """Get all root folders for a user.
+
+    Args:
+        db (Session): database session
+        current_user (User): current user
+
+    Returns:
+        list: list of folders
+    """
+    return (
+        db.query(Folder)
+        .join(UserRole, UserRole.folder_id == Folder.id)
+        .filter(UserRole.user_id == current_user.id, Folder.parent_id.is_(None))
+        .all()
+    )
 
 
-def get_folders_from_db(db: Session, folder_id: str):
+def get_subfolders_from_db(db: Session, parent_folder_id: str):
     """Get all folders in a folder
 
     Args:
@@ -34,24 +52,27 @@ def get_folders_from_db(db: Session, folder_id: str):
         list: list of folders
     """
     return (
-        db.query(Folder).filter_by(parent_id=folder_id).order_by(Folder.id.desc()).all()
+        db.query(Folder)
+        .filter_by(parent_id=parent_folder_id)
+        .order_by(Folder.id.desc())
+        .all()
     )
 
 
-def get_folder_from_db(db: Session, folder_id: str):
-    """Get a folder
+def get_folder_from_db(db: Session, folder_id: int):
+    """Get a folder from the database by its ID.
 
     Args:
         db (Session): database session
         folder_id (int): folder id
 
     Returns:
-        Folder: folder
+        Folder object
     """
     return db.get(Folder, folder_id)
 
 
-def create_folder_in_db(
+def create_root_folder_in_db(
     db: Session,
     new_folder: schemas.FolderCreateRequest,
     current_user: User,
@@ -70,11 +91,52 @@ def create_folder_in_db(
         display_name=new_folder.display_name,
         uuid=uuid.uuid4(),
         user=current_user,
-        parent_id=new_folder.parent_id,
+        parent_id=None,
     )
     db.add(new_db_folder)
     db.commit()
     db.refresh(new_db_folder)
+
+    user_role = UserRole(user=current_user, folder=new_db_folder, role=Role.OWNER)
+    db.add(user_role)
+    db.commit()
+
+    if not os.path.exists(new_db_folder.path):
+        os.mkdir(new_db_folder.path)
+
+    return new_db_folder
+
+
+def create_subfolder_in_db(
+    db: Session,
+    folder_id: int,
+    new_folder: schemas.FolderCreateRequest,
+    current_user: User,
+):
+    """Create a folder
+
+    Args:
+        db (Session): database session
+        folder_id (int): parent folder id
+        new_folder (dict): dictionary for a folder
+        current_user (User): current user
+
+    Returns:
+        Folder: folder
+    """
+    new_db_folder = Folder(
+        display_name=new_folder.display_name,
+        uuid=uuid.uuid4(),
+        user=current_user,
+        parent_id=folder_id,
+    )
+    db.add(new_db_folder)
+    db.commit()
+    db.refresh(new_db_folder)
+
+    user_role = UserRole(user=current_user, folder=new_db_folder, role=Role.OWNER)
+    db.add(user_role)
+    db.commit()
 
     if not os.path.exists(new_db_folder.path):
         os.mkdir(new_db_folder.path)
@@ -92,8 +154,8 @@ def update_folder_in_db(db: Session, folder: schemas.FolderUpdateRequest):
     Returns:
         Folder object
     """
+    folder_in_db = db.get(Folder, folder.id)
     folder_dict = folder.model_dump()
-    folder_in_db = get_folder_from_db(db, folder.id)
     for key, value in folder_dict.items():
         setattr(folder_in_db, key, value) if value else None
     db.commit()

@@ -40,6 +40,8 @@ if TYPE_CHECKING:
     from .folder import Folder
     from .user import User
     from .workflow import Task, Workflow
+    from .roles import UserRole, GroupRole
+
 
 file_workflow_association_table = Table(
     "file_workflow_association_table",
@@ -48,8 +50,8 @@ file_workflow_association_table = Table(
     Column("workflow_id", ForeignKey("workflow.id"), primary_key=True),
 )
 
-# Many to many relationship for File and Task, where a File can be an input to a Task
-# and a Task can have many input files.
+# Many to many relationship for File and Task, where a File can be an input to many
+# Tasks and a Task can have many input Files.
 file_task_input_association_table = Table(
     "file_task_input_association",
     BaseModel.metadata,
@@ -157,6 +159,10 @@ class File(BaseModel):
     source_file: Mapped[Optional["File"]] = relationship(
         "File", remote_side="File.id", backref="extracted_files"
     )
+
+    # Roles, used by the permission system.
+    user_roles: Mapped[List["UserRole"]] = relationship(back_populates="file")
+    group_roles: Mapped[List["GroupRole"]] = relationship(back_populates="file")
 
     @hybrid_property
     def path(self):

@@ -163,3 +163,26 @@ def delete_user_api_key_from_db(db: Session, apikey_id: int, current_user: User)
     if api_key:
         db.delete(api_key)
         db.commit()
+
+
+def search_users(db: Session, search_string: str):
+    """
+    Search for users based on a search string.
+
+    Args:
+        db (Session): database session
+        search_string (str): the string to search for
+
+    Returns:
+        list: list of users
+    """
+    users = (
+        db.query(User)
+        .filter(
+            (User.display_name.ilike(f"%{search_string}%"))
+            | (User.username.ilike(f"%{search_string}%"))
+            | (User.email.ilike(f"%{search_string}%"))
+        )
+        .all()
+    )
+    return users

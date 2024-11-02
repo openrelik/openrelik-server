@@ -12,10 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import uuid as uuid_module
-
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Unicode, UnicodeText, UUID
+from sqlalchemy import UUID, Boolean, DateTime, ForeignKey, Unicode, UnicodeText
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import BaseModel
@@ -23,7 +22,9 @@ from ..database import BaseModel
 if TYPE_CHECKING:
     from .file import File
     from .folder import Folder
-    from .workflow import Workflow, WorkflowTemplate, Task
+    from .group import Group, group_user_association_table
+    from .roles import UserRole
+    from .workflow import Task, Workflow, WorkflowTemplate
 
 
 DEFAULT_ACCESS_TOKEN_EXPIRE_MINUTES = 10080
@@ -81,6 +82,10 @@ class User(BaseModel):
     )
     tasks: Mapped[List["Task"]] = relationship(back_populates="user")
     api_keys: Mapped[List["UserApiKey"]] = relationship(back_populates="user")
+    user_roles: Mapped[List["UserRole"]] = relationship(back_populates="user")
+    groups: Mapped[List["Group"]] = relationship(
+        secondary="group_user_association_table", back_populates="users"
+    )
 
 
 class UserApiKey(BaseModel):

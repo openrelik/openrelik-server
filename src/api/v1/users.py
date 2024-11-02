@@ -26,6 +26,7 @@ from datastores.sql.crud.user import (
     get_user_api_keys_from_db,
     create_user_api_key_in_db,
     delete_user_api_key_from_db,
+    search_users,
 )
 
 from api.v1 import schemas
@@ -121,3 +122,25 @@ async def delete_api_key(
         db (Session): The database session.
     """
     delete_user_api_key_from_db(db, apikey_id=apikey_id, current_user=current_user)
+
+
+@router.post("/search")
+def search_users_with_query(
+    search_request: schemas.UserSearchRequest,
+    db: Session = Depends(get_db_connection),
+) -> list[schemas.UserSearchResponse]:
+    """
+    Search for users based on a search string.
+
+    Args:
+        search_request (schemas.UserSearchRequest): The request body containing the search string.
+        db (Session): The database session.
+
+    Returns:
+        list[schemas.User]: A list of users matching the search criteria.
+    """
+    search_string = search_request.search_string
+    if not search_string:
+        return []
+    users = search_users(db, search_string)
+    return users

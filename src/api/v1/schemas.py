@@ -105,6 +105,15 @@ class UserApiKeyResponse(BaseSchema):
     token_exp: datetime
 
 
+class UserSearchRequest(BaseModel):
+    search_string: str
+
+
+class UserSearchResponse(BaseSchema):
+    display_name: str
+    username: str
+
+
 # Folder schemas
 class FolderCreateRequest(BaseModel):
     display_name: str
