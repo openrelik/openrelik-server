@@ -11,100 +11,198 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import List, TYPE_CHECKING, Optional
+from typing import List
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from auth.common import get_current_active_user
+from datastores.sql.crud.authz import require_access
 from datastores.sql.crud.file import get_files_from_db
-from datastores.sql.crud.workflow import get_folder_workflows_from_db
 from datastores.sql.crud.folder import (
-    create_folder_in_db,
-    update_folder_in_db,
-    get_folder_from_db,
-    get_folders_from_db,
+    create_root_folder_in_db,
+    create_subfolder_in_db,
     delete_folder_from_db,
+    get_folder_from_db,
+    get_root_folders_from_db,
+    get_subfolders_from_db,
+    update_folder_in_db,
 )
 from datastores.sql.database import get_db_connection
+from datastores.sql.models.roles import Role
 
 from . import schemas
-
 
 router = APIRouter()
 
 
-# Get all root folders
+# Get all root folders for a user
 @router.get("/")
 def get_root_folders(
     db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
 ) -> List[schemas.FolderResponse]:
-    parent_folder = None
-    return get_folders_from_db(db, parent_folder)
+    """Get all root folders for a user.
+
+    Args:
+        db (Session): database session
+        current_user (User): current user
+
+    Returns:
+        list: list of folders
+    """
+    return get_root_folders_from_db(db, current_user)
+
+
+# Get all sub-folders for a parent folder
+@router.get("/{folder_id}/folders/")
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
+def get_subfolders(
+    folder_id: str,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> List[schemas.FolderResponse]:
+    """
+    Get all subfolders within a specified folder.
+
+    Args:
+        folder_id: The ID of the parent folder.
+        db: The database session.
+        current_user: The currently authenticated user.
+
+    Returns:
+        A list of subfolders within the specified folder.
+
+    Raises:
+        HTTPException: If the parent folder does not exist or the user does not have permission to access it.
+    """
+    return get_subfolders_from_db(db, parent_folder_id=folder_id)
 
 
 # Get folder
-# TODO: Return different response if folder is deleted.
 @router.get("/{folder_id}")
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
 def get_folder(
-    folder_id: str, db: Session = Depends(get_db_connection)
+    folder_id: str,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.FolderResponse:
-    return get_folder_from_db(db, int(folder_id))
+    """Get a folder from the database if the user has access.
+
+    Args:
+        folder_id: The ID of the folder to retrieve.
+        db: The database session.
+        current_user: The currently authenticated user.
+
+    Returns:
+        The folder object if found and the user has access.
+
+    Raises:
+        HTTPException: If the folder does not exist or the user does not have
+        permission to access it.
+    """
+    # TODO: Return different response if folder is deleted.
+    # This can be implemented by checking a "deleted" flag on the folder object
+    # and returning a different response or status code if it's set.
+    return get_folder_from_db(db, folder_id)
 
 
-# Create folder
+# Create root folder
+# No access check is necessary as active users can create their own root folders.
 @router.post("/", status_code=status.HTTP_201_CREATED)
-def create_folder(
+def create_root_folder(
     new_folder_request: schemas.FolderCreateRequest,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.FolderResponse:
-    return create_folder_in_db(db, new_folder_request, current_user)
+    """Create a folder.
+
+    Args:
+        db (Session): database session
+        new_folder_request (dict): dictionary for a folder
+        current_user (User): current user
+
+    Returns:
+        Folder: folder
+
+    Raises:
+        HTTPException: If the user does not have permission to create a folder.
+    """
+    return create_root_folder_in_db(db, new_folder_request, current_user)
+
+
+# Create subfolder
+@router.post("/{folder_id}/folders/", status_code=status.HTTP_201_CREATED)
+@require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
+def create_subfolder(
+    new_folder_request: schemas.FolderCreateRequest,
+    folder_id: int,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> schemas.FolderResponse:
+    """Create a sub folder.
+
+    Args:
+        db (Session): database session
+        new_folder_request (dict): dictionary for a folder
+        current_user (User): current user
+
+    Returns:
+        Folder: folder
+    """
+    return create_subfolder_in_db(db, folder_id, new_folder_request, current_user)
 
 
 # Update folder
-@router.patch("/{folder_id}", response_model=schemas.FolderResponse)
+@router.patch("/{folder_id}")
+@require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
 async def update_folder(
     folder_id: int,
     folder_from_request: schemas.FolderUpdateRequest,
+    current_user: schemas.User = Depends(get_current_active_user),
     db: Session = Depends(get_db_connection),
-):
-    # Fetch folder to update from database
+) -> schemas.FolderResponse:
+    """Update a folder in the database.
+
+    Args:
+        folder_id (int): The ID of the folder to update.
+        folder_from_request (schemas.FolderUpdateRequest): The updated folder data.
+        current_user (schemas.User): The currently authenticated user.
+        db (Session): The database session.
+
+    Returns:
+        schemas.FolderResponse: The updated folder data.
+
+    Raises:
+        HTTPException: If the user does not have permission to update it.
+    """
     folder_from_db = get_folder_from_db(db, folder_id)
     folder_model = schemas.FolderCreate(**folder_from_db.__dict__)
 
-    # Update workflow data with supplied values
+    # Update folder data with supplied values
     update_data = folder_from_request.model_dump(exclude_unset=True)
     updated_folder_model = folder_model.model_copy(update=update_data)
 
     return update_folder_in_db(db, updated_folder_model)
 
 
-# Get sub-folders for a folder
-@router.get("/{folder_id}/folders/")
-def get_folders(
-    folder_id: str, db: Session = Depends(get_db_connection)
-) -> List[schemas.FolderResponse]:
-    return get_folders_from_db(db, folder_id)
-
-
 # Get files for a folder
 @router.get("/{folder_id}/files/")
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
 def get_folder_files(
-    folder_id: str, db: Session = Depends(get_db_connection)
+    folder_id: str,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
 ) -> List[schemas.FileResponse]:
     return get_files_from_db(db, folder_id)
 
 
-# Get workflows for a folder
-@router.get("/{folder_id}/workflows")
-def get_workflows(
-    folder_id: str, db: Session = Depends(get_db_connection)
-) -> List[schemas.WorkflowResponse]:
-    return get_folder_workflows_from_db(db, folder_id)
-
-
 # Delete folder
 @router.delete("/{folder_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_folder(folder_id: int, db: Session = Depends(get_db_connection)):
+@require_access(allowed_roles=[Role.OWNER])
+def delete_folder(
+    folder_id: int,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+):
     delete_folder_from_db(db, folder_id)

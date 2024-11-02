@@ -99,18 +99,27 @@ api_v1.include_router(
     ],
 )
 api_v1.include_router(
-    taskqueue_v1.router,
-    prefix="/taskqueue",
-    tags=["taskqueue"],
+    workflows_v1.router,
+    prefix="/folders/{folder_id}/workflows",
+    tags=["workflows"],
     dependencies=[
         Depends(common_auth.get_current_active_user),
         Depends(common_auth.verify_csrf),
     ],
 )
 api_v1.include_router(
-    workflows_v1.router,
+    workflows_v1.router_root,
     prefix="/workflows",
     tags=["workflows"],
+    dependencies=[
+        Depends(common_auth.get_current_active_user),
+        Depends(common_auth.verify_csrf),
+    ],
+)
+api_v1.include_router(
+    taskqueue_v1.router,
+    prefix="/taskqueue",
+    tags=["taskqueue"],
     dependencies=[
         Depends(common_auth.get_current_active_user),
         Depends(common_auth.verify_csrf),

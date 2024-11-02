@@ -25,12 +25,14 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from auth.common import get_current_active_user
-from datastores.sql.crud.folder import create_folder_in_db
+from datastores.sql.crud.authz import require_access
+from datastores.sql.crud.folder import create_subfolder_in_db
 from datastores.sql.crud.workflow import (
     create_task_in_db,
     create_workflow_in_db,
     create_workflow_template_in_db,
     delete_workflow_from_db,
+    get_folder_workflows_from_db,
     get_workflow_from_db,
     get_workflow_template_from_db,
     get_workflow_templates_from_db,
@@ -38,13 +40,18 @@ from datastores.sql.crud.workflow import (
 )
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.workflow import Task
+from datastores.sql.models.roles import Role
 
 from . import schemas
 
 redis_url = os.getenv("REDIS_URL")
 celery = Celery(broker=redis_url, backend=redis_url)
 
+# Workflows in a folder context.
 router = APIRouter()
+
+# Router for resouces that live under /workflows, i.e. outside of a folder context.
+router_root = APIRouter()
 
 
 def replace_uuids(data: dict | list, replace_with: str = None) -> dict | list:
@@ -71,19 +78,16 @@ def replace_uuids(data: dict | list, replace_with: str = None) -> dict | list:
             replace_uuids(item)
 
 
-# Get workflow
-@router.get("/{workflow_id}", response_model=schemas.WorkflowResponse)
-async def get_workflow(workflow_id: int, db: Session = Depends(get_db_connection)):
-    return get_workflow_from_db(db, workflow_id)
-
-
 # Create workflow
-@router.post("/", response_model=schemas.WorkflowResponse)
+# /folders/{folder_id}/workflows
+@router.post("/")
+@require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
 async def create_workflow(
+    folder_id: int,
     request_body: schemas.WorkflowCreateRequest,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
-):
+) -> schemas.WorkflowResponse:
 
     default_workflow_display_name = "Untitled workflow"
     default_spec_json = None
@@ -100,7 +104,9 @@ async def create_workflow(
     new_folder = schemas.FolderCreateRequest(
         display_name=default_workflow_display_name, parent_id=request_body.folder_id
     )
-    new_workflow_folder = create_folder_in_db(db, new_folder, current_user)
+    new_workflow_folder = create_subfolder_in_db(
+        db, folder_id, new_folder, current_user
+    )
 
     # Create new workflow
     new_workflow_db = schemas.Workflow(
@@ -116,13 +122,40 @@ async def create_workflow(
     return new_workflow
 
 
+# Get workflow
+# /folders/{folder_id}/workflows/{workflow_id}
+@router.get("/{workflow_id}")
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
+async def get_workflow(
+    workflow_id: int,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> schemas.WorkflowResponse:
+    return get_workflow_from_db(db, workflow_id)
+
+
+# Get all workflows for a folder
+@router.get("/workflows")
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
+def get_workflows(
+    folder_id: str,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> List[schemas.WorkflowResponse]:
+    return get_folder_workflows_from_db(db, folder_id)
+
+
 # Update workflow
-@router.patch("/{workflow_id}", response_model=schemas.WorkflowResponse)
+# /folders/{folder_id}/workflows/{workflow_id}
+@router.patch("/{workflow_id}")
+@require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
 async def update_workflow(
+    folder_id: int,
     workflow_id: int,
     workflow_from_request: schemas.Workflow,
     db: Session = Depends(get_db_connection),
-):
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> schemas.WorkflowResponse:
     # Fetch workflow to update from database
     workflow_from_db = get_workflow_from_db(db, workflow_id)
     workflow_model = schemas.Workflow(**workflow_from_db.__dict__)
@@ -135,12 +168,15 @@ async def update_workflow(
 
 
 # Copy workflow
-@router.post("/{workflow_id}/copy/", response_model=schemas.WorkflowResponse)
+# /folders/{folder_id}/workflows/{workflow_id}/copy
+@router.post("/{workflow_id}/copy/")
+@require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
 async def copy_workflow(
+    folder_id: int,
     workflow_id: int,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
-):
+) -> schemas.WorkflowResponse:
 
     workflow_to_copy = get_workflow_from_db(db, workflow_id)
     workflow_spec = json.loads(workflow_to_copy.spec_json)
@@ -151,7 +187,9 @@ async def copy_workflow(
         display_name=f"Copy of {workflow_to_copy.display_name}",
         parent_id=workflow_to_copy.folder.parent_id,
     )
-    new_workflow_folder = create_folder_in_db(db, new_folder, current_user)
+    new_workflow_folder = create_subfolder_in_db(
+        db, folder_id, new_folder, current_user
+    )
 
     new_workflow_db = schemas.Workflow(
         display_name=f"Copy of {workflow_to_copy.display_name}",
@@ -164,19 +202,29 @@ async def copy_workflow(
 
 
 # Delete workflow
+# /folders/{folder_id}/workflows/{workflow_id}
 @router.delete("/{workflow_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_workflow(workflow_id: int, db: Session = Depends(get_db_connection)):
+@require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
+async def delete_workflow(
+    folder_id: int,
+    workflow_id: int,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+):
     delete_workflow_from_db(db, workflow_id)
 
 
 # Run workflow
-@router.post("/run/", response_model=schemas.WorkflowResponse)
+# /folders/{folder_id}/workflows/{workflow_id}/run
+@router.post("/{workflow_id}/run/")
+@require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
 async def run_workflow(
+    folder_id: int,
+    workflow_id: int,
     request: dict,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
-):
-    workflow_id = request.get("workflow_id")
+) -> schemas.WorkflowResponse:
     workflow_spec = request.get("workflow_spec")
     workflow_spec_json = json.dumps(workflow_spec)
     workflow = get_workflow_from_db(db, workflow_id)
@@ -263,19 +311,26 @@ async def run_workflow(
     return workflow
 
 
+### Root level resources (/workflows/...)
+
+
 # Get all workflow templates
-@router.get("/templates/", response_model=List[schemas.WorkflowTemplateResponse])
-async def get_workflow_templates(db: Session = Depends(get_db_connection)):
+# /workflows/templates
+@router_root.get("/templates/")
+async def get_workflow_templates(
+    db: Session = Depends(get_db_connection),
+) -> List[schemas.WorkflowTemplateResponse]:
     return get_workflow_templates_from_db(db)
 
 
 # Create workflow template
-@router.post("/templates/", response_model=schemas.WorkflowTemplateResponse)
+# /workflows/templates
+@router_root.post("/templates/")
 async def create_workflow_template(
     new_template_request: schemas.WorkflowTemplateCreateRequest,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
-):
+) -> schemas.WorkflowTemplateResponse:
     workflow_to_save = get_workflow_from_db(db, new_template_request.workflow_id)
     # Replace UUIDs with placeholder value for the template
     spec_json = json.loads(workflow_to_save.spec_json)

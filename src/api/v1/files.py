@@ -18,20 +18,13 @@ from typing import List
 from uuid import uuid4
 
 import aiofiles
-from fastapi import (
-    APIRouter,
-    BackgroundTasks,
-    Depends,
-    Query,
-    File,
-    UploadFile,
-    status,
-)
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, UploadFile, status
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from auth.common import get_current_active_user
 from config import config, get_active_cloud_provider
+from datastores.sql.crud.authz import require_access
 from datastores.sql.crud.file import (
     create_file_in_db,
     create_file_summary_in_db,
@@ -42,6 +35,7 @@ from datastores.sql.crud.file import (
 from datastores.sql.crud.folder import get_folder_from_db
 from datastores.sql.crud.workflow import get_file_workflows_from_db, get_task_from_db
 from datastores.sql.database import get_db_connection
+from datastores.sql.models.roles import Role
 from datastores.sql.models.workflow import Task
 from lib.constants import cloud_provider_data_type_mapping
 from lib.file_hashes import generate_hashes
@@ -58,19 +52,24 @@ ALLOWED_DATA_TYPES_PREVIEW = config.get("ui", {}).get("allowed_data_types_previe
 # Get file
 # TODO: Return different response if folder is deleted.
 @router.get("/{file_id}")
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
 def get_file(
-    file_id: str, db: Session = Depends(get_db_connection)
+    file_id: str,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.FileResponse:
     return get_file_from_db(db, int(file_id))
 
 
 # Get file content
 @router.get("/{file_id}/content", response_class=HTMLResponse)
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
 def get_file_content(
     file_id: str,
     theme: str = "light",
     unescaped: bool = False,
     db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
 ):
     file = get_file_from_db(db, file_id)
     encodings_to_try = ["utf-8", "utf-16", "ISO-8859-1"]
@@ -106,7 +105,12 @@ def get_file_content(
 
 # Download file
 @router.post("/{file_id}/download")
-def download_file(file_id: int, db: Session = Depends(get_db_connection)):
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
+def download_file(
+    file_id: int,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+):
     file = get_file_from_db(db, file_id)
     headers = {"Access-Control-Expose-Headers": "Content-Disposition"}
     return FileResponse(
@@ -119,7 +123,12 @@ def download_file(file_id: int, db: Session = Depends(get_db_connection)):
 
 # Download file stream
 @router.get("/{file_id}/download_stream")
-async def download_file_stream(file_id: int, db: Session = Depends(get_db_connection)):
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
+async def download_file_stream(
+    file_id: int,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+):
     file = get_file_from_db(db, file_id)
     file_path = file.path
     CHUNK_SIZE = 10 * 1024 * 1024  # 10MB
@@ -142,12 +151,18 @@ async def download_file_stream(file_id: int, db: Session = Depends(get_db_connec
 
 # Delete file
 @router.delete("/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_file(file_id: int, db: Session = Depends(get_db_connection)):
+@require_access(allowed_roles=[Role.OWNER])
+def delete_file(
+    file_id: int,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+):
     delete_file_from_db(db, file_id)
 
 
 # Upload file
 @router.post("/upload", status_code=status.HTTP_201_CREATED)
+@require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
 async def upload_files(
     file: UploadFile = File(...),
     resumableChunkNumber: int = Query(...),
@@ -217,6 +232,7 @@ async def upload_files(
 
 # Create cloud disk file
 @router.post("/cloud", status_code=status.HTTP_201_CREATED)
+@require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
 async def create_cloud_disk_file(
     background_tasks: BackgroundTasks,
     request: schemas.CloudDiskCreateRequest,
@@ -260,30 +276,37 @@ async def create_cloud_disk_file(
     "/{file_id}/workflows",
     summary="Get all workflows for a file",
 )
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
 def get_workflows(
-    file_id: str, db: Session = Depends(get_db_connection)
+    file_id: str,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
 ) -> List[schemas.WorkflowResponse]:
     return get_file_workflows_from_db(db, file_id)
 
 
 # Get task
 @router.get("/{file_id}/workflows/{workflow_id}/tasks/{task_id}")
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
 def get_task(
     file_id: int,
     workflow_id: int,
     task_id: int,
     db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
 ) -> List[schemas.Task]:
     return get_task_from_db(db, task_id)
 
 
 # Download task result file
 @router.post("/{file_id}/workflows/{workflow_id}/tasks/{task_id}/download")
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
 def download_task_result(
     file_id: int,
     workflow_id: int,
     task_id: str,
     db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
 ):
     task = db.get(Task, task_id)
     result = json.loads(task.result)
@@ -302,19 +325,23 @@ def download_task_result(
 @router.get(
     "/{file_id}/summaries/{summary_id}", response_model=schemas.FileSummaryResponse
 )
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
 def get_file_summary(
     file_id: int,
     summary_id: int,
     db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
 ):
     return get_file_summary_from_db(db, summary_id)
 
 
 @router.post("/{file_id}/summaries")
+@require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
 def generate_file_summary(
     file_id: int,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
 ):
 
     new_file_summary = schemas.FileSummaryCreate(

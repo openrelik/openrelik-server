@@ -12,20 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import os
-from typing import TYPE_CHECKING, List, Optional
 import uuid as uuid_module
+from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import BigInteger, ForeignKey, Integer, UnicodeText, UUID
+from sqlalchemy import UUID, BigInteger, ForeignKey, Integer, UnicodeText
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from config import config
-
-from ..database import BaseModel, AttributeMixin
 from datastores.sql.models.workflow import Workflow
+
+from ..database import AttributeMixin, BaseModel
 
 if TYPE_CHECKING:
     from datastores.sql.models.file import File
+    from datastores.sql.models.roles import GroupRole, UserRole
     from datastores.sql.models.user import User
 
 
@@ -61,6 +62,10 @@ class Folder(BaseModel):
     attributes: Mapped[List["FolderAttribute"]] = relationship(
         back_populates="folder", cascade="all, delete-orphan"
     )
+
+    # Roles, used by the permission system.
+    user_roles: Mapped[List["UserRole"]] = relationship(back_populates="folder")
+    group_roles: Mapped[List["GroupRole"]] = relationship(back_populates="folder")
 
     # Implements an adjacency list relationship to support folders in folders.
     parent_id: Mapped[Optional[int]] = mapped_column(
