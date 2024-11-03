@@ -26,8 +26,8 @@ from ..database import AttributeMixin, BaseModel
 
 if TYPE_CHECKING:
     from datastores.sql.models.file import File
-    from datastores.sql.models.roles import GroupRole, UserRole
-    from datastores.sql.models.user import User
+    from datastores.sql.models.user import User, UserRole
+    from datastores.sql.models.group import GroupRole
 
 
 class Folder(BaseModel):

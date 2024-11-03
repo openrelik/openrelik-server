@@ -13,9 +13,8 @@ from datastores.sql.models.file import (
     FileSummaryFeedback,
 )
 from datastores.sql.models.folder import Folder, FolderAttribute, FolderSummary
-from datastores.sql.models.group import Group
-from datastores.sql.models.roles import GroupRole, UserRole
-from datastores.sql.models.user import User, UserApiKey
+from datastores.sql.models.group import Group, GroupRole
+from datastores.sql.models.user import User, UserRole, UserApiKey
 from datastores.sql.models.workflow import Task, Workflow, WorkflowTemplate
 
 # this is the Alembic Config object, which provides

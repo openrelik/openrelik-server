@@ -40,7 +40,7 @@ from datastores.sql.crud.workflow import (
 )
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.workflow import Task
-from datastores.sql.models.roles import Role
+from datastores.sql.models.role import Role
 
 from . import schemas
 
