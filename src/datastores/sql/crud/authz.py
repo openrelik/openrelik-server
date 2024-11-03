@@ -21,8 +21,8 @@ from sqlalchemy.orm import Session
 
 from datastores.sql.models.file import File
 from datastores.sql.models.folder import Folder
-from datastores.sql.models.roles import Role, UserRole
-from datastores.sql.models.user import User
+from datastores.sql.models.role import Role
+from datastores.sql.models.user import User, UserRole
 
 
 class AuthorizationError(Exception):

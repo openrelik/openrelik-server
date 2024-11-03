@@ -38,9 +38,9 @@ from ..database import (
 
 if TYPE_CHECKING:
     from .folder import Folder
-    from .user import User
+    from .user import User, UserRole
+    from .group import GroupRole
     from .workflow import Task, Workflow
-    from .roles import UserRole, GroupRole
 
 
 file_workflow_association_table = Table(

@@ -12,16 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import uuid as uuid_module
-from typing import TYPE_CHECKING, List
 
-from sqlalchemy import UUID, Column, ForeignKey, Table, UnicodeText
+
+from typing import TYPE_CHECKING, List, Optional
+
+from sqlalchemy import UUID, Column, ForeignKey, Table, UnicodeText, Enum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import BaseModel
 
+from .role import Role
+
+
 if TYPE_CHECKING:
-    from .roles import GroupRole
     from .user import User
+    from .folder import Folder
+    from .file import File
 
 
 group_user_association_table = Table(
@@ -52,3 +58,23 @@ class Group(BaseModel):
         back_populates="groups",
     )
     group_roles: Mapped[List["GroupRole"]] = relationship(back_populates="group")
+
+
+class GroupRole(BaseModel):
+    """Represents a group role in the database.
+
+    Attributes:
+        role (Role): The role of the group.
+    """
+
+    role: Mapped[Role] = mapped_column(Enum(Role), nullable=False)
+
+    # Relationships
+    group_id: Mapped[int] = mapped_column(ForeignKey("group.id"))
+    group: Mapped["Group"] = relationship(back_populates="group_roles")
+    folder_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("folder.id"), nullable=True
+    )
+    folder: Mapped[Optional["Folder"]] = relationship(back_populates="group_roles")
+    file_id: Mapped[Optional[int]] = mapped_column(ForeignKey("file.id"), nullable=True)
+    file: Mapped[Optional["File"]] = relationship(back_populates="group_roles")

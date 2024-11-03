@@ -14,16 +14,17 @@
 import uuid as uuid_module
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import UUID, Boolean, DateTime, ForeignKey, Unicode, UnicodeText
+from sqlalchemy import UUID, Boolean, DateTime, Enum, ForeignKey, Unicode, UnicodeText
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import BaseModel
+from .role import Role
+from .group import group_user_association_table
 
 if TYPE_CHECKING:
     from .file import File
     from .folder import Folder
-    from .group import Group, group_user_association_table
-    from .roles import UserRole
+    from .group import Group
     from .workflow import Task, Workflow, WorkflowTemplate
 
 
@@ -84,8 +85,28 @@ class User(BaseModel):
     api_keys: Mapped[List["UserApiKey"]] = relationship(back_populates="user")
     user_roles: Mapped[List["UserRole"]] = relationship(back_populates="user")
     groups: Mapped[List["Group"]] = relationship(
-        secondary="group_user_association_table", back_populates="users"
+        secondary=group_user_association_table, back_populates="users"
     )
+
+
+class UserRole(BaseModel):
+    """Represents a user role in the database.
+
+    Attributes:
+        role (Role): The role of the user.
+    """
+
+    role: Mapped[Role] = mapped_column(Enum(Role), nullable=False)
+
+    # Relationships
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    user: Mapped["User"] = relationship(back_populates="user_roles")
+    folder_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("folder.id"), nullable=True
+    )
+    folder: Mapped[Optional["Folder"]] = relationship(back_populates="user_roles")
+    file_id: Mapped[Optional[int]] = mapped_column(ForeignKey("file.id"), nullable=True)
+    file: Mapped[Optional["File"]] = relationship(back_populates="user_roles")
 
 
 class UserApiKey(BaseModel):

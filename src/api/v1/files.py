@@ -35,7 +35,7 @@ from datastores.sql.crud.file import (
 from datastores.sql.crud.folder import get_folder_from_db
 from datastores.sql.crud.workflow import get_file_workflows_from_db, get_task_from_db
 from datastores.sql.database import get_db_connection
-from datastores.sql.models.roles import Role
+from datastores.sql.models.role import Role
 from datastores.sql.models.workflow import Task
 from lib.constants import cloud_provider_data_type_mapping
 from lib.file_hashes import generate_hashes

@@ -19,8 +19,8 @@ from sqlalchemy.orm import Session
 
 from api.v1 import schemas
 from datastores.sql.models.folder import Folder
-from datastores.sql.models.roles import Role, UserRole
-from datastores.sql.models.user import User
+from datastores.sql.models.role import Role
+from datastores.sql.models.user import User, UserRole
 
 
 def get_root_folders_from_db(db: Session, current_user: User):

@@ -29,7 +29,7 @@ from datastores.sql.crud.folder import (
     update_folder_in_db,
 )
 from datastores.sql.database import get_db_connection
-from datastores.sql.models.roles import Role
+from datastores.sql.models.role import Role
 
 from . import schemas
 
