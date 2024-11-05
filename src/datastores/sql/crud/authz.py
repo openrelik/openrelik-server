@@ -23,6 +23,7 @@ from datastores.sql.models.file import File
 from datastores.sql.models.folder import Folder
 from datastores.sql.models.role import Role
 from datastores.sql.models.user import User, UserRole
+from datastores.sql.models.group import GroupRole
 
 
 class AuthorizationError(Exception):
@@ -60,7 +61,7 @@ def check_user_access(
         file (File, optional): File object. Defaults to None.
 
     Returns:
-        bool: True if the user has any of the allowed roles, False otherwise.
+        bool: UserRole or GroupRole if authorized, False otherwise.
 
     Raises:
         ValueError: If neither folder nor file is provided.
@@ -79,7 +80,18 @@ def check_user_access(
             .first()
         )
         if file_role and file_role.role in allowed_roles:
-            return True
+            return file_role
+
+        # Check for file permissions via GroupRole
+        for group in user.groups:
+            group_role = (
+                db.query(GroupRole)
+                .filter(GroupRole.group_id == group.id, GroupRole.file_id == file.id)
+                .first()
+            )
+            if group_role and group_role.role in allowed_roles:
+                return group_role
+
         # If no explicit file permission, check folder permissions
         folder = file.folder
 
@@ -95,7 +107,19 @@ def check_user_access(
                 return False  # Explicitly denied access, stop traversal
 
             if folder_role.role in allowed_roles:
-                return True
+                return folder_role
+
+        # Check for folder permissions via GroupRole
+        for group in user.groups:
+            group_role = (
+                db.query(GroupRole)
+                .filter(
+                    GroupRole.group_id == group.id, GroupRole.folder_id == folder.id
+                )
+                .first()
+            )
+            if group_role and group_role.role in allowed_roles:
+                return group_role
 
         folder = folder.parent
 

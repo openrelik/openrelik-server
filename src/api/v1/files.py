@@ -224,7 +224,7 @@ async def upload_files(
     if folder_id != "null":
         new_file.folder_id = int(folder_id)
 
-    new_file_db = create_file_in_db(db, new_file)
+    new_file_db = create_file_in_db(db, new_file, current_user)
     background_tasks.add_task(generate_hashes, file_id=new_file_db.id)
 
     return new_file_db
@@ -265,7 +265,7 @@ async def create_cloud_disk_file(
     if request.folder_id != "null":
         new_file.folder_id = int(request.folder_id)
 
-    new_file_db = create_file_in_db(db, new_file)
+    new_file_db = create_file_in_db(db, new_file, current_user)
     background_tasks.add_task(generate_hashes, file_id=new_file_db.id)
 
     return new_file_db

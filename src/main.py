@@ -12,13 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import not_, or_
 from starlette.middleware.sessions import SessionMiddleware
 
 from api.v1 import configs as configs_v1
 from api.v1 import files as files_v1
 from api.v1 import folders as folders_v1
+from api.v1 import groups as groups_v1
+from api.v1 import schemas
 from api.v1 import taskqueue as taskqueue_v1
 from api.v1 import users as users_v1
 from api.v1 import workflows as workflows_v1
@@ -26,12 +31,56 @@ from auth import common as common_auth
 from auth import google as google_auth
 from auth import local as local_auth
 from config import config
+from datastores.sql.crud.group import (
+    add_user_to_group,
+    create_group_in_db,
+    get_group_by_name_from_db,
+)
+from datastores.sql.database import SessionLocal
+from datastores.sql.models.group import Group
+from datastores.sql.models.user import User
 
 # Allow Frontend origin to make API calls.
 origins = config["server"]["allowed_origins"]
 
+
+async def populate_everyone_group(db):
+    everyone_group = get_group_by_name_from_db(db, "Everyone")
+    if not everyone_group:
+        everyone_group = create_group_in_db(db, schemas.GroupCreate(name="Everyone"))
+
+    # Add users that are not in the "Everyone" group.
+    users_to_add = (
+        db.query(User)
+        .filter(
+            or_(
+                not_(User.groups.any()),  # Users with no groups
+                not_(
+                    User.groups.any(Group.id == everyone_group.id)
+                ),  # Users not in everyone_group
+            )
+        )
+        .all()
+    )
+    for user in users_to_add:
+        add_user_to_group(db, everyone_group, user)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # This is run before the application accepts requests (before start)
+    try:
+        db = SessionLocal()
+        await populate_everyone_group(db)
+    finally:
+        db.close()
+    yield
+    # Anything after the yield is run when the server is shutting down.
+    pass
+
+
 # Create the main app
-app = FastAPI()
+app = FastAPI(lifespan=lifespan)
 app.add_middleware(SessionMiddleware, secret_key=config["auth"]["secret_session_key"])
 
 # Create app for API version 1
@@ -66,6 +115,15 @@ api_v1.include_router(
     users_v1.router,
     prefix="/users",
     tags=["users"],
+    dependencies=[
+        Depends(common_auth.get_current_active_user),
+        Depends(common_auth.verify_csrf),
+    ],
+)
+api_v1.include_router(
+    groups_v1.router,
+    prefix="/groups",
+    tags=["groups"],
     dependencies=[
         Depends(common_auth.get_current_active_user),
         Depends(common_auth.verify_csrf),

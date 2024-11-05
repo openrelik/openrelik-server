@@ -15,7 +15,9 @@
 from sqlalchemy.orm import Session
 
 from api.v1 import schemas
-from datastores.sql.models.user import User, UserApiKey
+from datastores.sql.models.user import User, UserApiKey, UserRole
+
+from .group import create_group_in_db, get_group_by_name_from_db
 
 
 def get_users_from_db(db: Session):
@@ -105,6 +107,13 @@ def create_user_in_db(db: Session, new_user: schemas.UserCreate):
         is_active=new_user.is_active,
         is_robot=new_user.is_robot,
     )
+
+    # Add user to system (everyone) group
+    everyone_group = get_group_by_name_from_db(db, "Everyone")
+    if not everyone_group:
+        everyone_group = create_group_in_db(db, schemas.GroupCreate(name="Everyone"))
+    new_db_user.groups.append(everyone_group)
+
     db.add(new_db_user)
     db.commit()
     db.refresh(new_db_user)
@@ -186,3 +195,20 @@ def search_users(db: Session, search_string: str):
         .all()
     )
     return users
+
+
+def create_user_role_in_db(
+    db: Session, role: str, user_id: int, folder_id: int = None, file_id: int = None
+):
+    user_role = UserRole(
+        role=role, user_id=user_id, folder_id=folder_id, file_id=file_id
+    )
+    db.add(user_role)
+    db.commit()
+    return user_role
+
+
+def delete_user_role_from_db(db: Session, user_role_id: int) -> None:
+    user_role = db.query(UserRole).filter(UserRole.id == user_role_id).first()
+    db.delete(user_role)
+    db.commit()

@@ -125,7 +125,7 @@ def process_successful_task(db, celery_task, db_task, celery_app):
             user_id=workflow.user.id,
             task_output_id=db_task.id,
         )
-        new_file_db = create_file_in_db(db, new_file)
+        new_file_db = create_file_in_db(db, new_file, workflow.user)
         # TODO: Move this to a celery task to run in the background
         generate_hashes(new_file_db.id)
 

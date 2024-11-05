@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from auth.common import get_current_active_user
-from datastores.sql.crud.authz import require_access
+from datastores.sql.crud.authz import check_user_access, require_access
 from datastores.sql.crud.file import get_files_from_db
 from datastores.sql.crud.folder import (
     create_root_folder_in_db,
@@ -25,9 +25,12 @@ from datastores.sql.crud.folder import (
     delete_folder_from_db,
     get_folder_from_db,
     get_root_folders_from_db,
+    get_shared_folders_from_db,
     get_subfolders_from_db,
     update_folder_in_db,
 )
+from datastores.sql.crud.group import create_group_role_in_db, delete_group_role_from_db
+from datastores.sql.crud.user import create_user_role_in_db, delete_user_role_from_db
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.role import Role
 
@@ -52,6 +55,24 @@ def get_root_folders(
         list: list of folders
     """
     return get_root_folders_from_db(db, current_user)
+
+
+# Get all root folders for a user
+@router.get("/shared/")
+def get_shared_folders(
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> List[schemas.FolderResponse]:
+    """Get all shared folders for a user.
+
+    Args:
+        db (Session): database session
+        current_user (User): current user
+
+    Returns:
+        list: list of folders
+    """
+    return get_shared_folders_from_db(db, current_user)
 
 
 # Get all sub-folders for a parent folder
@@ -206,3 +227,66 @@ def delete_folder(
     current_user: schemas.User = Depends(get_current_active_user),
 ):
     delete_folder_from_db(db, folder_id)
+
+
+# Share folder
+@router.post("/{folder_id}/roles")
+@require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
+def share_folder(
+    folder_id: int,
+    request: schemas.FolderShareRequest,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> None:
+    """Share a folder.
+
+    Args:
+        db (Session): database session
+        share_folder_request: dictionary for a share request
+        current_user (User): current user
+
+    Returns:
+        Folder: folder
+    """
+    for user_id in request.user_ids:
+        create_user_role_in_db(db, Role(request.user_role), user_id, folder_id)
+    for group_id in request.group_ids:
+        create_group_role_in_db(db, Role(request.group_role), group_id, folder_id)
+
+
+@router.get("/{folder_id}/roles/me")
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
+def get_my_folder_role(
+    folder_id: int,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+):
+    folder = get_folder_from_db(db, folder_id)
+    return check_user_access(
+        db,
+        current_user,
+        allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER],
+        folder=folder,
+    )
+
+
+@router.delete("/{folder_id}/roles/groups/{role_id}")
+@require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
+def delete_group_role(
+    folder_id: int,
+    role_id: int,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+):
+    delete_group_role_from_db(db, role_id)
+
+
+@router.delete("/{folder_id}/roles/users/{role_id}")
+@require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
+def delete_user_role(
+    folder_id: int,
+    role_id: int,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+):
+    delete_user_role_from_db(db, role_id)

@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from api.v1 import schemas
 from datastores.sql.models.file import File, FileReport, FileSummary
 from datastores.sql.models.role import Role
+from datastores.sql.models.user import User, UserRole
 
 from .folder import get_folder_from_db
 
@@ -64,7 +65,7 @@ def get_file_by_uuid_from_db(db: Session, uuid_string: str):
     return db.query(File).filter_by(uuid=uuid.UUID(uuid_string)).first()
 
 
-def create_file_in_db(db: Session, file: schemas.FileCreate):
+def create_file_in_db(db: Session, file: schemas.FileCreate, current_user: User):
     """Creates a new file in the database.
 
     Args:
@@ -93,6 +94,11 @@ def create_file_in_db(db: Session, file: schemas.FileCreate):
     db.add(db_file)
     db.commit()
     db.refresh(db_file)
+
+    user_role = UserRole(user=current_user, file=db_file, role=Role.OWNER)
+    db.add(user_role)
+    db.commit()
+
     return db_file
 
 

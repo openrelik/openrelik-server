@@ -16,9 +16,11 @@ import os
 import uuid
 
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import and_
 
 from api.v1 import schemas
 from datastores.sql.models.folder import Folder
+from datastores.sql.models.group import Group, GroupRole
 from datastores.sql.models.role import Role
 from datastores.sql.models.user import User, UserRole
 
@@ -36,7 +38,61 @@ def get_root_folders_from_db(db: Session, current_user: User):
     return (
         db.query(Folder)
         .join(UserRole, UserRole.folder_id == Folder.id)
-        .filter(UserRole.user_id == current_user.id, Folder.parent_id.is_(None))
+        .filter(
+            UserRole.user_id == current_user.id,
+            UserRole.role == Role.OWNER,
+            Folder.parent_id.is_(None),
+        )
+        .all()
+    )
+
+
+def get_shared_folders_from_db(db: Session, current_user: User):
+    """Get all shared folders for a user.
+
+    Args:
+        db (Session): database session
+        current_user (User): current user
+
+    Returns:
+        list: list of folders
+    """
+    # Get folders shared directly with the user
+    user_folders = (
+        db.query(Folder.id.label("id"))
+        .join(UserRole, UserRole.folder_id == Folder.id)
+        .filter(
+            UserRole.user_id == current_user.id,
+            UserRole.role != Role.OWNER,
+        )
+    )
+
+    # Get folders shared with groups the user is a member of
+    group_folders = (
+        db.query(Folder.id.label("id"))
+        .join(GroupRole, GroupRole.folder_id == Folder.id)
+        .join(Group, Group.id == GroupRole.group_id)
+        .filter(Group.users.any(id=current_user.id))
+    )
+
+    # Combine the results and exclude folders where the user is the owner
+    shared_folders = user_folders.union(group_folders).subquery()
+
+    return (
+        db.query(Folder)
+        .select_from(shared_folders)  # Use select_from to make the join explicit
+        .join(
+            Folder, Folder.id == shared_folders.c.id
+        )  # Specify the join condition here
+        .outerjoin(
+            UserRole,
+            and_(
+                UserRole.folder_id == Folder.id,
+                UserRole.user_id == current_user.id,
+                UserRole.role == Role.OWNER,
+            ),
+        )
+        .filter(UserRole.id.is_(None))
         .all()
     )
 
