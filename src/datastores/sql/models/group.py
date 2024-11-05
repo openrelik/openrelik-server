@@ -12,8 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import uuid as uuid_module
-
-
 from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import UUID, Column, ForeignKey, Table, UnicodeText, Enum
@@ -23,11 +21,11 @@ from ..database import BaseModel
 
 from .role import Role
 
-
 if TYPE_CHECKING:
+    from .group import GroupRole
     from .user import User
-    from .folder import Folder
     from .file import File
+    from .folder import Folder
 
 
 group_user_association_table = Table(
@@ -42,14 +40,16 @@ class Group(BaseModel):
     """Represents a group in the database.
 
     Attributes:
-        display_name (str): The display name of the group.
+        name (str): The name of the group.
         description (str): The description of the group.
         uuid (uuid_module.UUID): The UUID of the group.
         users (List[User]): The users in the group.
     """
 
-    display_name: Mapped[str] = mapped_column(UnicodeText, unique=False, index=True)
-    description: Mapped[str] = mapped_column(UnicodeText, unique=False, index=False)
+    name: Mapped[str] = mapped_column(UnicodeText, unique=True, index=True)
+    description: Mapped[Optional[str]] = mapped_column(
+        UnicodeText, unique=False, index=False
+    )
     uuid: Mapped[uuid_module.UUID] = mapped_column(
         UUID(as_uuid=True), unique=True, index=True
     )

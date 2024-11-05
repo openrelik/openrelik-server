@@ -112,6 +112,17 @@ class UserSearchRequest(BaseModel):
 class UserSearchResponse(BaseSchema):
     display_name: str
     username: str
+    profile_picture_url: Optional[str]
+
+
+class GroupCreate(BaseSchema):
+    name: str
+    description: Optional[str] = None
+
+
+class GroupResponse(BaseSchema):
+    name: str
+    description: Optional[str] = None
 
 
 # Folder schemas
@@ -122,6 +133,13 @@ class FolderCreateRequest(BaseModel):
 
 class FolderUpdateRequest(BaseModel):
     display_name: str
+
+
+class FolderShareRequest(BaseModel):
+    user_ids: List[int]
+    group_ids: List[int]
+    user_role: str
+    group_role: str
 
 
 class FolderCreate(BaseSchema):
@@ -137,6 +155,18 @@ class FolderResponse(BaseSchema):
     parent: Optional["FolderResponse"] = None
     selectable: Optional[bool] = False
     workflows: Optional[List["WorkflowResponse"]]
+    user_roles: Optional[List["UserRoleResponse"]]
+    group_roles: Optional[List["GroupRoleResponse"]]
+
+
+class UserRoleResponse(BaseSchema):
+    user: UserResponseCompact
+    role: str
+
+
+class GroupRoleResponse(BaseSchema):
+    group: GroupResponse
+    role: str
 
 
 # File schemas
