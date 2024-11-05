@@ -20,9 +20,9 @@ from argon2 import PasswordHasher
 from rich import print
 from rich.prompt import Prompt
 from rich.table import Table
+from sqlalchemy import not_
 
 from api.v1 import schemas
-
 from datastores.sql import database
 from datastores.sql.crud.user import (
     create_user_in_db,
@@ -32,6 +32,12 @@ from datastores.sql.crud.user import (
 
 # Import models to make the ORM register correctly.
 from datastores.sql.models import file, folder, user, workflow
+from datastores.sql.models.role import Role
+from datastores.sql.models.user import UserRole
+
+from datastores.sql.models.file import File
+from datastores.sql.models.folder import Folder
+
 
 password_hasher = PasswordHasher()
 
@@ -207,6 +213,55 @@ def list_users():
         )
 
     print(table)
+
+
+@app.command()
+def fix_ownership():
+    """Fixes ownership by adding missing OWNER roles to Files and Folders."""
+    db = database.SessionLocal()
+
+    # Query for Files and Folders without an OWNER UserRole
+    files_without_owner = (
+        db.query(File)
+        .filter(
+            not_(
+                File.user_roles.any(
+                    UserRole.role == Role.OWNER
+                )  # Check if any UserRole has Role.OWNER
+            )
+        )
+        .all()
+    )
+
+    folders_without_owner = (
+        db.query(Folder)
+        .filter(
+            not_(
+                Folder.user_roles.any(
+                    UserRole.role == Role.OWNER
+                )  # Check if any UserRole has Role.OWNER
+            )
+        )
+        .all()
+    )
+
+    # Add OWNER UserRole to the queried Files and Folders
+    for file_obj in files_without_owner:
+        owner_role = UserRole(user=file_obj.user, role=Role.OWNER)
+        db.add(owner_role)
+        file_obj.user_roles.append(owner_role)
+
+    for folder_obj in folders_without_owner:
+        owner_role = UserRole(user=folder_obj.user, role=Role.OWNER)
+        db.add(owner_role)
+        folder_obj.user_roles.append(owner_role)
+
+    # Commit the changes to the database
+    db.commit()
+
+    print(
+        f"Added missing OWNER roles to {len(files_without_owner)} files and {len(folders_without_owner)} folders."
+    )
 
 
 if __name__ == "__main__":
