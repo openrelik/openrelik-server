@@ -214,7 +214,7 @@ def get_folder_files(
     folder_id: str,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
-) -> List[schemas.FileResponse]:
+) -> List[schemas.FileResponseCompactList]:
     return get_files_from_db(db, folder_id)
 
 
