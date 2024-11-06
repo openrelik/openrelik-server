@@ -214,10 +214,22 @@ class FileResponse(BaseSchema):
 
 
 class FileResponseCompact(BaseSchemaCompact):
-    uuid: UUID
-    is_deleted: Optional[bool] = False
     display_name: str
     filesize: int
+    uuid: UUID
+    is_deleted: Optional[bool] = False
+
+
+# This is used for the folder list
+class FileResponseCompactList(BaseModel):
+    id: Optional[int] = None
+    display_name: str
+    filesize: int
+    data_type: str
+    magic_mime: Optional[str] = None
+    user: UserResponseCompact
+    created_at: Optional[datetime] = None
+    is_deleted: Optional[bool] = False
 
 
 class FileSummaryCreate(BaseModel):
