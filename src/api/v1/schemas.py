@@ -188,6 +188,15 @@ class FileCreate(BaseModel):
     user_id: Optional[int] = None
     folder_id: Optional[int] = None
     task_output_id: Optional[int] = None
+    source_file_id: Optional[int] = None
+
+
+class FileResponseCompact(BaseSchemaCompact):
+    display_name: str
+    filesize: int
+    uuid: UUID
+    folder_id: int
+    is_deleted: Optional[bool] = False
 
 
 class FileResponse(BaseSchema):
@@ -208,16 +217,10 @@ class FileResponse(BaseSchema):
     user_id: int
     user: UserResponseCompact
     folder: Optional[FolderResponse]
+    source_file: Optional[FileResponseCompact]
     workflows: List["WorkflowResponse"]
     summaries: List["FileSummaryResponse"]
     reports: List["FileReportResponse"]
-
-
-class FileResponseCompact(BaseSchemaCompact):
-    display_name: str
-    filesize: int
-    uuid: UUID
-    is_deleted: Optional[bool] = False
 
 
 # This is used for the folder list
