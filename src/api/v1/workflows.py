@@ -232,6 +232,7 @@ async def run_workflow(
 
     input_files = [
         {
+            "id": file.id,
             "uuid": file.uuid.hex,
             "display_name": file.display_name,
             "extension": file.extension,
