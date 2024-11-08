@@ -185,10 +185,12 @@ async def copy_workflow(
     # Create new folder for workflow results
     new_folder = schemas.FolderCreateRequest(
         display_name=f"Copy of {workflow_to_copy.display_name}",
-        parent_id=workflow_to_copy.folder.parent_id,
     )
     new_workflow_folder = create_subfolder_in_db(
-        db, folder_id, new_folder, current_user
+        db,
+        folder_id=workflow_to_copy.folder.parent_id,
+        new_folder=new_folder,
+        current_user=current_user,
     )
 
     new_workflow_db = schemas.Workflow(
