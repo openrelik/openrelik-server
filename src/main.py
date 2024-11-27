@@ -16,7 +16,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import not_, or_
+from sqlalchemy import not_, or_, text
+from sqlalchemy.exc import ProgrammingError
 from starlette.middleware.sessions import SessionMiddleware
 
 from api.v1 import configs as configs_v1
@@ -71,7 +72,11 @@ async def lifespan(app: FastAPI):
     # This is run before the application accepts requests (before start)
     try:
         db = SessionLocal()
+        # Try a simple query that requires the table to exist
+        db.execute(text("SELECT 1 FROM user LIMIT 1")).all()
         await populate_everyone_group(db)
+    except ProgrammingError:  # Catch table-not-found errors
+        pass
     finally:
         db.close()
     yield
