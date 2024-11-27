@@ -27,7 +27,7 @@ jwt_algorithm = "HS256"
 
 # UI token expiration in minutes.
 jwt_cookie_refresh_expire_minutes = 1440  # 24 hours
-jwt_cookie_access_expire_minutes = 5  # 5 minutes
+jwt_cookie_access_expire_minutes = 720  # 12 hours
 
 # API key token expiration in minutes, if not set by the user upon creation.
 jwt_header_default_refresh_expire_minutes = 10080  # 7 days
