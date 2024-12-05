@@ -159,6 +159,12 @@ class FolderResponse(BaseSchema):
     group_roles: Optional[List["GroupRoleResponse"]]
 
 
+class FolderResponseCompact(BaseSchema):
+    display_name: str
+    user: UserResponseCompact
+    selectable: Optional[bool] = False
+
+
 class UserRoleResponse(BaseSchema):
     user: UserResponseCompact
     role: str
