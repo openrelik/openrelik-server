@@ -44,7 +44,7 @@ router = APIRouter()
 def get_root_folders(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
-) -> List[schemas.FolderResponse]:
+) -> List[schemas.FolderResponseCompact]:
     """Get all root folders for a user.
 
     Args:
@@ -57,12 +57,12 @@ def get_root_folders(
     return get_root_folders_from_db(db, current_user)
 
 
-# Get all root folders for a user
+# Get all shared root folders for a user
 @router.get("/shared/")
 def get_shared_folders(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
-) -> List[schemas.FolderResponse]:
+) -> List[schemas.FolderResponseCompact]:
     """Get all shared folders for a user.
 
     Args:
@@ -82,7 +82,7 @@ def get_subfolders(
     folder_id: str,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
-) -> List[schemas.FolderResponse]:
+) -> List[schemas.FolderResponseCompact]:
     """
     Get all subfolders within a specified folder.
 
