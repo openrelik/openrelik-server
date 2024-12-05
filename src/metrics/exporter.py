@@ -18,7 +18,6 @@ from celery import Celery
 from celery.utils import nodesplit
 from prometheus_client import CollectorRegistry, Counter, Histogram, start_http_server
 
-METRICS_PREFIX = "celery"
 PROMETHEUS_REGISTRY = CollectorRegistry(auto_describe=True)
 
 DEFAULT_LABELS = ["task_name", "hostname"]
@@ -68,7 +67,7 @@ TASK_METRICS_MAPPING = {
 TASK_METRICS_COUNTERS = {}
 for event_type, config in TASK_METRICS_MAPPING.items():
     TASK_METRICS_COUNTERS[event_type] = Counter(
-        f"{METRICS_PREFIX}_{config['name']}",
+        f"celery_{config['name']}",
         config["description"],
         config["labels"],
         registry=PROMETHEUS_REGISTRY,
@@ -76,26 +75,43 @@ for event_type, config in TASK_METRICS_MAPPING.items():
 
 # Metrics for other things than task counters.
 celery_task_runtime = Histogram(
-    f"{METRICS_PREFIX}_task_runtime",
+    f"celery_task_runtime",
     "Histogram of task runtime measurements.",
     DEFAULT_LABELS,
     registry=PROMETHEUS_REGISTRY,
 )
 
 
-def get_hostname(name: str) -> str:
-    """Extract hostname from worker name."""
-    _, hostname = nodesplit(name)
+def get_hostname(task_hostname: str) -> str:
+    """Extract hostname from worker name.
+
+    Args:
+        task_hostname: The hostname from the task.
+
+    Returns:
+        Either worker hostname or process ID.
+    """
+    _, hostname = nodesplit(task_hostname)
     return hostname
 
 
 def handle_worker_event(event):
-    # Generic worker event handling (currently just prints)
+    """Generic worker event handling.
+
+    Args:
+        event: The event received from Celery.
+    """
     if event.get("type") != "worker-heartbeat":  # Avoid redundant heartbeat messages
         print(f"MONITOR WORKER: Event.type {event.get('type')}")
 
 
 def handle_task_event(event, state):
+    """Handles task events from Celery.
+
+    Args:
+        event: The event received from Celery.
+        state: The Celery event state.
+    """
     state.event(event)
     task = state.tasks.get(event["uuid"])
     event_type = event.get("type")
@@ -112,6 +128,11 @@ def handle_task_event(event, state):
 
 
 def run_metrics_exporter(celery_app):
+    """Starts the Prometheus metrics exporter.
+
+    Args:
+        celery_app: The Celery application instance.
+    """
     state = celery_app.events.State()
 
     handlers = {
@@ -127,7 +148,7 @@ def run_metrics_exporter(celery_app):
     )
 
     with celery_app.connection() as connection:
-        start_http_server(registry=PROMETHEUS_REGISTRY, port=8000)
+        start_http_server(registry=PROMETHEUS_REGISTRY, port=8080)
         recv = celery_app.events.Receiver(connection, handlers=handlers)
         recv.capture(limit=None, timeout=None, wakeup=True)
 
