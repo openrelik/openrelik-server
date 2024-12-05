@@ -385,3 +385,11 @@ class TaskResponseCompact(BaseSchema):
     uuid: Optional[UUID] = None
     status_short: Optional[str]
     user: UserResponseCompact
+
+
+class MetricsRequest(BaseModel):
+    metric_name: str
+    range: int
+    step: int
+    resolution: str
+    aggregate: bool
