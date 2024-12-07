@@ -17,6 +17,8 @@ import os
 from celery import Celery
 from celery.utils import nodesplit
 from prometheus_client import CollectorRegistry, Counter, Histogram, start_http_server
+from prometheus_client.core import CounterMetricFamily
+from prometheus_client.registry import Collector
 
 PROMETHEUS_REGISTRY = CollectorRegistry(auto_describe=True)
 
@@ -25,93 +27,106 @@ TASK_METRICS_MAPPING = {
     "task-sent": {
         "name": "task_sent",
         "description": "Sent when a task message is published.",
-        "labels": DEFAULT_LABELS,
     },
     "task-received": {
         "name": "task_received",
         "description": "Sent when the worker receives a task.",
-        "labels": DEFAULT_LABELS,
     },
     "task-started": {
         "name": "task_started",
         "description": "Sent just before the worker executes the task.",
-        "labels": DEFAULT_LABELS,
     },
     "task-succeeded": {
         "name": "task_succeeded",
         "description": "Sent if the task executed successfully.",
-        "labels": DEFAULT_LABELS,
     },
     "task-failed": {
         "name": "task_failed",
         "description": "Sent if the execution of the task failed.",
-        "labels": DEFAULT_LABELS,
     },
     "task-rejected": {
         "name": "task_rejected",
         "description": "The task was rejected by the worker, possibly to be re-queued or moved to a dead letter queue.",
-        "labels": DEFAULT_LABELS,
     },
     "task-revoked": {
         "name": "task_revoked",
         "description": "Sent if the task has been revoked.",
-        "labels": DEFAULT_LABELS,
     },
     "task-retried": {
         "name": "task_retried",
         "description": "Sent if the task failed, but will be retried in the future.",
-        "labels": DEFAULT_LABELS,
     },
 }
 
-TASK_METRICS_COUNTERS = {}
-for event_type, config in TASK_METRICS_MAPPING.items():
-    TASK_METRICS_COUNTERS[event_type] = Counter(
+# Initialize task metrics counters with dynamic labels
+TASK_METRICS_COUNTERS = {
+    event_type: Counter(
         f"celery_{config['name']}",
         config["description"],
-        config["labels"],
+        DEFAULT_LABELS + config.get("extra_labels", []),  # Allow extra labels
         registry=PROMETHEUS_REGISTRY,
     )
+    for event_type, config in TASK_METRICS_MAPPING.items()
+}
 
-# Metrics for other things than task counters.
+# Metrics for task runtime
 celery_task_runtime = Histogram(
-    f"celery_task_runtime",
+    "celery_task_runtime",
     "Histogram of task runtime measurements.",
     DEFAULT_LABELS,
     registry=PROMETHEUS_REGISTRY,
 )
 
 
-def get_hostname(task_hostname: str) -> str:
-    """Extract hostname from worker name.
+def get_queue_lengths(celery_app):
+    """Retrieves the lengths of all active queues."""
+    queues = celery_app.control.inspect().active_queues() or {}
+    with celery_app.connection() as connection:
+        for _, info_list in queues.items():
+            for queue_info in info_list:
+                queue_name = queue_info["name"]
+                queue_length = connection.default_channel.client.llen(queue_name)
+                yield queue_name, queue_length
 
-    Args:
-        task_hostname: The hostname from the task.
 
-    Returns:
-        Either worker hostname or process ID.
+class QueueMetricsCollector(Collector):
+    """Collector for Celery task queue.
+
+    This collector retrieves the lengths of Celery task queues (bumber of tasks in the
+    queue) and exposes them as a Prometheus Counter metric named `celery_queue_length`.
+
+    It uses the provided Celery app instance to connect to the broker
+    and fetch queue lengths.
     """
+
+    def __init__(self, celery_app):
+        self.celery_app = celery_app
+
+    def collect(self):
+        metric = CounterMetricFamily(
+            "celery_queue_length",
+            "The number of messages in the queue.",
+            labels=["queue_name"],
+        )
+        for queue_name, queue_length in get_queue_lengths(self.celery_app):
+            metric.add_metric(labels=[queue_name], value=queue_length)
+        yield metric
+
+
+def get_hostname(task_hostname: str) -> str:
+    """Extract hostname from worker name."""
     _, hostname = nodesplit(task_hostname)
     return hostname
 
 
 def handle_worker_event(event):
-    """Generic worker event handling.
-
-    Args:
-        event: The event received from Celery.
-    """
+    """Generic worker event handling."""
     if event.get("type") != "worker-heartbeat":  # Avoid redundant heartbeat messages
         print(f"MONITOR WORKER: Event.type {event.get('type')}")
 
 
 def handle_task_event(event, state):
-    """Handles task events from Celery.
-
-    Args:
-        event: The event received from Celery.
-        state: The Celery event state.
-    """
+    """Handles task events from Celery."""
     state.event(event)
     task = state.tasks.get(event["uuid"])
     event_type = event.get("type")
@@ -128,11 +143,7 @@ def handle_task_event(event, state):
 
 
 def run_metrics_exporter(celery_app):
-    """Starts the Prometheus metrics exporter.
-
-    Args:
-        celery_app: The Celery application instance.
-    """
+    """Starts the Prometheus metrics exporter."""
     state = celery_app.events.State()
 
     handlers = {
@@ -156,4 +167,8 @@ def run_metrics_exporter(celery_app):
 if __name__ == "__main__":
     redis_url = os.getenv("REDIS_URL")
     celery_app = Celery(broker=redis_url, backend=redis_url)
+
+    # Register the queue metrics collector
+    PROMETHEUS_REGISTRY.register(QueueMetricsCollector(celery_app))
+
     run_metrics_exporter(celery_app)

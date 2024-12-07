@@ -81,10 +81,18 @@ def format_prometheus_data(prometheus_response: dict) -> list[dict]:
         Timestamps are in milliseconds.
     """
     formatted_series = []
+    metric_name_keys = ["task_name", "queue_name"]
 
     for result in prometheus_response["data"]["result"]:
         data_points = []
-        series_name = result["metric"].get("task_name", "sum")
+        series_name = next(
+            (
+                result["metric"].get(key)
+                for key in metric_name_keys
+                if result["metric"].get(key)
+            ),
+            "sum",
+        )
 
         for value in result["values"]:
             timestamp_ms = float(value[0]) * 1000  # Convert to milliseconds
