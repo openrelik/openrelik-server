@@ -37,6 +37,7 @@ from datastores.sql.crud.workflow import get_file_workflows_from_db, get_task_fr
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.role import Role
 from datastores.sql.models.workflow import Task
+from datastores.sql.models.file import File
 from lib.constants import cloud_provider_data_type_mapping
 from lib.file_hashes import generate_hashes
 from lib.llm_summary import generate_summary
@@ -46,7 +47,8 @@ from . import schemas
 router = APIRouter()
 
 # File types that are trusted to be returned unescaped to the client
-ALLOWED_DATA_TYPES_PREVIEW = config.get("ui", {}).get("allowed_data_types_preview", [])
+ALLOWED_DATA_TYPES_PREVIEW = config.get(
+    "ui", {}).get("allowed_data_types_preview", [])
 
 
 # Get file
@@ -58,6 +60,7 @@ def get_file(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.FileResponse:
+    """Get a file's metadata from the database."""
     return get_file_from_db(db, int(file_id))
 
 
@@ -70,7 +73,8 @@ def get_file_content(
     unescaped: bool = False,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
-):
+) -> HTMLResponse:
+    """Returns an HTML response with the file's content."""
     file = get_file_from_db(db, file_id)
     encodings_to_try = ["utf-8", "utf-16", "ISO-8859-1"]
 
@@ -96,7 +100,7 @@ def get_file_content(
 
     html_content = f"""
     <html style="background:{background_color}">
-        <pre style="color:{font_color};padding:10px;white-space: pre-wrap;">{ html_source_content }</pre>
+        <pre style="color:{font_color};padding:10px;white-space: pre-wrap;">{html_source_content}</pre>
     </html>
     """
     # return content
@@ -104,13 +108,14 @@ def get_file_content(
 
 
 # Download file
-@router.post("/{file_id}/download")
+@router.get("/{file_id}/download")
 @require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
 def download_file(
     file_id: int,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
-):
+) -> FileResponse:
+    """Downloads a file's contents based on its ID."""
     file = get_file_from_db(db, file_id)
     headers = {"Access-Control-Expose-Headers": "Content-Disposition"}
     return FileResponse(
@@ -129,6 +134,7 @@ async def download_file_stream(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ):
+    """Downloads a file using streaming."""
     file = get_file_from_db(db, file_id)
     file_path = file.path
     CHUNK_SIZE = 10 * 1024 * 1024  # 10MB
@@ -177,7 +183,12 @@ async def upload_files(
     background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
-):
+) -> File:
+    """Uploads a file to the server.
+
+    Returns:
+        File: File metadata.
+    """
     is_last_chunk = resumableChunkNumber == resumableTotalChunks
     folder = get_folder_from_db(db, folder_id)
 
@@ -307,7 +318,8 @@ def download_task_result(
     task_id: str,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
-):
+) -> FileResponse:
+    """Downloads a task result file based on its ID."""
     task = db.get(Task, task_id)
     result = json.loads(task.result)
     result_file_path = result.get("output_file_path")
@@ -343,7 +355,6 @@ def generate_file_summary(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ):
-
     new_file_summary = schemas.FileSummaryCreate(
         status_short="in_progress",
         file_id=file_id,
