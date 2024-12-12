@@ -37,7 +37,6 @@ from datastores.sql.crud.workflow import get_file_workflows_from_db, get_task_fr
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.role import Role
 from datastores.sql.models.workflow import Task
-from datastores.sql.models.file import File
 from lib.constants import cloud_provider_data_type_mapping
 from lib.file_hashes import generate_hashes
 from lib.llm_summary import generate_summary
@@ -47,8 +46,7 @@ from . import schemas
 router = APIRouter()
 
 # File types that are trusted to be returned unescaped to the client
-ALLOWED_DATA_TYPES_PREVIEW = config.get(
-    "ui", {}).get("allowed_data_types_preview", [])
+ALLOWED_DATA_TYPES_PREVIEW = config.get("ui", {}).get("allowed_data_types_preview", [])
 
 
 # Get file
@@ -183,7 +181,7 @@ async def upload_files(
     background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
-) -> File:
+):
     """Uploads a file to the server.
 
     Returns:
