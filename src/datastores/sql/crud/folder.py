@@ -43,6 +43,7 @@ def get_root_folders_from_db(db: Session, current_user: User):
             UserRole.role == Role.OWNER,
             Folder.parent_id.is_(None),
         )
+        .order_by(Folder.created_at.desc())
         .all()
     )
 
@@ -93,6 +94,7 @@ def get_shared_folders_from_db(db: Session, current_user: User):
             ),
         )
         .filter(UserRole.id.is_(None))
+        .order_by(Folder.created_at.desc())
         .all()
     )
 
