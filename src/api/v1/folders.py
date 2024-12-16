@@ -124,10 +124,13 @@ def get_folder(
     """
     if not folder_id:
         raise HTTPException(status_code=404, detail="Folder not found.")
-    folder = get_folder_from_db(db, folder_id)
-    if folder is None:
-        raise HTTPException(status_code=404, detail="Folder not found.")
-    if folder and folder.is_deleted:
+    try:
+        folder = get_folder_from_db(db, folder_id)
+        if folder is None:
+            raise HTTPException(status_code=404, detail="Folder not found.")
+    except ValueError as exception:
+        raise HTTPException(status_code=404, details=str(exception))
+    if folder.is_deleted:
         raise HTTPException(status_code=404, detail="Folder is deleted.")
     return folder
 
@@ -266,7 +269,10 @@ def get_my_folder_role(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ):
-    folder = get_folder_from_db(db, folder_id)
+    try:
+        folder = get_folder_from_db(db, folder_id)
+    except ValueError as exception:
+        raise HTTPException(status_code=404, details=str(exception))
     return check_user_access(
         db,
         current_user,
