@@ -27,10 +27,12 @@ from datastores.sql.database import get_db_connection
 router = APIRouter()
 
 refresh_token_cookie = APIKeyCookie(name="refresh_token", auto_error=False)
-refresh_token_header = APIKeyHeader(name="x-openrelik-refresh-token", auto_error=False)
+refresh_token_header = APIKeyHeader(
+    name="x-openrelik-refresh-token", auto_error=False)
 
 access_token_cookie = APIKeyCookie(name="access_token", auto_error=False)
-access_token_header = APIKeyHeader(name="x-openrelik-access-token", auto_error=False)
+access_token_header = APIKeyHeader(
+    name="x-openrelik-access-token", auto_error=False)
 
 csrf_token_cookie = APIKeyCookie(name="csrf_token", auto_error=False)
 
@@ -83,7 +85,8 @@ def create_jwt_token(
     """
     jwt_data = extra_data.copy()
     issued_at = datetime.now(timezone.utc)
-    not_before = issued_at  # Option to change this later if suport for future valid tokens is needed.
+    # Option to change this later if suport for future valid tokens is needed.
+    not_before = issued_at
     expire_at = issued_at + timedelta(minutes=expire_minutes)
     issued_by = API_SERVER_URL if API_SERVER_URL else UI_SERVER_URL
     jwt_data.update({"sub": subject})
@@ -149,7 +152,8 @@ def validate_jwt_token(
     # access token and vice versa.
     if payload["token_type"] != expected_token_type:
         raise_credentials_exception(
-            detail=f"Wrong token type: Expected {expected_token_type} but got {payload['token_type']}"
+            detail=f"Wrong token type: Expected {
+                expected_token_type} but got {payload['token_type']}"
         )
 
     # Check if the API key has been revoked, i.e it has been deleted by the user.
@@ -157,7 +161,8 @@ def validate_jwt_token(
     # TODO: Consider supporting revoking Browser based tokens as well.
     if check_denylist and expected_audience == "api-client":
         api_key_db = (
-            db.query(UserApiKey).filter(UserApiKey.token_jti == payload["jti"]).first()
+            db.query(UserApiKey).filter(
+                UserApiKey.token_jti == payload["jti"]).first()
         )
         if not api_key_db:
             raise_credentials_exception(detail="Invalid API key")
@@ -210,7 +215,8 @@ async def verify_csrf(
         "TRACE",
     ):
         if not csrf_token or x_csrf_token != csrf_token:
-            raise HTTPException(status_code=400, detail="X-CSRF-Token is invalid")
+            raise HTTPException(
+                status_code=400, detail="X-CSRF-Token is invalid")
     else:
         pass
 
@@ -242,7 +248,8 @@ async def get_current_user(
     # Only allow tokens from cookie or header, not both. This prevents clients to disable
     # CSRF checks by setting both cookies and headers.
     if access_token_from_cookie and access_token_from_header:
-        raise_credentials_exception(detail="Only one authentication method allowed")
+        raise_credentials_exception(
+            detail="Only one authentication method allowed")
 
     access_token = access_token_from_cookie or access_token_from_header
 
@@ -338,12 +345,15 @@ async def refresh(
         {"new_access_token": new_access_token, "new_csrf_token": new_csrf_token}
     )
 
-    response = Response(content=json.dumps(data), media_type="application/json")
+    response = Response(content=json.dumps(
+        data), media_type="application/json")
     # If the client (e.g API client) sends the tokens in the header instead, skip
     # setting cookies.
     if not refresh_token_from_header:
-        response.set_cookie(key="access_token", value=new_access_token, httponly=True)
-        response.set_cookie(key="csrf_token", value=new_csrf_token, httponly=True)
+        response.set_cookie(key="access_token",
+                            value=new_access_token, httponly=True)
+        response.set_cookie(
+            key="csrf_token", value=new_csrf_token, httponly=True)
 
     return response
 

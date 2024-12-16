@@ -167,10 +167,10 @@ def delete_file(
 
 
 # Upload file
-@router.post("/upload", status_code=status.HTTP_201_CREATED)
+@router.post("/upload", status_code=status.HTTP_201_CREATED, response_model=None)
 @require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
 async def upload_files(
-    file: UploadFile = File(...),
+    file: UploadFile = File,
     resumableChunkNumber: int = Query(...),
     resumableChunkSize: int = Query(...),
     resumableCurrentChunkSize: int = Query(...),
