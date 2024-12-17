@@ -271,15 +271,14 @@ def get_my_folder_role(
 ):
     try:
         folder = get_folder_from_db(db, folder_id)
+        return check_user_access(
+            db,
+            current_user,
+            allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER],
+            folder=folder,
+        )
     except ValueError as exception:
         raise HTTPException(status_code=404, details=str(exception))
-    return check_user_access(
-        db,
-        current_user,
-        allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER],
-        folder=folder,
-    )
-
 
 @router.delete("/{folder_id}/roles/groups/{role_id}")
 @require_access(allowed_roles=[Role.EDITOR, Role.OWNER])

@@ -136,25 +136,30 @@ def require_access(
             folder_id = kwargs.get("folder_id")
             file_id = kwargs.get("file_id")
             current_user = kwargs.get("current_user")
-            try:
-                if folder_id:
-                    folder = db.get(Folder, folder_id)
-                    if not check_user_access(
-                        db, current_user, allowed_roles, folder=folder
-                    ):
-                        raise_authorization_error(
-                            http_exception, error_message or "No access to folder"
-                        )
+            if not folder_id and not file_id:
+                raise_authorization_error(
+                    http_exception, error_message or "Invalid folder or file.")
 
-                if file_id:
-                    file = db.get(File, file_id)
-                    if not check_user_access(db, current_user, allowed_roles, file=file):
-                        raise_authorization_error(
-                            http_exception, error_message or "No access to file"
-                        )
-            except ValueError as exception:
-                raise HTTPException(
-                    status_code=404, detail="Folder or file not found.")
+            if folder_id:
+                folder = db.get(Folder, folder_id)
+                print(folder)
+                if folder is None:
+                    raise HTTPException(
+                        status_code=404, detail="Folder not found.")
+                if not check_user_access(
+                    db, current_user, allowed_roles, folder=folder
+                ):
+                    raise_authorization_error(
+                        http_exception, error_message or "No access to folder"
+                    )
+
+            if file_id:
+                file = db.get(File, file_id)
+                if not check_user_access(db, current_user, allowed_roles, file=file):
+                    raise_authorization_error(
+                        http_exception, error_message or "No access to file"
+                    )
+
             # Await only if func is async
             if asyncio.iscoroutinefunction(func):
                 return await func(*args, **kwargs)
