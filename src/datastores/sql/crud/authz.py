@@ -139,7 +139,7 @@ def require_access(
 
             if folder_id:
                 folder = db.get(Folder, folder_id)
-                if folder is None:
+                if not folder:
                     raise HTTPException(
                         status_code=404, detail="Folder not found.")
                 if not check_user_access(
