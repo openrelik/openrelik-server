@@ -136,9 +136,6 @@ def require_access(
             folder_id = kwargs.get("folder_id")
             file_id = kwargs.get("file_id")
             current_user = kwargs.get("current_user")
-            if not folder_id and not file_id:
-                raise_authorization_error(
-                    http_exception, error_message or "Invalid folder or file.")
 
             if folder_id:
                 folder = db.get(Folder, folder_id)
