@@ -139,6 +139,9 @@ def require_access(
 
             if folder_id:
                 folder = db.get(Folder, folder_id)
+                if not folder:
+                    raise HTTPException(
+                        status_code=404, detail="Folder not found.")
                 if not check_user_access(
                     db, current_user, allowed_roles, folder=folder
                 ):
@@ -148,6 +151,9 @@ def require_access(
 
             if file_id:
                 file = db.get(File, file_id)
+                if not file:
+                    raise HTTPException(
+                        status_code=404, detail="File not found.")
                 if not check_user_access(db, current_user, allowed_roles, file=file):
                     raise_authorization_error(
                         http_exception, error_message or "No access to file"

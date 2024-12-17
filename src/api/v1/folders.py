@@ -13,7 +13,7 @@
 # limitations under the License.
 from typing import List
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, HTTPException
 from sqlalchemy.orm import Session
 
 from auth.common import get_current_active_user
@@ -122,10 +122,17 @@ def get_folder(
         HTTPException: If the folder does not exist or the user does not have
         permission to access it.
     """
-    # TODO: Return different response if folder is deleted.
-    # This can be implemented by checking a "deleted" flag on the folder object
-    # and returning a different response or status code if it's set.
-    return get_folder_from_db(db, folder_id)
+    if not folder_id:
+        raise HTTPException(status_code=404, detail="Folder not found.")
+    try:
+        folder = get_folder_from_db(db, folder_id)
+        if folder is None:
+            raise HTTPException(status_code=404, detail="Folder not found.")
+    except ValueError as exception:
+        raise HTTPException(status_code=404, details=str(exception))
+    if folder.is_deleted:
+        raise HTTPException(status_code=404, detail="Folder is deleted.")
+    return folder
 
 
 # Create root folder
@@ -251,7 +258,8 @@ def share_folder(
     for user_id in request.user_ids:
         create_user_role_in_db(db, Role(request.user_role), user_id, folder_id)
     for group_id in request.group_ids:
-        create_group_role_in_db(db, Role(request.group_role), group_id, folder_id)
+        create_group_role_in_db(
+            db, Role(request.group_role), group_id, folder_id)
 
 
 @router.get("/{folder_id}/roles/me")
@@ -261,14 +269,16 @@ def get_my_folder_role(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ):
-    folder = get_folder_from_db(db, folder_id)
-    return check_user_access(
-        db,
-        current_user,
-        allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER],
-        folder=folder,
-    )
-
+    try:
+        folder = get_folder_from_db(db, folder_id)
+        return check_user_access(
+            db,
+            current_user,
+            allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER],
+            folder=folder,
+        )
+    except ValueError as exception:
+        raise HTTPException(status_code=404, details=str(exception))
 
 @router.delete("/{folder_id}/roles/groups/{role_id}")
 @require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
