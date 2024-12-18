@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from auth.common import get_current_active_user
-from config import config, get_active_cloud_provider
+from config import config, get_active_cloud_provider, get_active_llms
 from datastores.sql.crud.authz import require_access
 from datastores.sql.crud.file import (
     create_file_in_db,
@@ -358,10 +358,12 @@ def generate_file_summary(
         file_id=file_id,
     )
     file_summary_db = create_file_summary_in_db(db, new_file_summary)
+    active_llm = get_active_llms()[0]
+
     background_tasks.add_task(
         generate_summary,
-        llm_provider="ollama",
-        llm_model="gemma2:9b",
+        llm_provider=active_llm["name"],
+        llm_model=active_llm["config"]["model"],
         file_id=file_id,
         file_summary_id=file_summary_db.id,
     )
