@@ -239,6 +239,7 @@ async def run_workflow(
             "display_name": file.display_name,
             "extension": file.extension,
             "data_type": file.data_type,
+            "magic_mime": file.magic_mime,
             "path": file.path,
         }
         for file in workflow.files
