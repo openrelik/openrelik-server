@@ -176,7 +176,7 @@ async def upload_files(
     resumableTotalSize: int | None = None,
     resumableIdentifier: str = Query(...),
     resumableFilename: str = Query(...),
-    resumableRelativePath: int | None = None,
+    resumableRelativePath: str | None = None,
     folder_id: int = Query(...),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db_connection),
