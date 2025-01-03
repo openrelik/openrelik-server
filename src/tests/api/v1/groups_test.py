@@ -46,7 +46,6 @@ def test_get_all_groups(
     with mocker.patch("sqlalchemy.orm.Session.query", return_value=db.query):
         response = fastapi_test_client.get("/groups/")
         assert response.status_code == 200
-        print(response.json())
         groups = response.json()
         assert len(groups) == 2
 
