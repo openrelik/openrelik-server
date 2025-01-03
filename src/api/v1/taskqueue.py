@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import os
+import sys
 
 from celery.app import Celery
 from fastapi import APIRouter
@@ -24,7 +25,8 @@ celery = Celery(broker=redis_url, backend=redis_url)
 
 # Setup the queues. This function take all registered tasks on the celery task queue
 # and generate the task queue config automatically.
-celery_utils.update_task_queues(celery)
+if not "unittest" in sys.modules.keys():
+    celery_utils.update_task_queues(celery)
 
 router = APIRouter()
 
