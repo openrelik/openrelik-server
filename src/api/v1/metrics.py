@@ -23,9 +23,6 @@ from .schemas import MetricsRequest
 router = APIRouter()
 
 
-PROMETHEUS_SERVER_URL = os.environ.get("PROMETHEUS_SERVER_URL")
-
-
 def calculate_time_range(range: int) -> tuple[float, float]:
     """Calculates start and end timestamps for a given time range in seconds.
 
@@ -54,7 +51,8 @@ def query_prometheus_range(query: str, range: int = 3600, step: int = 60) -> dic
     Raises:
         requests.exceptions.HTTPError: If the Prometheus query fails.
     """
-    prometheus_url = f"{PROMETHEUS_SERVER_URL}/api/v1/query_range"
+    prometheus_url_env = os.environ.get("PROMETHEUS_SERVER_URL")
+    prometheus_url = f"{prometheus_url_env}/api/v1/query_range"
     start_timestamp, end_timestamp = calculate_time_range(range)
     response = requests.get(
         prometheus_url,
@@ -112,7 +110,8 @@ def get_celery_task_metrics(request_body: MetricsRequest) -> list[dict]:
     Returns:
         A list of dictionaries containing formatted Celery task metrics data.
     """
-    if not PROMETHEUS_SERVER_URL:
+    prometheus_url_env = os.environ.get("PROMETHEUS_SERVER_URL")
+    if not prometheus_url_env:
         return []
 
     metric_name = request_body.metric_name
