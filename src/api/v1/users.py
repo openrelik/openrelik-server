@@ -30,7 +30,7 @@ from datastores.sql.crud.user import (
 )
 
 from api.v1 import schemas
-from config import config
+from config import get_config
 
 router = APIRouter()
 
@@ -85,7 +85,8 @@ async def create_api_key_for_current_user(
     Returns:
         schemas.UserApiKeyResponse: The created API key.
     """
-    TOKEN_EXPIRE_MINUTES = config["auth"]["jwt_header_default_refresh_expire_minutes"]
+    current_config = get_config()
+    TOKEN_EXPIRE_MINUTES = current_config["auth"]["jwt_header_default_refresh_expire_minutes"]
     refresh_token = create_jwt_token(
         audience="api-client",
         expire_minutes=TOKEN_EXPIRE_MINUTES,

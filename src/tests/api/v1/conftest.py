@@ -14,8 +14,16 @@
 
 """Contains pytest fixtures used in multiple unit tests."""
 
+import pytest
+import uuid
+
+from typing import Sequence
+
+from datastores.sql.models.user import User as UserModel
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+from auth.common import get_current_active_user
 from api.v1.configs import router as configs_router
 from api.v1.files import router as files_router
 from api.v1.folders import router as folders_router
@@ -24,13 +32,199 @@ from api.v1.metrics import router as metrics_router
 from api.v1.taskqueue import router as taskqueue_router
 from api.v1.users import router as users_router
 from api.v1.workflows import router as workflows_router
-import pytest
+from api.v1.schemas import (
+    User as UserSchema,
+    UserCreate as UserCreateSchema,
+    UserResponse as UserResponseSchema,
+    UserSearchResponse as UserSearchResponseSchema,
+    UserApiKeyResponse as UserApiKeyResponseSchema,
+)
+
+@pytest.fixture
+def db(mocker):
+    """Mock database session."""
+    mock_db = mocker.MagicMock(spec=Session)
+    return mock_db
+
+@pytest.fixture
+def test_user_db_model() -> UserModel:
+    mock_user = UserModel(
+        display_name="test_user",
+        username="test_user",
+        email="test_user@gmail.com",
+        profile_picture_url=" http://localhost/profile/pic",
+        preferences = "",
+        uuid= uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        id = 1,
+        created_at = "2025-01-07T18:29:07.772000Z",
+        updated_at = "2025-01-07T18:29:07.772000Z",
+        deleted_at = None,
+        is_admin=False,
+        is_robot=False,
+        is_active=True,
+        auth_method="google",
+        password_hash="hashed_password",
+        password_hash_algorithm="sha256",
+        folders = [],
+        files = [],
+        workflows = [],
+        workflow_templates = [],
+        tasks = [],
+        api_keys = [],
+        user_roles = [],
+        groups = []
+    )
+    return mock_user
 
 
 @pytest.fixture
-def fastapi_test_client():
+def regular_user() -> UserSchema:
+    mock_user = UserSchema(
+        display_name="test_user",
+        username="test_user",
+        email="test_user@gmail.com",
+        profile_picture_url=" http://localhost/profile/pic",
+        uuid= uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        is_active=True,
+        id = 100,
+        created_at = "2025-01-07T18:29:07.772000Z",
+        updated_at = "2025-01-07T18:29:07.772000Z",
+        deleted_at = None,
+        is_deleted =  False,
+        auth_method = "google"
+    )
+    return mock_user
+
+
+@pytest.fixture
+def user_response() -> UserResponseSchema:
+    mock_user = UserResponseSchema(
+        display_name="test_user",
+        username="test_user",
+        auth_method= "google",
+        email="test_user@gmail.com",
+        profile_picture_url=" http://localhost/profile/pic",
+        uuid= uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        created_at = "2025-01-07T18:29:07.772000Z",
+        updated_at = "2025-01-07T18:29:07.772000Z",
+        deleted_at = None,
+        id = 100,
+        is_deleted = False
+    )
+    return mock_user
+
+
+@pytest.fixture
+def admin_user() -> UserSchema:
+    mock_user = UserSchema(
+        display_name="admin_user",
+        username="admin_user",
+        email="admin_user@gmail.com",
+        profile_picture_url=" http://localhost/profile/pic",
+        uuid= uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        is_active=True,
+        id = 1,
+        created_at = "2025-01-07T18:29:07.772000Z",
+        updated_at = "2025-01-07T18:29:07.772000Z",
+        deleted_at = None,
+        is_deleted =  False
+    )
+    return mock_user
+
+
+@pytest.fixture
+def robot_user() -> UserSchema:
+    mock_user = UserSchema(
+        display_name="robot_user",
+        username="robot_user",
+        email="robot_user@gmail.com",
+        profile_picture_url=" http://localhost/profile/pic",
+        uuid= uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        is_active=True,
+        id = 1,
+        created_at = "2025-01-07T18:29:07.772000Z",
+        updated_at = "2025-01-07T18:29:07.772000Z",
+        deleted_at = None,
+        is_deleted =  False
+    )
+    return mock_user
+
+
+@pytest.fixture
+def inactive_user() -> UserSchema:
+    mock_user = UserSchema(
+        display_name="inactive_user",
+        username="inactive_user",
+        email="inactive_user@gmail.com",
+        profile_picture_url=" http://localhost/profile/pic",
+        uuid= uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        is_active=True,
+        id = 1,
+        created_at = "2025-01-07T18:29:07.772000Z",
+        updated_at = "2025-01-07T18:29:07.772000Z",
+        deleted_at = None,
+        is_deleted =  False
+    )
+    return mock_user
+
+
+@pytest.fixture
+def user_create_schema() -> UserCreateSchema:
+    mock_user = UserCreateSchema(
+        display_name="inactive_user",
+        username="inactive_user",
+        password_hash="hashed_password",
+        password_hash_algorithm="sha256",
+        auth_method="google",
+        email="inactive_user@gmail.com",
+        profile_picture_url=" http://localhost/profile/pic",
+        uuid= uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        id = 1,
+        is_active=True,
+        is_admin=False,
+        is_robot=False,
+        created_at = "2025-01-07T18:29:07.772000Z",
+        updated_at = "2025-01-07T18:29:07.772000Z",
+        deleted_at = None,
+        is_deleted = False
+    )
+    return mock_user
+
+
+@pytest.fixture
+def user_search_response() -> UserSearchResponseSchema:
+    mock_search_response = UserSearchResponseSchema(
+        display_name="Test User",
+        username="test_user",
+        profile_picture_url="http://localhost/profile/pic",
+        id=1,
+        created_at = "2025-01-07T18:29:07.772000Z",
+        updated_at = "2025-01-07T18:29:07.772000Z",
+        deleted_at = None,
+        is_deleted = False
+    )
+    return mock_search_response
+
+
+@pytest.fixture
+def user_api_key_response() -> Sequence[UserApiKeyResponseSchema]:
+    mock_api_key = UserApiKeyResponseSchema(
+        display_name="test_key",
+        description="test",
+        token_exp=1234567890,
+        id=1,
+        created_at = "2025-01-07T18:29:07.772000Z",
+        updated_at = "2025-01-07T18:29:07.772000Z",
+        deleted_at = None,
+        is_deleted = False
+    )
+    return [mock_api_key.model_dump(mode="json")]
+
+
+@pytest.fixture
+def fastapi_test_client(user_response) -> TestClient:
     """This fixture sets up a FastAPI test client for the OpenRelik v1 API."""
-    app = FastAPI()
+    app: FastAPI = FastAPI()
     app.include_router(
         taskqueue_router, prefix="/taskqueue", tags=["taskqueue"], dependencies=[]
     )
@@ -51,5 +245,8 @@ def fastapi_test_client():
     app.include_router(
         workflows_router, prefix="/workflows", tags=["workflows"], dependencies=[]
     )
+    app.dependency_overrides[
+        get_current_active_user
+    ] = lambda: user_response
     client = TestClient(app)
     return client
