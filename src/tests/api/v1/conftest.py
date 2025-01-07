@@ -41,6 +41,7 @@ from api.v1.schemas import (
     UserApiKeyResponse as UserApiKeyResponseSchema,
 )
 
+
 @pytest.fixture
 def db(mocker):
     """Mock database session."""
@@ -66,26 +67,26 @@ def test_user_db_model() -> UserModel:
         username="test_user",
         email="test_user@gmail.com",
         profile_picture_url=" http://localhost/profile/pic",
-        preferences = "",
-        uuid= uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
-        id = 1,
-        created_at = "2025-01-07T18:29:07.772000Z",
-        updated_at = "2025-01-07T18:29:07.772000Z",
-        deleted_at = None,
+        preferences="",
+        uuid=uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        id=1,
+        created_at="2025-01-07T18:29:07.772000Z",
+        updated_at="2025-01-07T18:29:07.772000Z",
+        deleted_at=None,
         is_admin=False,
         is_robot=False,
         is_active=True,
         auth_method="google",
         password_hash="hashed_password",
         password_hash_algorithm="sha256",
-        folders = [],
-        files = [],
-        workflows = [],
-        workflow_templates = [],
-        tasks = [],
-        api_keys = [],
-        user_roles = [],
-        groups = []
+        folders=[],
+        files=[],
+        workflows=[],
+        workflow_templates=[],
+        tasks=[],
+        api_keys=[],
+        user_roles=[],
+        groups=[],
     )
     return mock_user
 
@@ -98,14 +99,14 @@ def regular_user() -> UserSchema:
         username="test_user",
         email="test_user@gmail.com",
         profile_picture_url=" http://localhost/profile/pic",
-        uuid= uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        uuid=uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
         is_active=True,
-        id = 100,
-        created_at = "2025-01-07T18:29:07.772000Z",
-        updated_at = "2025-01-07T18:29:07.772000Z",
-        deleted_at = None,
-        is_deleted =  False,
-        auth_method = "google"
+        id=100,
+        created_at="2025-01-07T18:29:07.772000Z",
+        updated_at="2025-01-07T18:29:07.772000Z",
+        deleted_at=None,
+        is_deleted=False,
+        auth_method="google",
     )
     return mock_user
 
@@ -116,15 +117,15 @@ def user_response() -> UserResponseSchema:
     mock_user = UserResponseSchema(
         display_name="test_user",
         username="test_user",
-        auth_method= "google",
+        auth_method="google",
         email="test_user@gmail.com",
         profile_picture_url=" http://localhost/profile/pic",
-        uuid= uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
-        created_at = "2025-01-07T18:29:07.772000Z",
-        updated_at = "2025-01-07T18:29:07.772000Z",
-        deleted_at = None,
-        id = 100,
-        is_deleted = False
+        uuid=uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        created_at="2025-01-07T18:29:07.772000Z",
+        updated_at="2025-01-07T18:29:07.772000Z",
+        deleted_at=None,
+        id=100,
+        is_deleted=False,
     )
     return mock_user
 
@@ -137,13 +138,13 @@ def admin_user() -> UserSchema:
         username="admin_user",
         email="admin_user@gmail.com",
         profile_picture_url=" http://localhost/profile/pic",
-        uuid= uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        uuid=uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
         is_active=True,
-        id = 1,
-        created_at = "2025-01-07T18:29:07.772000Z",
-        updated_at = "2025-01-07T18:29:07.772000Z",
-        deleted_at = None,
-        is_deleted =  False
+        id=1,
+        created_at="2025-01-07T18:29:07.772000Z",
+        updated_at="2025-01-07T18:29:07.772000Z",
+        deleted_at=None,
+        is_deleted=False,
     )
     return mock_user
 
@@ -156,13 +157,13 @@ def robot_user() -> UserSchema:
         username="robot_user",
         email="robot_user@gmail.com",
         profile_picture_url=" http://localhost/profile/pic",
-        uuid= uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        uuid=uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
         is_active=True,
-        id = 1,
-        created_at = "2025-01-07T18:29:07.772000Z",
-        updated_at = "2025-01-07T18:29:07.772000Z",
-        deleted_at = None,
-        is_deleted =  False
+        id=1,
+        created_at="2025-01-07T18:29:07.772000Z",
+        updated_at="2025-01-07T18:29:07.772000Z",
+        deleted_at=None,
+        is_deleted=False,
     )
     return mock_user
 
@@ -175,13 +176,13 @@ def inactive_user() -> UserSchema:
         username="inactive_user",
         email="inactive_user@gmail.com",
         profile_picture_url=" http://localhost/profile/pic",
-        uuid= uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        uuid=uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
         is_active=True,
-        id = 1,
-        created_at = "2025-01-07T18:29:07.772000Z",
-        updated_at = "2025-01-07T18:29:07.772000Z",
-        deleted_at = None,
-        is_deleted =  False
+        id=1,
+        created_at="2025-01-07T18:29:07.772000Z",
+        updated_at="2025-01-07T18:29:07.772000Z",
+        deleted_at=None,
+        is_deleted=False,
     )
     return mock_user
 
@@ -197,15 +198,15 @@ def user_create_schema() -> UserCreateSchema:
         auth_method="google",
         email="inactive_user@gmail.com",
         profile_picture_url=" http://localhost/profile/pic",
-        uuid= uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
-        id = 1,
+        uuid=uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        id=1,
         is_active=True,
         is_admin=False,
         is_robot=False,
-        created_at = "2025-01-07T18:29:07.772000Z",
-        updated_at = "2025-01-07T18:29:07.772000Z",
-        deleted_at = None,
-        is_deleted = False
+        created_at="2025-01-07T18:29:07.772000Z",
+        updated_at="2025-01-07T18:29:07.772000Z",
+        deleted_at=None,
+        is_deleted=False,
     )
     return mock_user
 
@@ -218,10 +219,10 @@ def user_search_response() -> UserSearchResponseSchema:
         username="test_user",
         profile_picture_url="http://localhost/profile/pic",
         id=1,
-        created_at = "2025-01-07T18:29:07.772000Z",
-        updated_at = "2025-01-07T18:29:07.772000Z",
-        deleted_at = None,
-        is_deleted = False
+        created_at="2025-01-07T18:29:07.772000Z",
+        updated_at="2025-01-07T18:29:07.772000Z",
+        deleted_at=None,
+        is_deleted=False,
     )
     return mock_search_response
 
@@ -234,10 +235,10 @@ def user_api_key_response() -> Sequence[UserApiKeyResponseSchema]:
         description="test",
         token_exp=1234567890,
         id=1,
-        created_at = "2025-01-07T18:29:07.772000Z",
-        updated_at = "2025-01-07T18:29:07.772000Z",
-        deleted_at = None,
-        is_deleted = False
+        created_at="2025-01-07T18:29:07.772000Z",
+        updated_at="2025-01-07T18:29:07.772000Z",
+        deleted_at=None,
+        is_deleted=False,
     )
     return [mock_api_key.model_dump(mode="json")]
 
@@ -268,9 +269,7 @@ def fastapi_test_client(user_response) -> TestClient:
         workflows_router, prefix="/workflows", tags=["workflows"], dependencies=[]
     )
     # Override authentication check dependency injection.
-    app.dependency_overrides[
-        get_current_active_user
-    ] = lambda: user_response
-    # We will use a fastapi.TestClient object to test the API endpoints.
+    app.dependency_overrides[get_current_active_user] = lambda: user_response
+    # Use a fastapi.TestClient object to test the API endpoints.
     client = TestClient(app)
     return client
