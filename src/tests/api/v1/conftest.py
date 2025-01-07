@@ -19,6 +19,7 @@ import uuid
 
 from typing import Sequence
 
+from datastores.sql.models.group import Group
 from datastores.sql.models.user import User as UserModel
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -46,8 +47,20 @@ def db(mocker):
     mock_db = mocker.MagicMock(spec=Session)
     return mock_db
 
+
+@pytest.fixture
+def example_groups() -> Sequence[Group]:
+    groups_data = [
+        {"name": "Group 1", "description": "Description 1", "id": 1},  # Add IDs
+        {"name": "Group 2", "description": "Description 2", "id": 2},
+    ]
+    groups = [Group(**data) for data in groups_data]
+    return groups
+
+
 @pytest.fixture
 def test_user_db_model() -> UserModel:
+    """Database User model for testing."""
     mock_user = UserModel(
         display_name="test_user",
         username="test_user",
@@ -79,6 +92,7 @@ def test_user_db_model() -> UserModel:
 
 @pytest.fixture
 def regular_user() -> UserSchema:
+    """Regular user fixture."""
     mock_user = UserSchema(
         display_name="test_user",
         username="test_user",
@@ -98,6 +112,7 @@ def regular_user() -> UserSchema:
 
 @pytest.fixture
 def user_response() -> UserResponseSchema:
+    """User response fixture."""
     mock_user = UserResponseSchema(
         display_name="test_user",
         username="test_user",
@@ -116,6 +131,7 @@ def user_response() -> UserResponseSchema:
 
 @pytest.fixture
 def admin_user() -> UserSchema:
+    """Admin user fixture."""
     mock_user = UserSchema(
         display_name="admin_user",
         username="admin_user",
@@ -134,6 +150,7 @@ def admin_user() -> UserSchema:
 
 @pytest.fixture
 def robot_user() -> UserSchema:
+    """Robot user fixture."""
     mock_user = UserSchema(
         display_name="robot_user",
         username="robot_user",
@@ -152,6 +169,7 @@ def robot_user() -> UserSchema:
 
 @pytest.fixture
 def inactive_user() -> UserSchema:
+    """Inactive user fixture."""
     mock_user = UserSchema(
         display_name="inactive_user",
         username="inactive_user",
@@ -170,6 +188,7 @@ def inactive_user() -> UserSchema:
 
 @pytest.fixture
 def user_create_schema() -> UserCreateSchema:
+    """User create schema fixture."""
     mock_user = UserCreateSchema(
         display_name="inactive_user",
         username="inactive_user",
@@ -193,6 +212,7 @@ def user_create_schema() -> UserCreateSchema:
 
 @pytest.fixture
 def user_search_response() -> UserSearchResponseSchema:
+    """User search response fixture."""
     mock_search_response = UserSearchResponseSchema(
         display_name="Test User",
         username="test_user",
@@ -208,6 +228,7 @@ def user_search_response() -> UserSearchResponseSchema:
 
 @pytest.fixture
 def user_api_key_response() -> Sequence[UserApiKeyResponseSchema]:
+    """User API key response fixture."""
     mock_api_key = UserApiKeyResponseSchema(
         display_name="test_key",
         description="test",
@@ -225,6 +246,7 @@ def user_api_key_response() -> Sequence[UserApiKeyResponseSchema]:
 def fastapi_test_client(user_response) -> TestClient:
     """This fixture sets up a FastAPI test client for the OpenRelik v1 API."""
     app: FastAPI = FastAPI()
+    # Set up all the necessary FastAPI routes.
     app.include_router(
         taskqueue_router, prefix="/taskqueue", tags=["taskqueue"], dependencies=[]
     )
@@ -245,8 +267,10 @@ def fastapi_test_client(user_response) -> TestClient:
     app.include_router(
         workflows_router, prefix="/workflows", tags=["workflows"], dependencies=[]
     )
+    # Override authentication check dependency injection.
     app.dependency_overrides[
         get_current_active_user
     ] = lambda: user_response
+    # We will use a fastapi.TestClient object to test the API endpoints.
     client = TestClient(app)
     return client

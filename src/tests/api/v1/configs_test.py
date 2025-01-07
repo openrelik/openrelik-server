@@ -16,6 +16,7 @@
 
 
 def test_get_system_config(fastapi_test_client, mocker):
+    """Test the get_system_config endpoint."""
     mock_get_active_llms = mocker.patch("api.v1.configs.get_active_llms")
     mock_get_active_cloud = mocker.patch("api.v1.configs.get_active_cloud_provider")
 
