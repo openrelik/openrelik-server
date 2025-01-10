@@ -15,18 +15,13 @@
 """Tests for groups endpoints."""
 
 
-def test_get_all_groups(
-    fastapi_test_client, db, example_groups, mocker
-):
+def test_get_all_groups(fastapi_test_client, db, example_groups):
     """Test the get_all_groups endpoint."""
-    mock_query = mocker.patch("sqlalchemy.orm.Session.query")
-    mock_query.return_value = db.query
-    mock_query.return_value.all.return_value = example_groups
-
+    db.query.return_value.all.return_value = example_groups
     response = fastapi_test_client.get("/groups/")
+    groups = response.json()
 
     assert response.status_code == 200
-    groups = response.json()
     assert len(groups) == 2
     assert groups[0]["name"] == "Group 1"
     assert groups[0]["description"] == "Description 1"

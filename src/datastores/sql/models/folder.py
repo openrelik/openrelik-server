@@ -19,7 +19,7 @@ from sqlalchemy import UUID, BigInteger, ForeignKey, Integer, UnicodeText
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from config import config
+from config import get_config
 from datastores.sql.models.workflow import Workflow
 
 from ..database import AttributeMixin, BaseModel
@@ -80,7 +80,8 @@ class Folder(BaseModel):
     @hybrid_property
     def path(self):
         """Returns the full path of the folder."""
-        base_storage_path = config.get("server").get("storage_path")
+        current_config = get_config()
+        base_storage_path = current_config.get("server").get("storage_path")
         return os.path.join(base_storage_path, self.uuid.hex)
 
 

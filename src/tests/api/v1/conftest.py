@@ -16,11 +16,17 @@
 
 import pytest
 import uuid
+import os
 
+from httpx import ASGITransport, AsyncClient
 from typing import Sequence
 
+from datastores.sql.database import get_db_connection
 from datastores.sql.models.group import Group
 from datastores.sql.models.user import User as UserModel
+from datastores.sql.models.file import File as FileModel
+from datastores.sql.models.folder import Folder as FolderModel
+from datastores.sql.models.workflow import Task as TaskModel, Workflow as WorkflowModel
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -34,17 +40,30 @@ from api.v1.taskqueue import router as taskqueue_router
 from api.v1.users import router as users_router
 from api.v1.workflows import router as workflows_router
 from api.v1.schemas import (
+    FolderResponse as FolderResponseSchema,
+    FolderResponseCompact as FolderResponseCompactSchema,
+    FileResponseCompactList as FileResponseCompactListSchema,
+    FileResponse as FileResponseSchema,
     User as UserSchema,
-    UserCreate as UserCreateSchema,
     UserResponse as UserResponseSchema,
+    UserResponseCompact as UserResponseCompactSchema,
     UserSearchResponse as UserSearchResponseSchema,
     UserApiKeyResponse as UserApiKeyResponseSchema,
+    Task as TaskSchema,
+    Workflow as WorkflowSchema,
 )
+
+
+@pytest.fixture(autouse=True)
+def authz(mocker):
+    mock_authz = mocker.patch("datastores.sql.crud.authz.check_user_access")
+    mock_authz.return_value = True
+    return mock_authz
 
 
 @pytest.fixture
 def db(mocker):
-    """Mock database session."""
+    """Mock database session fixture.  Autouse makes it apply to all tests."""
     mock_db = mocker.MagicMock(spec=Session)
     return mock_db
 
@@ -60,7 +79,411 @@ def example_groups() -> Sequence[Group]:
 
 
 @pytest.fixture
-def test_user_db_model() -> UserModel:
+def task_schema_mock(user_db_model, workflow_schema_mock) -> TaskSchema:
+    """Fixture for a mock TaskResponse object."""
+    user_mock = UserSchema.model_validate(user_db_model, from_attributes=True)
+
+    task_data = {
+        "id": 1,
+        "description": "test task description",
+        "display_name": "test task",
+        "uuid": uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        "created_at": None,
+        "updated_at": None,
+        "deleted_at": None,
+        "is_deleted": False,
+        "status_short": "pending",
+        "status_detail": "Task is pending",
+        "status_progress": "Task is pending",
+        "result": "{}",
+        "runtime": 1.23,
+        "user": user_mock,
+        "output_files": [],
+        "file_reports": [],
+        "error_traceback": None,
+        "error_exception": None,
+        "config": None,
+        "workflow": workflow_schema_mock,
+    }
+    mock_task_response = TaskSchema(**task_data)
+    return mock_task_response
+
+
+@pytest.fixture
+def file_response_cloud_disk_File(
+    tmp_path, user_db_model, folder_db_model
+) -> FileResponseSchema:
+    """Fixture for a mock FileResponse object."""
+    file_id = 1
+    display_name = "test_disk.json"
+    path = os.path.join(tmp_path, display_name)
+
+    with open(path, "w") as f:
+        f.write("Dummy file content")
+
+    file_size = os.path.getsize(path)
+
+    user_response_compact = UserResponseCompactSchema.model_validate(
+        user_db_model, from_attributes=True
+    )
+    file_data = {
+        "id": file_id,
+        "display_name": display_name,
+        "description": "Test file description",
+        "uuid": uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        "filename": "test_disk",
+        "filesize": file_size,
+        "extension": "json",
+        "original_path": path,
+        "magic_text": "openrelik:test_cloud_provider:disk",
+        "magic_mime": "openrelik:test_cloud_provider:disk",
+        "data_type": "openrelik:test_cloud_provider:disk",
+        "hash_md5": "test_md5",
+        "hash_sha1": "test_sha1",
+        "hash_sha256": "test_sha256",
+        "hash_ssdeep": "test_ssdeep",
+        "user_id": 1,
+        "user": user_response_compact,
+        "created_at": None,
+        "updated_at": None,
+        "deleted_at": None,
+        "folder": folder_db_model,
+        "source_file": None,
+        "workflows": [],
+        "summaries": [],
+        "reports": [],
+        "is_deleted": False,
+    }
+    mock_file_response = FileResponseSchema(**file_data)
+    return mock_file_response
+
+
+@pytest.fixture
+def file_response(tmp_path, user_db_model, folder_db_model) -> FileResponseSchema:
+    """Fixture for a mock FileResponse object."""
+    file_id = 1
+    display_name = "test_file.txt"
+    path = os.path.join(tmp_path, display_name)
+
+    # Create a dummy file for content tests (avoiding FileNotFoundError)
+    with open(path, "w") as f:
+        f.write("Dummy file content")
+
+    file_size = os.path.getsize(path)
+
+    user_response_compact = UserResponseCompactSchema.model_validate(
+        user_db_model, from_attributes=True
+    )
+    file_data = {
+        "id": file_id,
+        "display_name": display_name,
+        "description": "Test file description",
+        "uuid": uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        "filename": "test_file",
+        "filesize": file_size,
+        "extension": "txt",
+        "original_path": path,
+        "magic_text": "plain text",
+        "magic_mime": "text/plain",
+        "data_type": "text/plain",
+        "hash_md5": "test_md5",
+        "hash_sha1": "test_sha1",
+        "hash_sha256": "test_sha256",
+        "hash_ssdeep": "test_ssdeep",
+        "user_id": 1,
+        "user": user_response_compact,
+        "created_at": None,
+        "updated_at": None,
+        "deleted_at": None,
+        "folder": folder_db_model,
+        "source_file": None,
+        "workflows": [],
+        "summaries": [],
+        "reports": [],
+        "is_deleted": False,
+    }
+    mock_file_response = FileResponseSchema(**file_data)
+    return mock_file_response
+
+
+@pytest.fixture
+def file_response_compact_list(user_db_model) -> FileResponseCompactListSchema:
+    """Fixture for a mock FileResponseCompactList object."""
+    user_response_compact = UserResponseCompactSchema.model_validate(
+        user_db_model, from_attributes=True
+    )
+    file_data = {
+        "id": 1,
+        "display_name": "test_file.txt",
+        "filesize": 1024,
+        "magic_mime": "text/plain",
+        "data_type": "text/plain",
+        "user": user_response_compact,
+        "created_at": None,
+        "is_deleted": False,
+    }
+    mock_file_response = FileResponseCompactListSchema(**file_data)
+    return mock_file_response
+
+
+@pytest.fixture
+def folder_response_compact(user_db_model) -> FolderResponseCompactSchema:
+    """Fixture for a mock FolderResponseCompactSchema object."""
+    user_response_compact = UserResponseCompactSchema.model_validate(
+        user_db_model, from_attributes=True
+    )
+    folder_data = {
+        "id": 1,
+        "display_name": "test_folder",
+        "description": "test_folder",
+        "uuid": uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        "user": user_response_compact,
+        "selectable": False,
+        "workflows": [],
+        "user_roles": [],
+        "group_roles": [],
+        "created_at": None,
+        "updated_at": None,
+        "deleted_at": None,
+        "is_deleted": False,
+    }
+    mock_folder_response = FolderResponseCompactSchema(**folder_data)
+    return mock_folder_response
+
+
+@pytest.fixture
+def folder_response(user_db_model) -> FolderResponseSchema:
+    """Fixture for a mock FolderResponseSchema object."""
+    user_response_compact = UserResponseCompactSchema.model_validate(
+        user_db_model, from_attributes=True
+    )
+    folder_data = {
+        "id": 1,
+        "display_name": "test_folder",
+        "description": "test_folder",
+        "uuid": uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        "user": user_response_compact,
+        "selectable": False,
+        "workflows": [],
+        "user_roles": [],
+        "group_roles": [],
+        "created_at": None,
+        "updated_at": None,
+        "deleted_at": None,
+        "is_deleted": False,
+    }
+    mock_folder_response = FolderResponseSchema(**folder_data)
+    return mock_folder_response
+
+
+@pytest.fixture
+def task_db_model(workflow_db_model, user_db_model) -> TaskModel:
+    """Fixture for a mock Task database model object."""
+    task_data = {
+        "id": 1,
+        "display_name": "test task",
+        "description": "test task description",
+        "uuid": uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        "config": None,
+        "created_at": None,  # or use a datetime object
+        "updated_at": None,  # or use a datetime object
+        "deleted_at": None,  # or use a datetime object
+        "is_deleted": False,
+        "workflow_id": workflow_db_model.id,
+        "workflow": workflow_db_model,
+        "user_id": user_db_model.id,
+        "user": user_db_model,
+        "status_short": "pending",
+        "status_detail": "Task is pending",
+        "status_progress": "Task is pending",
+        "result": "{}",  # or use a dict
+        "runtime": 1.23,  # or use a float
+        "error_exception": None,
+        "error_traceback": None,
+        "input_files": [],
+        "output_files": [],
+        "file_reports": [],
+    }
+    mock_task = TaskModel(**task_data)
+    return mock_task
+
+
+@pytest.fixture
+def workflow_schema_mock(folder_db_model, user_db_model) -> WorkflowSchema:
+    """Fixture for a mock WorkflowResponse object."""
+    workflow_data = {
+        "id": 1,
+        "uuid": uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa7"),
+        "display_name": "test workflow",
+        "description": "test workflow description",
+        "spec_json": None,
+        "created_at": None,
+        "updated_at": None,
+        "deleted_at": None,
+        "is_deleted": False,
+        "user_id": user_db_model.id,
+        "folder_id": folder_db_model.id,
+        "file_ids": [],
+    }
+
+    mock_workflow_response = WorkflowSchema(**workflow_data)
+    return mock_workflow_response
+
+
+@pytest.fixture
+def workflow_db_model(folder_db_model, user_db_model):
+    """Fixture for a mock WorkflowResponse object."""
+    workflow_data = {
+        "id": 1,
+        "uuid": uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa7"),
+        "display_name": "test workflow",
+        "description": "test workflow description",
+        "spec_json": None,
+        "created_at": None,
+        "updated_at": None,
+        "deleted_at": None,
+        "is_deleted": False,
+        "user": user_db_model,
+        "user_id": user_db_model.id,
+        "folder": folder_db_model,
+        "folder_id": folder_db_model.id,
+        "files": [],
+        "tasks": [],
+    }
+
+    mock_workflow_response = WorkflowModel(**workflow_data)
+    return mock_workflow_response
+
+
+@pytest.fixture
+def file_db_model(tmp_path, user_db_model, folder_db_model) -> FileModel:
+    """Fixture for a mock FileResponse object."""
+    file_id = 1
+    display_name = "test_file.txt"
+    folder_path = os.path.join(tmp_path, folder_db_model.uuid.hex)
+    os.makedirs(folder_path, exist_ok=True)
+    path = os.path.join(folder_path, display_name)  # Use tmp_path for a temporary file
+
+    # Create a dummy file for content tests (avoiding FileNotFoundError)
+    with open(path, "w") as f:
+        f.write("Dummy file content")
+
+    file_size = os.path.getsize(path)
+
+    # Using a dictionaries to easily initialize the mock
+    file_data = {
+        "id": file_id,
+        "display_name": display_name,
+        "description": "Test file description",
+        "uuid": uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        "filename": "test_file",
+        "filesize": file_size,
+        "extension": "txt",
+        "original_path": path,
+        "magic_text": "plain text",
+        "magic_mime": "text/plain",
+        "data_type": "text/plain",
+        "hash_md5": "test_md5",
+        "hash_sha1": "test_sha1",
+        "hash_sha256": "test_sha256",
+        "hash_ssdeep": "test_ssdeep",
+        "user_id": 1,
+        "user": user_db_model,
+        "created_at": None,
+        "updated_at": None,
+        "deleted_at": None,
+        "folder": folder_db_model,
+        "folder_id": folder_db_model.id,
+        "source_file": None,
+        "workflows": [],
+        "summaries": [],
+        "reports": [],
+        "is_deleted": False,
+    }
+    mock_file_response = FileModel(**file_data)
+    return mock_file_response
+
+
+@pytest.fixture
+def file_db_model(tmp_path, user_db_model, folder_db_model) -> FileModel:
+    """Fixture for a mock FileModel object."""
+    file_id = 1
+    display_name = "test_file.txt"
+    folder_path = os.path.join(tmp_path, folder_db_model.uuid.hex)
+    os.makedirs(folder_path, exist_ok=True)
+    path = os.path.join(folder_path, display_name)  # Use tmp_path for a temporary file
+
+    # Create a dummy file for content tests (avoiding FileNotFoundError)
+    with open(path, "w") as f:
+        f.write("Dummy file content")
+
+    file_size = os.path.getsize(path)
+
+    # Using a dictionaries to easily initialize the mock
+    file_data = {
+        "id": file_id,
+        "display_name": display_name,
+        "description": "Test file description",
+        "uuid": uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        "filename": "test_file",
+        "filesize": file_size,
+        "extension": "txt",
+        "original_path": path,
+        "magic_text": "plain text",
+        "magic_mime": "text/plain",
+        "data_type": "text/plain",
+        "hash_md5": "test_md5",
+        "hash_sha1": "test_sha1",
+        "hash_sha256": "test_sha256",
+        "hash_ssdeep": "test_ssdeep",
+        "user_id": 1,
+        "user": user_db_model,
+        "created_at": None,
+        "updated_at": None,
+        "deleted_at": None,
+        "folder": folder_db_model,
+        "folder_id": folder_db_model.id,
+        "source_file": None,
+        "workflows": [],
+        "summaries": [],
+        "reports": [],
+        "is_deleted": False,
+    }
+    mock_file_response = FileModel(**file_data)
+    return mock_file_response
+
+
+@pytest.fixture
+def folder_db_model(user_db_model) -> FolderModel:
+    """Fixture for a mock FolderModel object."""
+
+    folder_data = {
+        "display_name": "test_folder",
+        "description": "test_folder",
+        "uuid": uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+        "user_id": 1,
+        "attributes": [],
+        "user": user_db_model,
+        "files": [],
+        "workflows": [],
+        "parent_id": 1,
+        "parent": None,
+        "children": [],
+        "user_roles": [],
+        "group_roles": [],
+        "created_at": None,
+        "updated_at": None,
+        "deleted_at": None,
+        "id": 1,
+        "is_deleted": False,
+    }
+
+    mock_folder_response = FolderModel(**folder_data)
+    return mock_folder_response
+
+
+@pytest.fixture
+def user_db_model() -> UserModel:
     """Database User model for testing."""
     mock_user = UserModel(
         display_name="test_user",
@@ -131,87 +554,6 @@ def user_response() -> UserResponseSchema:
 
 
 @pytest.fixture
-def admin_user() -> UserSchema:
-    """Admin user fixture."""
-    mock_user = UserSchema(
-        display_name="admin_user",
-        username="admin_user",
-        email="admin_user@gmail.com",
-        profile_picture_url=" http://localhost/profile/pic",
-        uuid=uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
-        is_active=True,
-        id=1,
-        created_at="2025-01-07T18:29:07.772000Z",
-        updated_at="2025-01-07T18:29:07.772000Z",
-        deleted_at=None,
-        is_deleted=False,
-    )
-    return mock_user
-
-
-@pytest.fixture
-def robot_user() -> UserSchema:
-    """Robot user fixture."""
-    mock_user = UserSchema(
-        display_name="robot_user",
-        username="robot_user",
-        email="robot_user@gmail.com",
-        profile_picture_url=" http://localhost/profile/pic",
-        uuid=uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
-        is_active=True,
-        id=1,
-        created_at="2025-01-07T18:29:07.772000Z",
-        updated_at="2025-01-07T18:29:07.772000Z",
-        deleted_at=None,
-        is_deleted=False,
-    )
-    return mock_user
-
-
-@pytest.fixture
-def inactive_user() -> UserSchema:
-    """Inactive user fixture."""
-    mock_user = UserSchema(
-        display_name="inactive_user",
-        username="inactive_user",
-        email="inactive_user@gmail.com",
-        profile_picture_url=" http://localhost/profile/pic",
-        uuid=uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
-        is_active=True,
-        id=1,
-        created_at="2025-01-07T18:29:07.772000Z",
-        updated_at="2025-01-07T18:29:07.772000Z",
-        deleted_at=None,
-        is_deleted=False,
-    )
-    return mock_user
-
-
-@pytest.fixture
-def user_create_schema() -> UserCreateSchema:
-    """User create schema fixture."""
-    mock_user = UserCreateSchema(
-        display_name="inactive_user",
-        username="inactive_user",
-        password_hash="hashed_password",
-        password_hash_algorithm="sha256",
-        auth_method="google",
-        email="inactive_user@gmail.com",
-        profile_picture_url=" http://localhost/profile/pic",
-        uuid=uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
-        id=1,
-        is_active=True,
-        is_admin=False,
-        is_robot=False,
-        created_at="2025-01-07T18:29:07.772000Z",
-        updated_at="2025-01-07T18:29:07.772000Z",
-        deleted_at=None,
-        is_deleted=False,
-    )
-    return mock_user
-
-
-@pytest.fixture
 def user_search_response() -> UserSearchResponseSchema:
     """User search response fixture."""
     mock_search_response = UserSearchResponseSchema(
@@ -244,8 +586,24 @@ def user_api_key_response() -> Sequence[UserApiKeyResponseSchema]:
 
 
 @pytest.fixture
-def fastapi_test_client(user_response) -> TestClient:
+def fastapi_async_test_client(setup_test_app) -> AsyncClient:
+    """This fixture sets up an AsyncClient for the OpenRelik v1 API."""
+    async_client = AsyncClient(
+        transport=ASGITransport(setup_test_app), base_url="http://test"
+    )
+    return async_client
+
+
+@pytest.fixture
+def fastapi_test_client(setup_test_app) -> TestClient:
     """This fixture sets up a FastAPI test client for the OpenRelik v1 API."""
+    client = TestClient(setup_test_app)
+    return client
+
+
+@pytest.fixture
+def setup_test_app(user_response, db) -> FastAPI:
+    """Set up the FastAPI application for testing."""
     app: FastAPI = FastAPI()
     # Set up all the necessary FastAPI routes.
     app.include_router(
@@ -270,6 +628,5 @@ def fastapi_test_client(user_response) -> TestClient:
     )
     # Override authentication check dependency injection.
     app.dependency_overrides[get_current_active_user] = lambda: user_response
-    # Use a fastapi.TestClient object to test the API endpoints.
-    client = TestClient(app)
-    return client
+    app.dependency_overrides[get_db_connection] = lambda: db
+    return app
