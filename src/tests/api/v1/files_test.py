@@ -16,8 +16,6 @@
 
 import json
 import os
-from unittest.mock import AsyncMock
-from api.v1.schemas import FileResponse
 import pytest
 from fastapi import UploadFile
 from pathlib import Path
@@ -51,14 +49,12 @@ def test_get_file_content(
         f'<pre style="color:{expected_color};padding:10px;white-space: pre-wrap;">{file_content}</pre>'
         in response.text
     )
-
-    # assert "Mocked file content" in response.text # Assert based on the mocked behavior
     mock_open.assert_called_with(file_db_model.path, "r", encoding="utf-8")
 
 
 def test_get_file_content_file_not_found(
     fastapi_test_client, mocker, file_db_model, tmp_path
-):  # Added tmp_path
+):
     """Test the get_file_content endpoint when file not found."""
     non_existent_path = os.path.join(tmp_path, "does_not_exist.txt")
     file_db_model.original_path = (
@@ -77,13 +73,10 @@ def test_get_file_content_file_not_found(
 @pytest.mark.parametrize(
     "file_id, display_name", [(1, "file1.txt"), (2, "another_file.pdf")]
 )
-def test_download_file(
-    fastapi_test_client, mocker, file_id, display_name, tmp_path
-):  # add parameters
+def test_download_file(fastapi_test_client, mocker, file_id, display_name, tmp_path):
     mock_file_response = mocker.Mock()
     mock_file_response.id = file_id
     mock_file_response.display_name = display_name
-    # Create a dummy file path using tmp_path for the FileResponse mock
     mock_file_response.path = os.path.join(tmp_path, display_name)
 
     with open(mock_file_response.path, "w") as f:
@@ -185,16 +178,17 @@ def test_get_workflows_empty(fastapi_test_client, mocker):
     assert response.status_code == 200
 
 
-def test_get_workflows(fastapi_test_client, mocker):
+def test_get_workflows(fastapi_test_client, mocker, workflow_response):
     """Test the get_workflows endpoint."""
     mock_get_file_workflows_from_db = mocker.patch(
         "api.v1.files.get_file_workflows_from_db"
     )
-    mock_get_file_workflows_from_db.return_value = []
+    mock_get_file_workflows_from_db.return_value = [workflow_response]
     file_id = 1
 
     response = fastapi_test_client.get(f"/files/{file_id}/workflows")
     assert response.status_code == 200
+    print(response.json())
 
 
 def test_generate_file_summary(
@@ -203,16 +197,13 @@ def test_generate_file_summary(
     file_db_model,
 ):
     """Test generate_file_summary endpoint."""
-
     mock_get_active_llms = mocker.patch("api.v1.files.get_active_llms")
     mock_get_active_llms.return_value = [
         {"name": "test_llm", "config": {"model": "test_model"}}
     ]
-
     mock_create_file_summary_in_db = mocker.patch(
         "api.v1.files.create_file_summary_in_db"
     )
-
     mock_background_tasks_add_task = mocker.patch(
         "api.v1.files.BackgroundTasks.add_task"
     )
@@ -230,7 +221,6 @@ async def test_download_file_stream(fastapi_async_test_client, mocker, file_db_m
     mock_get_file_from_db = mocker.patch("api.v1.files.get_file_from_db")
     mock_get_file_from_db.return_value = file_db_model
 
-    # Create a dummy file with some content
     with open(file_db_model.path, "w") as f:
         f.write("Dummy file content")
 
@@ -243,7 +233,6 @@ async def test_download_file_stream(fastapi_async_test_client, mocker, file_db_m
         == f'attachment; filename="{file_db_model.display_name}"'
     )
 
-    # Check the content of the streamed response
     streamed_content = b""
     for chunk in response.iter_bytes():
         streamed_content += chunk
@@ -279,13 +268,13 @@ async def test_upload_files_chunked(
     chunk_content = b"test file content" * (chunk_size // len(b"test file content"))
     response = await fastapi_async_test_client.post(
         "/files/upload",
-        files={"file": ("test_file.txt", chunk_content)},  # Upload in smaller chunks
+        files={"file": ("test_file.txt", chunk_content)},
         params={
             "resumableChunkNumber": chunk_number,
             "resumableChunkSize": chunk_size,
             "resumableCurrentChunkSize": (
                 current_chunk_size if chunk_number == total_chunks else chunk_size
-            ),  # Check last chunk's size
+            ),
             "resumableTotalSize": total_size,
             "resumableTotalChunks": total_chunks,
             "resumableIdentifier": resumable_identifier,
@@ -293,15 +282,13 @@ async def test_upload_files_chunked(
             "folder_id": folder_id,
         },
     )
-    print(response.json())
-    if chunk_number == total_chunks:
-        assert response.status_code == 201
+    assert response.status_code == 201
 
 
-def test_get_task(fastapi_test_client, mocker, db, task_db_model, task_schema_mock):
+def test_get_task(fastapi_test_client, mocker, db, task_response):
     """Test the get_task endpoint."""
     mock_get_task_from_db = mocker.patch("api.v1.files.get_task_from_db")
-    mock_get_task_from_db.return_value = [task_db_model]
+    mock_get_task_from_db.return_value = [task_response]
 
     file_id = 1
     workflow_id = 1
@@ -311,8 +298,9 @@ def test_get_task(fastapi_test_client, mocker, db, task_db_model, task_schema_mo
     )
 
     assert response.status_code == 200
-    assert response.json() == [task_schema_mock.model_dump(mode="json")]
     mock_get_task_from_db.assert_called_once_with(db, task_id)
+
+    assert response.json() == [task_response.model_dump(mode="json")]
 
 
 def test_get_file_summary(fastapi_test_client, mocker, db):
@@ -350,7 +338,6 @@ def test_download_task_result(fastapi_test_client, mocker, db, tmp_path):
     workflow_id = 1
     task_id = 1
 
-    # Create a dummy result file
     result_file_path = os.path.join(tmp_path, "test_result.txt")
     with open(result_file_path, "w") as f:
         f.write("Test result content")
@@ -368,6 +355,4 @@ def test_download_task_result(fastapi_test_client, mocker, db, tmp_path):
         response.headers["content-disposition"]
         == 'attachment; filename="test_result.txt"'
     )
-
-    # Check downloaded content.  Use response.content for small files, otherwise stream
     assert response.content == b"Test result content"

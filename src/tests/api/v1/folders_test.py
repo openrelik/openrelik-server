@@ -15,11 +15,7 @@
 """Tests for folder endpoints."""
 
 import pytest
-from unittest.mock import MagicMock, AsyncMock
-import uuid
-import os
-from sqlalchemy.orm import Session
-from datastores.sql.models.folder import Folder
+
 from datastores.sql.models.role import Role
 from api.v1 import schemas
 
@@ -95,7 +91,9 @@ async def test_create_subfolder(fastapi_async_test_client, mocker, folder_respon
 
 
 @pytest.mark.asyncio
-async def test_update_folder(fastapi_async_test_client, mocker, folder_response, folder_db_model):
+async def test_update_folder(
+    fastapi_async_test_client, mocker, folder_response, folder_db_model
+):
     """Test update an existing folder."""
     mock_get_folder = mocker.patch("api.v1.folders.get_folder_from_db")
     mock_get_folder.return_value = folder_db_model
@@ -105,9 +103,7 @@ async def test_update_folder(fastapi_async_test_client, mocker, folder_response,
 
     request = {"display_name": "updated folder name", "id": 1}
 
-    response = await fastapi_async_test_client.patch(
-        "/folders/1", json=request
-    )
+    response = await fastapi_async_test_client.patch("/folders/1", json=request)
     assert response.status_code == 200
     assert response.json() == folder_response.model_dump(mode="json")
 
@@ -123,7 +119,7 @@ def test_delete_folder(fastapi_test_client, mocker, db):
     mock_delete_folder.assert_called_once_with(db, folder_id)
 
 
-def test_share_folder(fastapi_test_client, mocker):
+def test_share_folder(fastapi_test_client, mocker, db):
     mock_create_user_role = mocker.patch("api.v1.folders.create_user_role_in_db")
     mock_create_group_role = mocker.patch("api.v1.folders.create_group_role_in_db")
     folder_id = 1
@@ -136,11 +132,13 @@ def test_share_folder(fastapi_test_client, mocker):
     )
 
     assert response.status_code == 200
+    mock_create_user_role.assert_any_call(db, Role.OWNER, 2, folder_id)
+    mock_create_user_role.assert_any_call(db, Role.OWNER, 1, folder_id)
+    mock_create_group_role.assert_any_call(db, Role.OWNER, 4, folder_id)
+    mock_create_group_role.assert_any_call(db, Role.OWNER, 3, folder_id)
 
 
-def test_get_my_folder_role(
-    fastapi_test_client, mocker, folder_db_model
-):
+def test_get_my_folder_role(fastapi_test_client, mocker, folder_db_model):
     mock_get_folder = mocker.patch("api.v1.folders.get_folder_from_db")
     mock_get_folder.return_value = folder_db_model
 
@@ -151,6 +149,8 @@ def test_get_my_folder_role(
     response = fastapi_test_client.get(f"/folders/{folder_id}/roles/me")
 
     assert response.status_code == 200
+    assert response.json() == Role.OWNER.value
+    mock_check_user_access.assert_called_once()
 
 
 def test_delete_group_role(fastapi_test_client, mocker, db):
