@@ -42,3 +42,10 @@ ipython = "^8.22.2"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.coverage.run]
+branch = false
+omit = [
+    "src/tests/*",
+   "src/datastores/sql/models/*",
+    ]
