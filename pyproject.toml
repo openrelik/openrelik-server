@@ -47,5 +47,5 @@ build-backend = "poetry.core.masonry.api"
 branch = false
 omit = [
     "src/tests/*",
-   "src/datastores/sql/models/*",
+    "src/datastores/sql/models/*",
     ]
