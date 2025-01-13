@@ -188,7 +188,6 @@ def test_get_workflows(fastapi_test_client, mocker, workflow_response):
 
     response = fastapi_test_client.get(f"/files/{file_id}/workflows")
     assert response.status_code == 200
-    print(response.json())
 
 
 def test_generate_file_summary(
