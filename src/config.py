@@ -21,19 +21,18 @@ from lib.constants import cloud_provider_data_type_mapping
 from openrelik_ai_common.providers import manager
 
 
-project_dir = os.path.normpath(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-)
-settings_from_env = os.getenv("OPENRELIK_SERVER_SETTINGS")
-settings_file = os.path.join(project_dir, "settings.toml")
-
-# Read path to settings file from the environment and use that is available.
-if settings_from_env and os.path.isfile(settings_from_env):
-    settings_file = settings_from_env
-
-
 def get_config() -> dict:
     """Load the settings from the settings.toml file."""
+    project_dir = os.path.normpath(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    )
+    settings_from_env = os.getenv("OPENRELIK_SERVER_SETTINGS")
+    settings_file = os.path.join(project_dir, "settings.toml")
+
+    # Read path to settings file from the environment and use that is available.
+    if settings_from_env and os.path.isfile(settings_from_env):
+        settings_file = settings_from_env
+
     with open(settings_file, "rb") as fh:
         config = tomllib.load(fh)
     return config
