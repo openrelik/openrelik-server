@@ -14,6 +14,7 @@
 
 import os
 import tomllib
+import sys
 
 from fastapi import HTTPException
 
@@ -27,8 +28,12 @@ def get_config() -> dict:
         os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     )
     settings_from_env = os.getenv("OPENRELIK_SERVER_SETTINGS")
-    settings_file = os.path.join(project_dir, "settings.toml")
-
+    # To ensure tests can be loaded even if we don't have a settings.toml file
+    # or we didn't set the environment variable (e.g. vanilla VScode devcontainer)
+    if 'pytest' in sys.modules:
+        settings_file = os.path.join(project_dir, "settings_example.toml")
+    else:
+        settings_file = os.path.join(project_dir, "settings.toml")
     # Read path to settings file from the environment and use that is available.
     if settings_from_env and os.path.isfile(settings_from_env):
         settings_file = settings_from_env
