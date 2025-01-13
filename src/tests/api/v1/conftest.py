@@ -23,14 +23,15 @@ from typing import Sequence
 
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.group import Group
-from datastores.sql.models.user import User as UserModel
-from datastores.sql.models.file import File as FileModel
-from datastores.sql.models.folder import Folder as FolderModel
-from datastores.sql.models.workflow import Workflow as WorkflowModel
+from datastores.sql.models.user import User
+from datastores.sql.models.file import File
+from datastores.sql.models.folder import Folder
+from datastores.sql.models.workflow import Workflow
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 from auth.common import get_current_active_user
+from api.v1 import schemas
 from api.v1.configs import router as configs_router
 from api.v1.files import router as files_router
 from api.v1.folders import router as folders_router
@@ -41,21 +42,6 @@ from api.v1.users import router as users_router
 from api.v1.workflows import (
     router as workflows_router,
     router_root as workflows_root_router,
-)
-
-from api.v1.schemas import (
-    FolderResponse as FolderResponseSchema,
-    FolderResponseCompact as FolderResponseCompactSchema,
-    FileResponseCompactList as FileResponseCompactListSchema,
-    FileResponse as FileResponseSchema,
-    User as UserSchema,
-    UserResponse as UserResponseSchema,
-    UserResponseCompact as UserResponseCompactSchema,
-    UserApiKeyResponse as UserApiKeyResponseSchema,
-    TaskResponse as TaskResponseSchema,
-    Workflow as WorkflowSchema,
-    WorkflowResponse as WorkflowResponseSchema,
-    WorkflowTemplateResponse as WorkflowTemplateResponseSchema,
 )
 
 
@@ -84,9 +70,9 @@ def example_groups() -> Sequence[Group]:
 
 
 @pytest.fixture
-def task_response(user_db_model, workflow_schema_mock) -> TaskResponseSchema:
+def task_response(user_db_model, workflow_schema_mock) -> schemas.TaskResponse:
     """Fixture for a mock TaskResponse object."""
-    user_mock = UserResponseSchema.model_validate(user_db_model, from_attributes=True)
+    user_mock = schemas.UserResponse.model_validate(user_db_model, from_attributes=True)
     task_data = {
         "id": 1,
         "description": "test task description",
@@ -108,14 +94,14 @@ def task_response(user_db_model, workflow_schema_mock) -> TaskResponseSchema:
         "error_exception": None,
         "workflow": workflow_schema_mock,
     }
-    mock_task_response = TaskResponseSchema(**task_data)
+    mock_task_response = schemas.TaskResponse(**task_data)
     return mock_task_response
 
 
 @pytest.fixture
 def file_response_cloud_disk_File(
     tmp_path, user_db_model, folder_db_model
-) -> FileResponseSchema:
+) -> schemas.FileResponse:
     """Fixture for a mock FileResponse object."""
     file_id = 1
     display_name = "test_disk.json"
@@ -126,7 +112,7 @@ def file_response_cloud_disk_File(
 
     file_size = os.path.getsize(path)
 
-    user_response_compact = UserResponseCompactSchema.model_validate(
+    user_response_compact = schemas.UserResponseCompact.model_validate(
         user_db_model, from_attributes=True
     )
     file_data = {
@@ -157,12 +143,12 @@ def file_response_cloud_disk_File(
         "reports": [],
         "is_deleted": False,
     }
-    mock_file_response = FileResponseSchema(**file_data)
+    mock_file_response = schemas.FileResponse(**file_data)
     return mock_file_response
 
 
 @pytest.fixture
-def file_response(tmp_path, user_db_model, folder_db_model) -> FileResponseSchema:
+def file_response(tmp_path, user_db_model, folder_db_model) -> schemas.FileResponse:
     """Fixture for a mock FileResponse object."""
     file_id = 1
     display_name = "test_file.txt"
@@ -174,7 +160,7 @@ def file_response(tmp_path, user_db_model, folder_db_model) -> FileResponseSchem
 
     file_size = os.path.getsize(path)
 
-    user_response_compact = UserResponseCompactSchema.model_validate(
+    user_response_compact = schemas.UserResponseCompact.model_validate(
         user_db_model, from_attributes=True
     )
     file_data = {
@@ -205,14 +191,14 @@ def file_response(tmp_path, user_db_model, folder_db_model) -> FileResponseSchem
         "reports": [],
         "is_deleted": False,
     }
-    mock_file_response = FileResponseSchema(**file_data)
+    mock_file_response = schemas.FileResponse(**file_data)
     return mock_file_response
 
 
 @pytest.fixture
-def file_response_compact_list(user_db_model) -> FileResponseCompactListSchema:
+def file_response_compact_list(user_db_model) -> schemas.FileResponseCompactList:
     """Fixture for a mock FileResponseCompactList object."""
-    user_response_compact = UserResponseCompactSchema.model_validate(
+    user_response_compact = schemas.UserResponseCompact.model_validate(
         user_db_model, from_attributes=True
     )
     file_data = {
@@ -225,14 +211,14 @@ def file_response_compact_list(user_db_model) -> FileResponseCompactListSchema:
         "created_at": None,
         "is_deleted": False,
     }
-    mock_file_response = FileResponseCompactListSchema(**file_data)
+    mock_file_response = schemas.FileResponseCompactList(**file_data)
     return mock_file_response
 
 
 @pytest.fixture
-def folder_response_compact(user_db_model) -> FolderResponseCompactSchema:
-    """Fixture for a mock FolderResponseCompactSchema object."""
-    user_response_compact = UserResponseCompactSchema.model_validate(
+def folder_response_compact(user_db_model) -> schemas.FolderResponseCompact:
+    """Fixture for a mock schemas.FolderResponseCompact object."""
+    user_response_compact = schemas.UserResponseCompact.model_validate(
         user_db_model, from_attributes=True
     )
     folder_data = {
@@ -250,14 +236,14 @@ def folder_response_compact(user_db_model) -> FolderResponseCompactSchema:
         "deleted_at": None,
         "is_deleted": False,
     }
-    mock_folder_response = FolderResponseCompactSchema(**folder_data)
+    mock_folder_response = schemas.FolderResponseCompact(**folder_data)
     return mock_folder_response
 
 
 @pytest.fixture
-def folder_response(user_db_model) -> FolderResponseSchema:
-    """Fixture for a mock FolderResponseSchema object."""
-    user_response_compact = UserResponseCompactSchema.model_validate(
+def folder_response(user_db_model) -> schemas.FolderResponse:
+    """Fixture for a mock schemas.FolderResponse object."""
+    user_response_compact = schemas.UserResponseCompact.model_validate(
         user_db_model, from_attributes=True
     )
     folder_data = {
@@ -275,12 +261,12 @@ def folder_response(user_db_model) -> FolderResponseSchema:
         "deleted_at": None,
         "is_deleted": False,
     }
-    mock_folder_response = FolderResponseSchema(**folder_data)
+    mock_folder_response = schemas.FolderResponse(**folder_data)
     return mock_folder_response
 
 
 @pytest.fixture
-def workflow_schema_mock(folder_db_model, user_db_model) -> WorkflowSchema:
+def workflow_schema_mock(folder_db_model, user_db_model) -> schemas.Workflow:
     """Fixture for a mock WorkflowResponse object."""
     workflow_data = {
         "id": 1,
@@ -319,14 +305,14 @@ def workflow_schema_mock(folder_db_model, user_db_model) -> WorkflowSchema:
         "file_ids": [],
     }
 
-    mock_workflow_response = WorkflowSchema(**workflow_data)
+    mock_workflow_response = schemas.Workflow(**workflow_data)
     return mock_workflow_response
 
 
 @pytest.fixture
-def workflow_response(user_db_model) -> WorkflowResponseSchema:
+def workflow_response(user_db_model) -> schemas.WorkflowResponse:
     """Fixture for a mock WorkflowResponse object."""
-    user_response_compact = UserResponseCompactSchema.model_validate(
+    user_response_compact = schemas.UserResponseCompact.model_validate(
         user_db_model, from_attributes=True
     )
     workflow_data = {
@@ -367,12 +353,12 @@ def workflow_response(user_db_model) -> WorkflowResponseSchema:
         "user": user_response_compact,
     }
 
-    mock_workflow_response = WorkflowResponseSchema(**workflow_data)
+    mock_workflow_response = schemas.WorkflowResponse(**workflow_data)
     return mock_workflow_response
 
 
 @pytest.fixture
-def workflow_db_model(folder_db_model, user_db_model) -> WorkflowModel:
+def workflow_db_model(folder_db_model, user_db_model) -> Workflow:
     """Database Workflow model for testing."""
     workflow_data = {
         "id": 1,
@@ -414,12 +400,12 @@ def workflow_db_model(folder_db_model, user_db_model) -> WorkflowModel:
         "user": user_db_model,
     }
 
-    workflow_db_model = WorkflowModel(**workflow_data)
+    workflow_db_model = Workflow(**workflow_data)
     return workflow_db_model
 
 
 @pytest.fixture
-def workflow_template_response(user_db_model) -> WorkflowTemplateResponseSchema:
+def workflow_template_response(user_db_model) -> schemas.WorkflowTemplateResponse:
     """Fixture for a mock WorkflowTemplateResponse object."""
     workflow_data = {
         "id": 1,
@@ -453,12 +439,12 @@ def workflow_template_response(user_db_model) -> WorkflowTemplateResponseSchema:
         "is_deleted": False,
         "user_id": user_db_model.id,  # Replace with an actual user ID
     }
-    workflow_template_response = WorkflowTemplateResponseSchema(**workflow_data)
+    workflow_template_response = schemas.WorkflowTemplateResponse(**workflow_data)
     return workflow_template_response
 
 
 @pytest.fixture
-def file_db_model(tmp_path, user_db_model, folder_db_model) -> FileModel:
+def file_db_model(tmp_path, user_db_model, folder_db_model) -> File:
     """Fixture for a mock FileResponse object."""
     file_id = 1
     display_name = "test_file.txt"
@@ -502,12 +488,12 @@ def file_db_model(tmp_path, user_db_model, folder_db_model) -> FileModel:
         "reports": [],
         "is_deleted": False,
     }
-    mock_file_response = FileModel(**file_data)
+    mock_file_response = File(**file_data)
     return mock_file_response
 
 
 @pytest.fixture
-def folder_db_model(user_db_model) -> FolderModel:
+def folder_db_model(user_db_model) -> Folder:
     """Fixture for a mock FolderModel object."""
 
     folder_data = {
@@ -531,12 +517,12 @@ def folder_db_model(user_db_model) -> FolderModel:
         "is_deleted": False,
     }
 
-    mock_folder_response = FolderModel(**folder_data)
+    mock_folder_response = Folder(**folder_data)
     return mock_folder_response
 
 
 @pytest.fixture
-def user_db_model() -> UserModel:
+def user_db_model() -> User:
     """Database User model for testing."""
     user_data = {
         "display_name": "test_user",
@@ -564,14 +550,14 @@ def user_db_model() -> UserModel:
         "user_roles": [],
         "groups": [],
     }
-    mock_user = UserModel(**user_data)
+    mock_user = User(**user_data)
     return mock_user
 
 
 @pytest.fixture
-def regular_user() -> UserSchema:
+def regular_user() -> schemas.User:
     """Regular user fixture."""
-    mock_user = UserSchema(
+    mock_user = schemas.User(
         display_name="test_user",
         username="test_user",
         email="test_user@gmail.com",
@@ -589,9 +575,9 @@ def regular_user() -> UserSchema:
 
 
 @pytest.fixture
-def user_response() -> UserResponseSchema:
+def user_response() -> schemas.UserResponse:
     """User response fixture."""
-    mock_user = UserResponseSchema(
+    mock_user = schemas.UserResponse(
         display_name="test_user",
         username="test_user",
         auth_method="google",
@@ -608,9 +594,9 @@ def user_response() -> UserResponseSchema:
 
 
 @pytest.fixture
-def user_api_key_response() -> Sequence[UserApiKeyResponseSchema]:
+def user_api_key_response() -> Sequence[schemas.UserApiKeyResponse]:
     """User API key response fixture."""
-    mock_api_key = UserApiKeyResponseSchema(
+    mock_api_key = schemas.UserApiKeyResponse(
         display_name="test_key",
         description="test",
         token_exp=1234567890,
