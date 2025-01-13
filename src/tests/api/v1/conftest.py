@@ -17,7 +17,7 @@
 import pytest
 import uuid
 import os
-
+import json
 from httpx import ASGITransport, AsyncClient
 from typing import Sequence
 
@@ -26,6 +26,7 @@ from datastores.sql.models.group import Group
 from datastores.sql.models.user import User as UserModel
 from datastores.sql.models.file import File as FileModel
 from datastores.sql.models.folder import Folder as FolderModel
+from datastores.sql.models.workflow import Workflow as WorkflowModel
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -37,7 +38,11 @@ from api.v1.groups import router as groups_router
 from api.v1.metrics import router as metrics_router
 from api.v1.taskqueue import router as taskqueue_router
 from api.v1.users import router as users_router
-from api.v1.workflows import router as workflows_router
+from api.v1.workflows import (
+    router as workflows_router,
+    router_root as workflows_root_router,
+)
+
 from api.v1.schemas import (
     FolderResponse as FolderResponseSchema,
     FolderResponseCompact as FolderResponseCompactSchema,
@@ -50,6 +55,7 @@ from api.v1.schemas import (
     TaskResponse as TaskResponseSchema,
     Workflow as WorkflowSchema,
     WorkflowResponse as WorkflowResponseSchema,
+    WorkflowTemplateResponse as WorkflowTemplateResponseSchema,
 )
 
 
@@ -281,7 +287,29 @@ def workflow_schema_mock(folder_db_model, user_db_model) -> WorkflowSchema:
         "uuid": uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa7"),
         "display_name": "test workflow",
         "description": "test workflow description",
-        "spec_json": None,
+        "spec_json": json.dumps(
+            {
+                "workflow": {
+                    "type": "chain",
+                    "tasks": [
+                        {
+                            "type": "task",
+                            "task_name": "task_1",
+                            "queue_name": "default",
+                            "task_config": {"arg_1": "value_1", "arg_2": 2},
+                            "tasks": [],
+                        },
+                        {
+                            "type": "task",
+                            "task_name": "task_2",
+                            "queue_name": "default",
+                            "task_config": {},
+                            "tasks": [],
+                        },
+                    ],
+                }
+            }
+        ),
         "created_at": None,
         "updated_at": None,
         "deleted_at": None,
@@ -306,7 +334,29 @@ def workflow_response(user_db_model) -> WorkflowResponseSchema:
         "uuid": uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa7"),
         "display_name": "test workflow",
         "description": "test workflow description",
-        "spec_json": None,
+        "spec_json": json.dumps(
+            {
+                "workflow": {
+                    "type": "chain",
+                    "tasks": [
+                        {
+                            "type": "task",
+                            "task_name": "task_1",
+                            "queue_name": "default",
+                            "task_config": {"arg_1": "value_1", "arg_2": 2},
+                            "tasks": [],
+                        },
+                        {
+                            "type": "task",
+                            "task_name": "task_2",
+                            "queue_name": "default",
+                            "task_config": {},
+                            "tasks": [],
+                        },
+                    ],
+                }
+            }
+        ),
         "created_at": None,
         "updated_at": None,
         "deleted_at": None,
@@ -319,6 +369,92 @@ def workflow_response(user_db_model) -> WorkflowResponseSchema:
 
     mock_workflow_response = WorkflowResponseSchema(**workflow_data)
     return mock_workflow_response
+
+
+@pytest.fixture
+def workflow_db_model(folder_db_model, user_db_model) -> WorkflowModel:
+    """Database Workflow model for testing."""
+    workflow_data = {
+        "id": 1,
+        "uuid": uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa7"),  # Or any valid UUID
+        "display_name": "test workflow",
+        "description": "test workflow description",
+        "spec_json": json.dumps(
+            {
+                "workflow": {
+                    "type": "chain",
+                    "tasks": [
+                        {
+                            "type": "task",
+                            "task_name": "task_1",
+                            "queue_name": "default",
+                            "task_config": {"arg_1": "value_1", "arg_2": 2},
+                            "tasks": [],
+                        },
+                        {
+                            "type": "task",
+                            "task_name": "task_2",
+                            "queue_name": "default",
+                            "task_config": {},
+                            "tasks": [],
+                        },
+                    ],
+                }
+            }
+        ),
+        "created_at": None,  # Or a datetime object if needed
+        "updated_at": None,  # Or a datetime object if needed
+        "deleted_at": None,  # Or a datetime object if needed
+        "is_deleted": False,
+        "user_id": user_db_model.id,  # Replace with an actual user ID
+        "folder_id": folder_db_model.id,  # Replace with an actual folder ID
+        "files": [],  # List of File database models, if relationships already exist
+        "tasks": [],
+        "folder": folder_db_model,
+        "user": user_db_model,
+    }
+
+    workflow_db_model = WorkflowModel(**workflow_data)
+    return workflow_db_model
+
+
+@pytest.fixture
+def workflow_template_response(user_db_model) -> WorkflowTemplateResponseSchema:
+    """Fixture for a mock WorkflowTemplateResponse object."""
+    workflow_data = {
+        "id": 1,
+        "display_name": "test workflow",
+        "spec_json": json.dumps(
+            {
+                "workflow": {
+                    "type": "chain",
+                    "tasks": [
+                        {
+                            "type": "task",
+                            "task_name": "task_1",
+                            "queue_name": "default",
+                            "task_config": {"arg_1": "value_1", "arg_2": 2},
+                            "tasks": [],
+                        },
+                        {
+                            "type": "task",
+                            "task_name": "task_2",
+                            "queue_name": "default",
+                            "task_config": {},
+                            "tasks": [],
+                        },
+                    ],
+                }
+            }
+        ),
+        "created_at": None,  # Or a datetime object if needed
+        "updated_at": None,  # Or a datetime object if needed
+        "deleted_at": None,  # Or a datetime object if needed
+        "is_deleted": False,
+        "user_id": user_db_model.id,  # Replace with an actual user ID
+    }
+    workflow_template_response = WorkflowTemplateResponseSchema(**workflow_data)
+    return workflow_template_response
 
 
 @pytest.fixture
@@ -526,7 +662,12 @@ def setup_test_app(user_response, db) -> FastAPI:
     )
     app.include_router(users_router, prefix="/users", tags=["users"], dependencies=[])
     app.include_router(
-        workflows_router, prefix="/workflows", tags=["workflows"], dependencies=[]
+        workflows_root_router, prefix="/workflows", tags=["workflows"], dependencies=[]
+    )
+    app.include_router(
+        workflows_router,
+        prefix="/folders/{folder_id}/workflows",
+        tags=["workflows"],
     )
     # Override authentication check dependency injection.
     app.dependency_overrides[get_current_active_user] = lambda: user_response

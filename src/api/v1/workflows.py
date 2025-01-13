@@ -20,8 +20,9 @@ from uuid import uuid4
 from celery import chain as celery_chain
 from celery import group as celery_group
 from celery import signature
+from celery.canvas import Signature
 from celery.app import Celery
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, HTTPException
 from sqlalchemy.orm import Session
 
 from auth.common import get_current_active_user
@@ -52,6 +53,84 @@ router = APIRouter()
 
 # Router for resouces that live under /workflows, i.e. outside of a folder context.
 router_root = APIRouter()
+
+
+def get_task_signature(
+    db: Session,
+    current_user: schemas.User,
+    task_data: dict,
+    input_files: list,
+    output_path: str,
+    workflow: schemas.Workflow,
+) -> Signature:
+    """Returns a Celery task signature for a given task."""
+    task_uuid = task_data.get("uuid", uuid4().hex)
+    task_config = {
+        option["name"]: option.get("value")
+        for option in task_data.get("task_config", {})
+    }
+
+    # Create a new DB task
+    new_task_db = Task(
+        display_name=task_data.get("display_name"),
+        description=task_data.get("description"),
+        config=json.dumps(task_config),
+        uuid=task_uuid,
+        user=current_user,
+        workflow=workflow,
+    )
+    create_task_in_db(db, new_task_db)
+
+    task_signature = signature(
+        task_data.get("task_name"),
+        kwargs={
+            "input_files": input_files,
+            "output_path": output_path,
+            "workflow_id": workflow.id,
+            "task_config": task_config,
+        },
+        queue=task_data.get("queue_name"),
+        task_id=task_uuid,
+    )
+    return task_signature
+
+
+def create_workflow_signature(
+    db: Session,
+    current_user: schemas.User,
+    task_data: dict,
+    input_files: list,
+    output_path: str,
+    workflow: schemas.Workflow,
+) -> Signature:
+    """Creates a Celery workflow for a given task."""
+    if task_data["type"] == "chain":
+        if len(task_data["tasks"]) > 1:
+            return celery_group(
+                create_workflow_signature(task) for task in task_data["tasks"]
+            )
+        else:
+            return celery_chain(create_workflow_signature(task_data["tasks"][0]))
+    elif task_data["type"] == "task":
+        task_signature = get_task_signature(
+            db, current_user, task_data, input_files, output_path, workflow
+        )
+        if task_data["tasks"]:
+            if len(task_data["tasks"]) > 1:
+                return celery_chain(
+                    task_signature,
+                    celery_group(
+                        create_workflow_signature(t) for t in task_data["tasks"]
+                    ),
+                )
+            else:
+                return celery_chain(
+                    task_signature, create_workflow_signature(task_data["tasks"][0])
+                )
+        else:
+            return task_signature
+    else:
+        raise ValueError(f"Unsupported task type: {task_data['type']}")
 
 
 def replace_uuids(data: dict | list, replace_with: str = None) -> dict | list:
@@ -122,6 +201,18 @@ async def create_workflow(
     return new_workflow
 
 
+# Get all workflows for a folder
+# /folders/{folder_id}/workflows
+@router.get("/")
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
+def get_workflows(
+    folder_id: int,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> List[schemas.WorkflowResponse]:
+    return get_folder_workflows_from_db(db, folder_id)
+
+
 # Get workflow
 # /folders/{folder_id}/workflows/{workflow_id}
 @router.get("/{workflow_id}")
@@ -132,17 +223,6 @@ async def get_workflow(
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.WorkflowResponse:
     return get_workflow_from_db(db, workflow_id)
-
-
-# Get all workflows for a folder
-@router.get("/workflows")
-@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
-def get_workflows(
-    folder_id: str,
-    db: Session = Depends(get_db_connection),
-    current_user: schemas.User = Depends(get_current_active_user),
-) -> List[schemas.WorkflowResponse]:
-    return get_folder_workflows_from_db(db, folder_id)
 
 
 # Update workflow
@@ -249,63 +329,14 @@ async def run_workflow(
     if not os.path.exists(output_path):
         os.makedirs(output_path)
 
-    def get_task_signature(task_data):
-        task_uuid = task_data.get("uuid", uuid4().hex)
-        task_config = {
-            option["name"]: option.get("value")
-            for option in task_data.get("task_config", {})
-        }
-
-        # Create a new DB task
-        new_task_db = Task(
-            display_name=task_data.get("display_name"),
-            description=task_data.get("description"),
-            config=json.dumps(task_config),
-            uuid=task_uuid,
-            user=current_user,
-            workflow=workflow,
-        )
-        create_task_in_db(db, new_task_db)
-
-        task_signature = signature(
-            task_data.get("task_name"),
-            kwargs={
-                "input_files": input_files,
-                "output_path": output_path,
-                "workflow_id": workflow.id,
-                "task_config": task_config,
-            },
-            queue=task_data.get("queue_name"),
-            task_id=task_uuid,
-        )
-        return task_signature
-
-    def create_workflow(task_data):
-        if task_data["type"] == "chain":
-            if len(task_data["tasks"]) > 1:
-                return celery_group(
-                    create_workflow(task) for task in task_data["tasks"]
-                )
-            else:
-                return celery_chain(create_workflow(task_data["tasks"][0]))
-        elif task_data["type"] == "task":
-            task_signature = get_task_signature(task_data)
-            if task_data["tasks"]:
-                if len(task_data["tasks"]) > 1:
-                    return celery_chain(
-                        task_signature,
-                        celery_group(create_workflow(t) for t in task_data["tasks"]),
-                    )
-                else:
-                    return celery_chain(
-                        task_signature, create_workflow(task_data["tasks"][0])
-                    )
-            else:
-                return task_signature
-        else:
-            raise ValueError(f"Unsupported task type: {task_data['type']}")
-
-    celery_workflow = create_workflow(workflow_spec.get("workflow"))
+    celery_workflow = create_workflow_signature(
+        db,
+        current_user,
+        workflow_spec.get("workflow"),
+        input_files,
+        output_path,
+        workflow,
+    )
     celery_workflow.apply_async()
 
     db.add(workflow)
@@ -336,6 +367,12 @@ async def create_workflow_template(
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.WorkflowTemplateResponse:
     workflow_to_save = get_workflow_from_db(db, new_template_request.workflow_id)
+    if not workflow_to_save:
+        raise HTTPException(
+            status_code=404,
+            detail="Workflow with id {new_template_request.workflow_id} not found",
+        )
+
     # Replace UUIDs with placeholder value for the template
     spec_json = json.loads(workflow_to_save.spec_json)
     replace_uuids(spec_json, replace_with="PLACEHOLDER")
