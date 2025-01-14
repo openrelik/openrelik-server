@@ -107,10 +107,22 @@ def create_workflow_signature(
     if task_data["type"] == "chain":
         if len(task_data["tasks"]) > 1:
             return celery_group(
-                create_workflow_signature(task) for task in task_data["tasks"]
+                create_workflow_signature(
+                    db, current_user, task, input_files, output_path, workflow
+                )
+                for task in task_data["tasks"]
             )
         else:
-            return celery_chain(create_workflow_signature(task_data["tasks"][0]))
+            return celery_chain(
+                create_workflow_signature(
+                    db,
+                    current_user,
+                    task_data["tasks"][0],
+                    input_files,
+                    output_path,
+                    workflow,
+                )
+            )
     elif task_data["type"] == "task":
         task_signature = get_task_signature(
             db, current_user, task_data, input_files, output_path, workflow
@@ -120,12 +132,23 @@ def create_workflow_signature(
                 return celery_chain(
                     task_signature,
                     celery_group(
-                        create_workflow_signature(t) for t in task_data["tasks"]
+                        create_workflow_signature(
+                            db, current_user, t, input_files, output_path, workflow
+                        )
+                        for t in task_data["tasks"]
                     ),
                 )
             else:
                 return celery_chain(
-                    task_signature, create_workflow_signature(task_data["tasks"][0])
+                    task_signature,
+                    create_workflow_signature(
+                        db,
+                        current_user,
+                        task_data["tasks"][0],
+                        input_files,
+                        output_path,
+                        workflow,
+                    ),
                 )
         else:
             return task_signature
