@@ -226,7 +226,7 @@ async def create_workflow(
 
 # Get all workflows for a folder
 # /folders/{folder_id}/workflows
-@router.get("/")
+@router.get("/workflows")
 @require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
 def get_workflows(
     folder_id: int,

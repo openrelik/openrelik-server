@@ -152,7 +152,7 @@ def test_get_workflows(fastapi_test_client, mocker, workflow_response):
     mock_get_folder_workflows_from_db.return_value = [workflow_response]
     folder_id = 1
 
-    response = fastapi_test_client.get(f"/folders/{folder_id}/workflows")
+    response = fastapi_test_client.get(f"/folders/{folder_id}/workflows/workflows")
     assert response.status_code == 200
     assert response.json() == [workflow_response.model_dump(mode="json")]
 
