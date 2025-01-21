@@ -303,7 +303,7 @@ def get_task(
     task_id: int,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
-) -> List[schemas.Task]:
+) -> List[schemas.TaskResponse]:
     return get_task_from_db(db, task_id)
 
 

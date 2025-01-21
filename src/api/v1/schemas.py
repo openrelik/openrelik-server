@@ -14,7 +14,7 @@
 
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, field_serializer
 
 from datetime import datetime
 from typing import Optional, List
@@ -27,22 +27,27 @@ def custom_uuid_encoder(uuid_object):
 
 
 class BaseSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: Optional[int] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     deleted_at: Optional[datetime] = None
     is_deleted: Optional[bool] = False
 
-    class Config:
-        json_encoders = {UUID: custom_uuid_encoder}
+    @field_serializer('uuid', check_fields=False)
+    def serialize_uuid(self, uuid: UUID):
+        return custom_uuid_encoder(uuid)
 
 
 class BaseSchemaCompact(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: Optional[int] = None
 
-    class Config:
-        json_encoders = {UUID: custom_uuid_encoder}
-
+    @field_serializer('uuid', check_fields=False)
+    def serialize_uuid(self, uuid: UUID):
+        return custom_uuid_encoder(uuid)
 
 # User schemas
 class User(BaseSchema):
@@ -351,6 +356,8 @@ class WorkflowTemplateResponse(BaseSchema):
 
 
 class Task(BaseSchema):
+    model_config = ConfigDict(from_attributes=True)
+
     display_name: str
     description: Optional[str]
     uuid: Optional[UUID] = None
@@ -364,9 +371,6 @@ class Task(BaseSchema):
     error_traceback: Optional[str]
     user: User
     workflow: Workflow
-
-    class Config:
-        from_attributes = True
 
 
 class TaskResponse(BaseSchema):

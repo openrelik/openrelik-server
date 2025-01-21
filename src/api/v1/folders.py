@@ -129,7 +129,7 @@ def get_folder(
         if folder is None:
             raise HTTPException(status_code=404, detail="Folder not found.")
     except ValueError as exception:
-        raise HTTPException(status_code=404, details=str(exception))
+        raise HTTPException(status_code=404, detail=str(exception))
     if folder.is_deleted:
         raise HTTPException(status_code=404, detail="Folder is deleted.")
     return folder
@@ -278,7 +278,7 @@ def get_my_folder_role(
             folder=folder,
         )
     except ValueError as exception:
-        raise HTTPException(status_code=404, details=str(exception))
+        raise HTTPException(status_code=404, detail=str(exception))
 
 @router.delete("/{folder_id}/roles/groups/{role_id}")
 @require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
