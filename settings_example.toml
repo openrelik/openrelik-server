@@ -57,12 +57,3 @@ public_access = false
 allowed_data_types_preview = [
     "openrelik:hayabusa:html_report"
 ]
-
-# Enable cloud features such as adding cloud disks.
-# This requires your OpenRelik installation to run on cloud VMs.
-[cloud.gcp]
-name = "gcp"
-display_name = "Google Cloud Platform"
-project_name = ""
-zone = ""
-enabled = false
