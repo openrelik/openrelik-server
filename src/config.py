@@ -18,7 +18,6 @@ import sys
 
 from fastapi import HTTPException
 
-from lib.constants import cloud_provider_data_type_mapping
 from openrelik_ai_common.providers import manager
 
 
@@ -41,24 +40,6 @@ def get_config() -> dict:
     with open(settings_file, "rb") as fh:
         config = tomllib.load(fh)
     return config
-
-
-def get_active_cloud_provider() -> dict:
-    """Get the active cloud provider from config."""
-    clouds = config.get("cloud", [])
-    if len(clouds) > 1:
-        raise HTTPException(
-            status_code=500,
-            detail="More than one cloud enabled, you can only run on one cloud at a time",
-        )
-    active_cloud = [
-        cloud_provider
-        for cloud_provider in clouds.values()
-        if cloud_provider.get("enabled", False)
-    ]
-
-    return active_cloud[0] if active_cloud else {}
-
 
 def get_active_llms() -> dict:
     """Get active LLM providers from the LLM manager."""

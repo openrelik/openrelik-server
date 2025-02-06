@@ -98,54 +98,6 @@ def task_response(user_db_model, workflow_schema_mock) -> schemas.TaskResponse:
     return mock_task_response
 
 
-@pytest.fixture
-def file_response_cloud_disk_File(
-    tmp_path, user_db_model, folder_db_model
-) -> schemas.FileResponse:
-    """Fixture for a mock FileResponse object."""
-    file_id = 1
-    display_name = "test_disk.json"
-    path = os.path.join(tmp_path, display_name)
-
-    with open(path, "w") as f:
-        f.write("Dummy file content")
-
-    file_size = os.path.getsize(path)
-
-    user_response_compact = schemas.UserResponseCompact.model_validate(
-        user_db_model, from_attributes=True
-    )
-    file_data = {
-        "id": file_id,
-        "display_name": display_name,
-        "description": "Test file description",
-        "uuid": uuid.UUID("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
-        "filename": "test_disk",
-        "filesize": file_size,
-        "extension": "json",
-        "original_path": path,
-        "magic_text": "openrelik:test_cloud_provider:disk",
-        "magic_mime": "openrelik:test_cloud_provider:disk",
-        "data_type": "openrelik:test_cloud_provider:disk",
-        "hash_md5": "test_md5",
-        "hash_sha1": "test_sha1",
-        "hash_sha256": "test_sha256",
-        "hash_ssdeep": "test_ssdeep",
-        "user_id": 1,
-        "user": user_response_compact,
-        "created_at": None,
-        "updated_at": None,
-        "deleted_at": None,
-        "folder": folder_db_model,
-        "source_file": None,
-        "workflows": [],
-        "summaries": [],
-        "reports": [],
-        "is_deleted": False,
-    }
-    mock_file_response = schemas.FileResponse(**file_data)
-    return mock_file_response
-
 
 @pytest.fixture
 def file_response(tmp_path, user_db_model, folder_db_model) -> schemas.FileResponse:

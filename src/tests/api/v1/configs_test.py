@@ -18,18 +18,13 @@
 def test_get_system_config(fastapi_test_client, mocker):
     """Test the get_system_config endpoint."""
     mock_get_active_llms = mocker.patch("api.v1.configs.get_active_llms")
-    mock_get_active_cloud = mocker.patch("api.v1.configs.get_active_cloud_provider")
 
     mock_active_llms = [{"name": "test_llm"}]
     mock_get_active_llms.return_value = mock_active_llms
 
-    mock_active_cloud = {"name": "test_cloud"}
-    mock_get_active_cloud.return_value = mock_active_cloud
-
     response = fastapi_test_client.get("/configs/system/")
     assert response.status_code == 200
     assert response.json()["active_llms"] == mock_active_llms
-    assert response.json()["active_cloud"] == mock_active_cloud
     assert response.json()["allowed_data_types_preview"] == [
         "openrelik:hayabusa:html_report"
     ]

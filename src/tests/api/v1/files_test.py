@@ -136,35 +136,6 @@ async def test_upload_files(
     assert response.json() == file_response.model_dump()
 
 
-@pytest.mark.asyncio
-async def test_create_cloud_disk_file(
-    fastapi_async_test_client, mocker, file_response_cloud_disk_File, folder_db_model
-):
-    """Test the create_cloud_disk_file endpoint."""
-    mock_config = mocker.patch("datastores.sql.models.folder.get_config")
-    mock_active_cloud = {"name": "test_cloud"}
-    mock_get_active_cloud = mocker.patch("api.v1.configs.get_active_cloud_provider")
-    mock_get_active_cloud.return_value = mock_active_cloud
-    mock_get_folder_from_db = mocker.patch("api.v1.files.get_folder_from_db")
-    mock_get_folder_from_db.return_value = folder_db_model
-    mock_get_active_cloud_provider = mocker.patch(
-        "api.v1.files.get_active_cloud_provider"
-    )
-    mock_get_active_cloud_provider.return_value = {"name": "test_cloud_provider"}
-    file_content = "Mocked file content"
-    mock_open = mocker.mock_open(read_data=file_content)
-    mocker.patch("builtins.open", mock_open)
-    mock_create_file_in_db = mocker.patch("api.v1.files.create_file_in_db")
-    mock_create_file_in_db.return_value = file_response_cloud_disk_File
-    mock_background_tasks_add_task = mocker.patch(
-        "api.v1.files.BackgroundTasks.add_task"
-    )
-    request = {"disk_name": "test_disk", "folder_id": folder_db_model.id}
-
-    response = await fastapi_async_test_client.post("/files/cloud", json=request)
-    assert response.status_code == 201
-    assert response.json() == file_response_cloud_disk_File.model_dump(mode="json")
-
 
 def test_get_workflows_empty(fastapi_test_client, mocker):
     """Test the get_workflows endpoint."""

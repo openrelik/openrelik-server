@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from auth.common import get_current_active_user
-from config import config, get_active_cloud_provider, get_active_llms
+from config import config, get_active_llms
 from datastores.sql.crud.authz import require_access
 from datastores.sql.crud.file import (
     create_file_in_db,
@@ -37,7 +37,6 @@ from datastores.sql.crud.workflow import get_file_workflows_from_db, get_task_fr
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.role import Role
 from datastores.sql.models.workflow import Task
-from lib.constants import cloud_provider_data_type_mapping
 from lib.file_hashes import generate_hashes
 from lib.llm_summary import generate_summary
 
@@ -232,47 +231,6 @@ async def upload_files(
 
     if folder_id != "null":
         new_file.folder_id = int(folder_id)
-
-    new_file_db = create_file_in_db(db, new_file, current_user)
-    background_tasks.add_task(generate_hashes, file_id=new_file_db.id)
-
-    return new_file_db
-
-
-# Create cloud disk file
-@router.post("/cloud", status_code=status.HTTP_201_CREATED)
-@require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
-async def create_cloud_disk_file(
-    background_tasks: BackgroundTasks,
-    request: schemas.CloudDiskCreateRequest,
-    db: Session = Depends(get_db_connection),
-    current_user: schemas.User = Depends(get_current_active_user),
-) -> schemas.FileResponse:
-
-    folder = get_folder_from_db(db, request.folder_id)
-
-    # Save file to disk
-    uuid = uuid4()
-    output_filename = f"{uuid.hex}.json"
-    output_path = os.path.join(folder.path, output_filename)
-
-    cloud_provider = get_active_cloud_provider()
-    cloud_provider["disk_name"] = request.disk_name
-
-    with open(output_path, "w") as fh:
-        fh.write(json.dumps(cloud_provider))
-
-    # Save to database
-    new_file = schemas.FileCreate(
-        display_name=request.disk_name,
-        uuid=uuid,
-        data_type=cloud_provider_data_type_mapping.get(cloud_provider["name"]),
-        filename=request.disk_name,
-        extension="json",
-        user_id=current_user.id,
-    )
-    if request.folder_id != "null":
-        new_file.folder_id = int(request.folder_id)
 
     new_file_db = create_file_in_db(db, new_file, current_user)
     background_tasks.add_task(generate_hashes, file_id=new_file_db.id)
