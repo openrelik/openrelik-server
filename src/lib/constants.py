@@ -11,9 +11,3 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
-cloud_provider_data_type_mapping = {
-    "gcp": "cloud:gcp:disk",
-    "aws": "cloud:aws:disk",
-    "azure": "cloud:azure:disk",
-}

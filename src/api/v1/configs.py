@@ -14,7 +14,7 @@
 
 from fastapi import APIRouter
 
-from config import config, get_active_cloud_provider, get_active_llms
+from config import config, get_active_llms
 
 
 router = APIRouter()
@@ -23,7 +23,6 @@ router = APIRouter()
 @router.get("/system/")
 def get_system_config():
     active_llms = get_active_llms()
-    active_cloud = get_active_cloud_provider()
 
     # Data types that will be allowed to be returned as unescaped HTML for use in
     # sandboxed iframe preview.
@@ -33,6 +32,5 @@ def get_system_config():
 
     return {
         "active_llms": active_llms,
-        "active_cloud": active_cloud,
         "allowed_data_types_preview": allowed_data_types_preview,
     }
