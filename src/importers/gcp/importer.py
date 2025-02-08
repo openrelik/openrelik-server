@@ -20,14 +20,13 @@ from google.cloud import pubsub_v1, storage
 
 from datastores.sql import database
 from datastores.sql.crud.folder import get_folder_from_db
+from importers.gcp.file_utils import create_file_record, extract_file_info
 from lib.file_hashes import generate_hashes
-
-from importers.gcp.file_utils import extract_file_info, create_file_record
 
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
 SUBSCRIPTION_ID = os.environ.get("GOOGLE_CLOUD_SUBSCRIPTION_ID")
 ROBOT_ACCOUNT_USER_ID = os.environ.get("ROBOT_ACCOUNT_USER_ID")
-
+HASH_SIZE_LIMIT = 10485760  # 10MB
 
 # Initialize logger
 logging.basicConfig(level=logging.INFO)
@@ -48,14 +47,10 @@ def download_file_from_gcs(
     Raises:
         Exception: If any error occurs during the download process.
     """
-    try:
-        bucket = storage_client.bucket(bucket_name)
-        blob = bucket.blob(object_name)
-        blob.download_to_filename(output_path)
-        logger.info(f"Downloaded gs://{bucket_name}/{object_name} to {output_path}")
-    except Exception as e:
-        logger.exception(f"Error downloading gs://{bucket_name}/{object_name}: {e}")
-        raise
+    bucket = storage_client.bucket(bucket_name)
+    blob = bucket.blob(object_name)
+    blob.download_to_filename(output_path)
+    logger.info(f"Downloaded gs://{bucket_name}/{object_name} to {output_path}")
 
 
 def process_gcs_message(
@@ -76,61 +71,69 @@ def process_gcs_message(
     Raises:
         Exception: If any error occurs during the processing.
     """
+    # Acknowledge the message immediately to prevent reprocessing
+    message.ack()
+
+    # Extract GCS data from the Pub/Sub message
+    data = json.loads(message.data.decode("utf-8"))
+    bucket_name = data["bucket"]
+    object_name = data["name"]
+    object_size = int(data["size"])
+
+    logger.info(f"Processing GCS file: gs://{bucket_name}/{object_name}")
+
+    # Skip processing if the file is in the root bucket or is a directory
+    if "/" not in object_name:
+        logger.info("File is in root bucket, skipping import.")
+        return
+
+    if object_name.endswith("/"):
+        logger.info("GCS directory created, nothing to import.")
+        return
+
+    # Extract file metadata
     try:
-        # Acknowledge the message immediately to prevent reprocessing
-        message.ack()
-
-        # Extract GCS data from the Pub/Sub message
-        data = json.loads(message.data.decode("utf-8"))
-        bucket_name = data["bucket"]
-        object_name = data["name"]
-
-        logger.info(f"Processing GCS file: gs://{bucket_name}/{object_name}")
-
-        # Skip processing if the file is in the root bucket or is a directory
-        if "/" not in object_name:
-            logger.info("File is in root bucket, skipping import.")
-            return
-
-        if object_name.endswith("/"):
-            logger.info("GCS directory created, nothing to import.")
-            return
-
-        # Extract file metadata
         folder_id, filename, file_extension, output_filename = extract_file_info(
             object_name
         )
+    except ValueError as e:
+        logger.error(f"Error extracting file metadata: {e}")
+        return
 
-        # Get folder information from the database
-        folder = get_folder_from_db(db, folder_id)
-        if not folder:
-            logger.error(f"Folder with ID {folder_id} not found in OpenRelik.")
-            return
+    # Get folder information from the database
+    folder = get_folder_from_db(db, folder_id)
+    if not folder:
+        logger.error(f"Folder with ID {folder_id} not found in OpenRelik.")
+        return
 
-        # Construct the output path
-        output_path = os.path.join(folder.path, output_filename)
+    # Construct the output path
+    output_path = os.path.join(folder.path, output_filename)
 
-        # Download the file from GCS
-        storage_client = storage.Client(project=PROJECT_ID)
+    # Download the file from GCS
+    storage_client = storage.Client(project=PROJECT_ID)
+    try:
         download_file_from_gcs(storage_client, bucket_name, object_name, output_path)
+    except Exception as e:  # We don't know what exceptions the GCS client might raise.
+        logger.error(f"Error downloading file from GCS: {e}")
+        return
 
-        # Create file record in the database
-        new_file_db = create_file_record(
-            db,
-            filename,
-            uuid.UUID(output_filename.split(".")[0]),
-            file_extension,
-            folder.id,
-            ROBOT_ACCOUNT_USER_ID,
-        )
+    # Create file record in the database
+    new_file_db = create_file_record(
+        db,
+        filename,
+        uuid.UUID(output_filename.split(".")[0]),
+        file_extension,
+        folder.id,
+        ROBOT_ACCOUNT_USER_ID,
+    )
 
-        # Generate file hashes (consider moving this to a background job)
+    # Generate file hashes (consider moving this to a background job)
+    # Only calculate hashes for files less than 10MB.
+    if object_size < HASH_SIZE_LIMIT:
         generate_hashes(new_file_db.id)
 
-        logger.info(f"Successfully processed gs://{bucket_name}/{object_name}")
+    logger.info(f"Successfully processed gs://{bucket_name}/{object_name}")
 
-    except Exception as e:
-        logger.exception(f"Error processing message: {e}")
 
 def main() -> None:
     """
@@ -162,14 +165,13 @@ def main() -> None:
         # The result() call will block until the listener is done.
         listener.result()
 
-    except Exception as e:
-        logger.exception(f"An error occurred during Pub/Sub subscription: {e}")
+    except Exception as e:  # Broad exception handling to catch all errors in main.
+        logger.exception(f"An error occurred during processing: {e}")
 
     finally:
         # Clean up resources by closing the database session
         if db:
             db.close()
-
 
 
 if __name__ == "__main__":

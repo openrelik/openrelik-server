@@ -11,10 +11,8 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-import logging
-import uuid
 import os
-
+import uuid
 from typing import Tuple
 
 from api.v1 import schemas
@@ -22,9 +20,6 @@ from datastores.sql.crud.file import create_file_in_db
 from datastores.sql.crud.user import get_user_from_db
 from datastores.sql.models import file
 
-# Initialize logger
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 def extract_file_info(object_name: str) -> Tuple[int, str, str, str]:
     """
@@ -41,24 +36,20 @@ def extract_file_info(object_name: str) -> Tuple[int, str, str, str]:
 
     Raises:
         ValueError: If the object_name does not contain a forward slash.
-        Exception: If there is an error extracting the file information.
     """
-    try:
-        if "/" not in object_name:
-            raise ValueError(f"Object name '{object_name}' does not contain a forward slash.")
 
-        folder_id_str, filename = object_name.split("/", 1)
-        folder_id = int(folder_id_str)
-        _, file_extension = os.path.splitext(filename)
-        file_uuid = uuid.uuid4()
-        output_filename = f"{file_uuid.hex}{file_extension}"
-        return folder_id, filename, file_extension, output_filename
-    except ValueError as ve:
-        logger.error(f"Invalid object name format: {ve}")
-        raise
-    except Exception as e:
-        logger.exception(f"Error extracting file info: {e}")
-        raise
+    if "/" not in object_name:
+        raise ValueError(
+            f"Object name '{object_name}' does not contain a forward slash."
+        )
+
+    folder_id_str, filename = object_name.split("/", 1)
+    folder_id = int(folder_id_str)
+    _, file_extension = os.path.splitext(filename)
+    file_uuid = uuid.uuid4()
+    output_filename = f"{file_uuid.hex}{file_extension}"
+    return folder_id, filename, file_extension, output_filename
+
 
 def create_file_record(
     db: object,
@@ -81,28 +72,21 @@ def create_file_record(
 
     Returns:
         file.File: The newly created file record.
-
-    Raises:
-        Exception: If there is an error creating the file record.
     """
-    try:
-        # Create a FileCreate schema object
-        file_create_schema = schemas.FileCreate(
-            display_name=filename,
-            uuid=file_uuid,
-            filename=filename,
-            extension=file_extension.lstrip("."),
-            folder_id=folder_id,
-            user_id=user_id,
-        )
+    # Create a FileCreate schema object
+    file_create_schema = schemas.FileCreate(
+        display_name=filename,
+        uuid=file_uuid,
+        filename=filename,
+        extension=file_extension.lstrip("."),
+        folder_id=folder_id,
+        user_id=user_id,
+    )
 
-        # Get the current user from the database
-        current_user = get_user_from_db(db, user_id)
+    # Get the current user from the database
+    current_user = get_user_from_db(db, user_id)
 
-        # Create the file record in the database
-        new_file_db = create_file_in_db(db, file_create_schema, current_user)
+    # Create the file record in the database
+    new_file_db = create_file_in_db(db, file_create_schema, current_user)
 
-        return new_file_db
-    except Exception as e:
-        logger.exception(f"Error creating file record: {e}")
-        raise
+    return new_file_db
