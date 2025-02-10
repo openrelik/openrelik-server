@@ -241,6 +241,7 @@ def get_workflows(
 @router.get("/{workflow_id}")
 @require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
 async def get_workflow(
+    folder_id: int,
     workflow_id: int,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
