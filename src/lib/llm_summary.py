@@ -94,13 +94,17 @@ def generate_summary(
 
     start_time = datetime.now()
 
-    details = llm.generate_file_analysis(
-        prompt=ANALYSIS_PROMPT.format(
-            magic_text=file.magic_text, filename=file.display_name
-        ),
-        file_content=file_content,
-    )
-    summary = llm.generate(prompt=SUMMARY_PROMPT.format(analysis_details=details))
+    try:
+        details = llm.generate_file_analysis(
+            prompt=ANALYSIS_PROMPT.format(
+                magic_text=file.magic_text, filename=file.display_name
+            ),
+            file_content=file_content,
+        )
+        summary = llm.generate(prompt=SUMMARY_PROMPT.format(analysis_details=details))
+    # Broad exception handling because we don't know what the AI provider will raise.
+    except Exception as e:
+        summary = f"There was a problem with the analysis: {e}"
 
     end_time = datetime.now()
     duration = end_time - start_time
