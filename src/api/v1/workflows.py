@@ -63,7 +63,19 @@ def get_task_signature(
     output_path: str,
     workflow: schemas.Workflow,
 ) -> Signature:
-    """Returns a Celery task signature for a given task."""
+    """Returns a Celery task signature for a given task.
+
+    Args:
+        db (Session): The database session.
+        current_user (schemas.User): The current user.
+        task_data (dict): The task data.
+        input_files (list): A list of input files.
+        output_path (str): The output path.
+        workflow (schemas.Workflow): The workflow.
+
+    Returns:
+        Signature: The Celery task signature.
+    """
     task_uuid = task_data.get("uuid", uuid4().hex)
     task_config = {
         option["name"]: option.get("value")
@@ -103,7 +115,44 @@ def create_workflow_signature(
     output_path: str,
     workflow: schemas.Workflow,
 ) -> Signature:
-    """Creates a Celery workflow for a given task."""
+    """Creates a Celery workflow signature for a given task definition
+
+    This function recursively constructs a Celery workflow signature based on the
+    provided `task_data`, which represents a structured description of tasks and their
+    dependencies. It supports two primary task types: 'chain' and 'task'.
+
+    chain: Represents a sequence of tasks executed in order.
+        -   If the chain contains multiple tasks, a Celery `celery_group` is created to
+            execute them concurrently. celery_group allows multiple tasks to be run
+            in parallel.
+        -   If only one task is present, a Celery `celery_chain` is created to execute
+            it *serially*. `celery_chain` ensures tasks are executed one after another,
+            ith the output of one task becoming the input of the next.
+
+    task: Represents a single, executable task.
+        - It retrieves the corresponding Celery task signature using get_task_signature.
+        - If the task has sub-tasks, they are incorporated into the workflow using
+          Celery `celery_chain` and `celery_group` constructs, depending on the number
+          of sub-tasks. The primary task is chained with the subtasks.
+
+    The function effectively translates a hierarchical task description into a Celery
+    workflow that can be executed asynchronously. This allows for complex workflows to
+    be defined and executed in a distributed manner.
+
+    Args:
+        db (Session): The database session.
+        current_user (schemas.User): The current user.
+        task_data (dict): The task data.
+        input_files (list): A list of input files.
+        output_path (str): The output path.
+        workflow (schemas.Workflow): The workflow.
+
+    Returns:
+        Signature: The Celery workflow signature.
+
+    Raises:
+        ValueError: If the task type is not supported.
+    """
     if task_data["type"] == "chain":
         if len(task_data["tasks"]) > 1:
             return celery_group(
@@ -157,15 +206,25 @@ def create_workflow_signature(
 
 
 def replace_uuids(data: dict | list, replace_with: str = None) -> dict | list:
-    """Replaces UUIDs with placeholder value for the template.
+    """Recursively replaces UUID keys within a dictionary or list structure.
+
+    This function traverses the provided `data` structure (which can be a dictionary or
+    list) and replaces any dictionary keys named "uuid" with a new value.
+
+    If `replace_with` is not provided (or is None), a newly generated UUID is used as
+    the replacement. If `replace_with` is provided, that value is used as the
+    replacement for all "uuid" keys.
+
+    This is needed when modifying workflow specifications that contain UUIDs, ensuring
+    that each instance has unique identifiers.
 
     Args:
-        data (dict or list): The data to replace UUIDs in.
+        data (dict | list): The dictionary or list to traverse and modify.
+        replace_with (str, optional): The value to replace UUIDs with. Defaults to None.
 
     Returns:
-        dict or list: The data with UUIDs replaced.
+        dict | list: The modified dictionary or list with UUIDs replaced.
     """
-
     if isinstance(data, dict):
         for key, value in data.items():
             if key == "uuid":
@@ -190,7 +249,23 @@ async def create_workflow(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.WorkflowResponse:
+    """Create a new workflow.
 
+    WorkflowCreateRequest (request_body):
+        - folder_id (int): The ID of the folder where the workflow will be created.
+        - file_ids (List[int]): A list of file IDs associated with the workflow.
+        - template_id (Optional[int]): The ID of a workflow template to use. If provided,
+        the workflow will be created based on the template.
+
+    Args:
+        folder_id (int): The ID of the folder to create the workflow in.
+        request_body (schemas.WorkflowCreateRequest): The request body to create the workflow.
+        db (Session): The database session.
+        current_user (schemas.User): The current user.
+
+    Returns:
+        schemas.WorkflowResponse: The created workflow.
+    """
     default_workflow_display_name = "Untitled workflow"
     default_spec_json = None
 
@@ -233,6 +308,26 @@ def get_workflows(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> List[schemas.WorkflowResponse]:
+    """Get all workflows for a folder.
+
+    WorkflowResponse:
+        - id (int): The ID of the workflow.
+        - display_name (str): The display name of the workflow.
+        - spec_json (str): The JSON representation of the workflow specification.
+        - file_ids (List[int]): A list of file IDs associated with the workflow.
+        - folder_id (int): The ID of the folder the workflow belongs to.
+        - user_id (int): The ID of the user who created the workflow.
+        - created_at (datetime): The timestamp when the workflow was created.
+        - updated_at (datetime): The timestamp when the workflow was last updated.
+
+    Args:
+        folder_id (int): The ID of the folder to get workflows for.
+        db (Session): The database session.
+        current_user (schemas.User): The current user.
+
+    Returns:
+        List[schemas.WorkflowResponse]: A list of workflows
+    """
     return get_folder_workflows_from_db(db, folder_id)
 
 
@@ -246,6 +341,27 @@ async def get_workflow(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.WorkflowResponse:
+    """Get a workflow by ID.
+
+    WorkflowResponse:
+        - id (int): The ID of the workflow.
+        - display_name (str): The display name of the workflow.
+        - spec_json (str): The JSON representation of the workflow specification.
+        - file_ids (List[int]): A list of file IDs associated with the workflow.
+        - folder_id (int): The ID of the folder the workflow belongs to.
+        - user_id (int): The ID of the user who created the workflow.
+        - created_at (datetime): The timestamp when the workflow was created.
+        - updated_at (datetime): The timestamp when the workflow was last updated.
+
+    Args:
+        folder_id (int): The ID of the folder the workflow belongs to.
+        workflow_id (int): The ID of the workflow to get.
+        db (Session): The database session.
+        current_user (schemas.User): The current user.
+
+    Returns:
+        schemas.WorkflowResponse: The workflow.
+    """
     return get_workflow_from_db(db, workflow_id)
 
 
@@ -260,6 +376,28 @@ async def update_workflow(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.WorkflowResponse:
+    """Update a workflow by ID.
+
+    Workflow (workflow_from_request):
+        - display_name (str): The display name of the workflow.
+        - description (Optional[str]): The description of the workflow.
+        - spec_json (Optional[str]): JSON representation of the workflow specification.
+        - uuid (Optional[UUID]): The UUID of the workflow.
+        - user_id (int): The ID of the user who created the workflow.
+        - file_ids (List[int]): A list of file IDs associated with the workflow.
+        - folder_id (int): The ID of the folder the workflow belongs to.
+
+    Args:
+        folder_id (int): The ID of the folder the workflow belongs to.
+        workflow_id (int): The ID of the workflow to update.
+        workflow_from_request (schemas.Workflow): The updated workflow data.
+        db (Session): The database session.
+        current_user (schemas.User): The current user.
+
+    Returns:
+        schemas.WorkflowResponse: The updated workflow.
+    """
+
     # Fetch workflow to update from database
     workflow_from_db = get_workflow_from_db(db, workflow_id)
     workflow_model = schemas.Workflow(**workflow_from_db.__dict__)
@@ -281,6 +419,17 @@ async def copy_workflow(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.WorkflowResponse:
+    """Copy a workflow.
+
+    Args:
+        folder_id (int): The ID of the folder to copy the workflow to.
+        workflow_id (int): The ID of the workflow to copy.
+        db (Session): The database session.
+        current_user (schemas.User): The current user.
+
+    Returns:
+        schemas.WorkflowResponse: The copied workflow.
+    """
 
     workflow_to_copy = get_workflow_from_db(db, workflow_id)
     workflow_spec = json.loads(workflow_to_copy.spec_json)
@@ -317,6 +466,14 @@ async def delete_workflow(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ):
+    """Delete a workflow by ID.
+
+    Args:
+        folder_id (int): The ID of the folder the workflow belongs to.
+        workflow_id (int): The ID of the workflow to delete.
+        db (Session): The database session.
+        current_user (schemas.User): The current user.
+    """
     delete_workflow_from_db(db, workflow_id)
 
 
@@ -327,13 +484,29 @@ async def delete_workflow(
 async def run_workflow(
     folder_id: int,
     workflow_id: int,
-    request: dict,
+    request_body: schemas.WorkflowRunRequest,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.WorkflowResponse:
-    workflow_spec = request.get("workflow_spec")
+    """Run a workflow.
+
+    WorkflowRunRequest (request_body):
+        - workflow_spec (dict): The workflow specification.
+
+    Args:
+        folder_id (int): The ID of the folder the workflow belongs to.
+        workflow_id (int): The ID of the workflow to run.
+        request_body (schemas.WorkflowRunRequest): The request body to run the workflow.
+        db (Session): The database session.
+        current_user (schemas.User): The current user.
+
+    Returns:
+        schemas.WorkflowResponse: The workflow.
+    """
+    workflow_spec = request_body.workflow_spec
     workflow_spec_json = json.dumps(workflow_spec)
     workflow = get_workflow_from_db(db, workflow_id)
+    # Update workflow spec
     workflow.spec_json = workflow_spec_json
 
     input_files = [
@@ -370,15 +543,20 @@ async def run_workflow(
     return workflow
 
 
-### Root level resources (/workflows/...)
-
-
 # Get all workflow templates
 # /workflows/templates
 @router_root.get("/templates/")
 async def get_workflow_templates(
     db: Session = Depends(get_db_connection),
 ) -> List[schemas.WorkflowTemplateResponse]:
+    """Get all workflow templates.
+
+    Args:
+        db (Session): The database session.
+
+    Returns:
+        List[schemas.WorkflowTemplateResponse]: A list of workflow templates.
+    """
     return get_workflow_templates_from_db(db)
 
 
@@ -386,11 +564,26 @@ async def get_workflow_templates(
 # /workflows/templates
 @router_root.post("/templates/")
 async def create_workflow_template(
-    new_template_request: schemas.WorkflowTemplateCreateRequest,
+    request_body: schemas.WorkflowTemplateCreateRequest,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.WorkflowTemplateResponse:
-    workflow_to_save = get_workflow_from_db(db, new_template_request.workflow_id)
+    """Create a new workflow template.
+
+    WorkflowTemplateCreateRequest (request_body):
+        - display_name (str): The display name of the template.
+        - description (Optional[str]): The description of the template.
+        - workflow_id (int): The ID of the workflow to create the template from.
+
+    Args:
+        request_body (schemas.WorkflowTemplateCreateRequest): The request body to create the template.
+        db (Session): The database session.
+        current_user (schemas.User): The current user.
+
+    Returns:
+        schemas.WorkflowTemplateResponse: The created workflow template.
+    """
+    workflow_to_save = get_workflow_from_db(db, request_body.workflow_id)
     if not workflow_to_save:
         raise HTTPException(
             status_code=404,
@@ -402,7 +595,7 @@ async def create_workflow_template(
     replace_uuids(spec_json, replace_with="PLACEHOLDER")
 
     new_template_db = schemas.WorkflowTemplateCreate(
-        display_name=new_template_request.display_name,
+        display_name=request_body.display_name,
         spec_json=json.dumps(spec_json),
         user_id=current_user.id,
     )

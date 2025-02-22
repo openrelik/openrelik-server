@@ -334,6 +334,8 @@ class WorkflowCreateRequest(BaseModel):
     file_ids: List[int]
     template_id: Optional[int] = None
 
+class WorkflowRunRequest(BaseModel):
+    workflow_spec: dict
 
 class WorkflowTemplateCreateRequest(BaseModel):
     display_name: str
@@ -346,7 +348,6 @@ class WorkflowTemplateCreate(BaseModel):
     description: Optional[str] = None
     spec_json: str
     user_id: int
-
 
 class WorkflowTemplateResponse(BaseSchema):
     display_name: str
