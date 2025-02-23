@@ -139,8 +139,7 @@ def change_password(
 @app.command()
 def create_api_key(
     username: str = typer.Argument(None, help="User to create API key for."),
-    key_name: str = typer.Option(
-        None, "--key-name", "-n", help="Name for the API key."),
+    key_name: str = typer.Option(..., "--key-name", "-n", help="Name for the API key."),
     key_description: Optional[str] = typer.Option(
         None, "--description", "-d", help="Description for the API key (optional)."
     ),
@@ -148,11 +147,7 @@ def create_api_key(
     """Create an API key for a user."""
     db = database.SessionLocal()
 
-    # Check for existing user *before* potentially prompting
-    if not username and get_user_by_username_from_db(db, username):
-        print("[bold red]Error: User already exists.[/bold red]")
-        raise typer.Exit(code=1)
-
+    # If username is not provided, prompt for it
     if not username:
         username = Prompt.ask("[bold blue]Enter username[/]")
 
