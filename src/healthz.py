@@ -43,6 +43,9 @@ def _check_redis_connection(redis_url: str) -> str:
     This function uses a broad exception to catch all errors but not expose them to the
     user as this is a health check and it is unauthenticated.
 
+    Args:
+        redis_url (str): The URL to the Redis database
+
     Returns:
         str: "Ok" if the connection is successful, otherwise an error message
     """
