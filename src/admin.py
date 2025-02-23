@@ -23,8 +23,11 @@ from rich.table import Table
 from sqlalchemy import not_
 
 from api.v1 import schemas
+from auth.common import create_jwt_token, validate_jwt_token
+from config import get_config
 from datastores.sql import database
 from datastores.sql.crud.user import (
+    create_user_api_key_in_db,
     create_user_in_db,
     get_user_by_username_from_db,
     get_users_from_db,
@@ -133,6 +136,54 @@ def change_password(
     db.commit()
     print(f"Password updated for user '{username}'.")
 
+@app.command()
+def create_api_key(
+    username: str = typer.Argument(None, help="User to create API key for."),
+    key_name: str = typer.Option(
+        None, "--key-name", "-n", help="Name for the API key."),
+    key_description: Optional[str] = typer.Option(
+        None, "--description", "-d", help="Description for the API key (optional)."
+    ),
+):
+    """Create an API key for a user."""
+    db = database.SessionLocal()
+
+    # Check for existing user *before* potentially prompting
+    if not username and get_user_by_username_from_db(db, username):
+        print("[bold red]Error: User already exists.[/bold red]")
+        raise typer.Exit(code=1)
+
+    if not username:
+        username = Prompt.ask("[bold blue]Enter username[/]")
+
+    user = get_user_by_username_from_db(db, username)
+    if not user:
+        print(f"[bold red]Error: User with username '{username}' not found.[/bold red]")
+        raise typer.Exit(code=1)
+
+    current_config = get_config()
+    TOKEN_EXPIRE_MINUTES = current_config["auth"]["jwt_header_default_refresh_expire_minutes"]
+    refresh_token = create_jwt_token(
+        audience="api-client",
+        expire_minutes=TOKEN_EXPIRE_MINUTES,
+        subject=user.uuid.hex,
+        token_type="refresh",
+    )
+    payload = validate_jwt_token(
+        refresh_token,
+        expected_token_type="refresh",
+        expected_audience="api-client",
+    )
+    new_api_key = schemas.UserApiKeyCreate(
+        display_name=key_name,
+        description=key_description or "",
+        token_jti=payload["jti"],
+        token_exp=payload["exp"],
+        user_id=user.id,
+    )
+    create_user_api_key_in_db(db, new_api_key)
+
+    print(refresh_token)
 
 @app.command()
 def set_admin(
