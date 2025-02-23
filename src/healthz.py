@@ -21,7 +21,7 @@ from datastores.sql import database
 
 router = APIRouter()
 
-def _check_posgresql_connection():
+def _check_posgresql_connection() -> str:
     """Check the connection to the PostgreSQL database.
 
     This function uses a broad exception to catch all errors but not expose them to the
@@ -37,7 +37,7 @@ def _check_posgresql_connection():
     except Exception:  # pylint: disable=broad-except
         return "Database connection error"
 
-def _check_redis_connection(redis_url="redis://localhost:6379"):
+def _check_redis_connection(redis_url: str) -> str:
     """Check the connection to the Redis database.
 
     This function uses a broad exception to catch all errors but not expose them to the
