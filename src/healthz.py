@@ -32,7 +32,7 @@ def _check_posgresql_connection():
     """
     try:
         db = database.SessionLocal()
-        db.execute(text('SELECT foo'))
+        db.execute(text('SELECT 1'))
         return "Ok"
     except Exception:  # pylint: disable=broad-except
         return "Database connection error"
