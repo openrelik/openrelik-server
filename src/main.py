@@ -32,6 +32,7 @@ from api.v1 import workflows as workflows_v1
 from auth import common as common_auth
 from auth import google as google_auth
 from auth import local as local_auth
+from healthz import router as healthz_router
 from config import config
 from datastores.sql.crud.group import (
     add_user_to_group,
@@ -121,6 +122,7 @@ api_v1.add_middleware(
 app.include_router(common_auth.router)
 app.include_router(local_auth.router)
 app.include_router(google_auth.router)
+app.include_router(healthz_router)
 
 # Routes
 api_v1.include_router(
