@@ -42,7 +42,7 @@ def _check_posgresql_connection() -> str:
         return "Database connection error"
 
 
-def _check_redis_connection(redis_url: str = None) -> str:
+def _check_redis_connection(redis_url: str) -> str:
     """Check the connection to the Redis database.
 
     This function uses a broad exception to catch all errors but not expose them to the
@@ -67,7 +67,7 @@ def _check_redis_connection(redis_url: str = None) -> str:
         return f"Redis connection error"
 
 
-@router.get("/healthz")
+@router.get("/")
 def healthz() -> JSONResponse:
     """Health check endpoint.
 

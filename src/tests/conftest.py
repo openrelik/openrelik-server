@@ -43,7 +43,7 @@ from api.v1.workflows import (
     router as workflows_router,
     router_root as workflows_root_router,
 )
-from healthz import router as healthz_router
+from api.v1.healthz import router as healthz_router
 
 
 @pytest.fixture(autouse=True)
@@ -608,7 +608,7 @@ def setup_test_app(user_response, db) -> FastAPI:
         prefix="/folders/{folder_id}/workflows",
         tags=["workflows"],
     )
-    app.include_router(healthz_router, tags=["healthz"])
+    app.include_router(healthz_router, prefix="/healthz", tags=["healthz"])
 
     # Override authentication check dependency injection.
     app.dependency_overrides[get_current_active_user] = lambda: user_response

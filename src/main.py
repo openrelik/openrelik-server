@@ -29,7 +29,7 @@ from api.v1 import schemas
 from api.v1 import taskqueue as taskqueue_v1
 from api.v1 import users as users_v1
 from api.v1 import workflows as workflows_v1
-from healthz import router as healthz_router
+from api.v1 import healthz as healthz_v1
 from auth import common as common_auth
 from auth import google as google_auth
 from auth import local as local_auth
@@ -120,9 +120,14 @@ api_v1.add_middleware(
 app.include_router(common_auth.router)
 app.include_router(local_auth.router)
 app.include_router(google_auth.router)
-app.include_router(healthz_router)
 
 # Routes
+api_v1.include_router(
+    healthz_v1.router,
+    prefix="/healthz",
+    tags=["healthz"],
+)
+
 api_v1.include_router(
     users_v1.router,
     prefix="/users",
