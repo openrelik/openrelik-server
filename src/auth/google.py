@@ -21,6 +21,7 @@ from starlette.requests import Request
 from starlette.responses import RedirectResponse
 from google.auth.transport import requests
 from google.oauth2 import id_token
+from google.auth import exceptions as google_exceptions
 
 from api.v1 import schemas
 from config import config
@@ -60,12 +61,19 @@ def _validate_google_token(token: str, expected_audiences: List[str]) -> dict[st
     Raises:
         HTTPException: If the token is invalid or the audience is not expected.
     """
-    idinfo = id_token.verify_oauth2_token(token, requests.Request())
-    if idinfo["aud"] not in expected_audiences:
+    try:
+        idinfo = id_token.verify_oauth2_token(token, requests.Request())
+        if idinfo["aud"] not in expected_audiences:
+            raise HTTPException(
+                status_code=401, detail="Unauthorized. Could not verify audience."
+            )
+        return idinfo
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail="Unauthorized. Invalid token.")
+    except google_exceptions.GoogleAuthError as e:
         raise HTTPException(
-            status_code=401, detail="Unauthorized. Could not verify audience."
+            status_code=401, detail="Unauthorized. Could not verify token."
         )
-    return idinfo
 
 
 def _validate_user_info(user_info: dict[str, Any]) -> None:
