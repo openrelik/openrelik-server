@@ -54,6 +54,8 @@ def _check_redis_connection(redis_url: str = None) -> str:
     Returns:
         str: "Ok" if the connection is successful, otherwise an error message
     """
+    if not redis_url:
+        return f"Redis connection error"
     try:
         parsed_url = urlparse(redis_url)
         host = parsed_url.hostname
