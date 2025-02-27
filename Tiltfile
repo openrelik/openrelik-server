@@ -4,7 +4,7 @@ docker_compose("../openrelik/docker-compose.yml")
 
 docker_build(
     # Image name - must match the image in the docker-compose file
-    "ghcr.io/openrelik/openrelik-server",
+    "openrelik-server",
     # Docker context
     ".",
     live_update=[
