@@ -178,6 +178,9 @@ def create_api_key(
     )
     create_user_api_key_in_db(db, new_api_key)
 
+    # Remove spaces and newlines returned in token
+    refresh_token = refresh_token.replace(" ", "").replace("\n", "")
+    
     print(refresh_token)
 
 @app.command()
