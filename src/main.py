@@ -127,7 +127,6 @@ api_v1.include_router(
     prefix="/healthz",
     tags=["healthz"],
 )
-
 api_v1.include_router(
     users_v1.router,
     prefix="/users",

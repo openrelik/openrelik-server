@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-
 def test_healthz_success(fastapi_test_client, mocker):
     """Test healthz endpoint when all services are reachable."""
     mocker.patch("api.v1.healthz._check_posgresql_connection", return_value="Ok")
