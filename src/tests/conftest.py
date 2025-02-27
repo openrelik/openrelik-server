@@ -43,7 +43,7 @@ from api.v1.workflows import (
     router as workflows_router,
     router_root as workflows_root_router,
 )
-from api.healthz import router as healthz_router
+from healthz import router as healthz_router
 
 
 @pytest.fixture(autouse=True)
