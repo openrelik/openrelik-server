@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import redis
+import os
+
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException
@@ -40,7 +42,7 @@ def _check_posgresql_connection() -> str:
         return "Database connection error"
 
 
-def _check_redis_connection(redis_url: str) -> str:
+def _check_redis_connection(redis_url: str = None) -> str:
     """Check the connection to the Redis database.
 
     This function uses a broad exception to catch all errors but not expose them to the
@@ -77,9 +79,10 @@ def healthz() -> JSONResponse:
     Raises:
         HTTPException (500): If any of the services are not reachable
     """
+    redis_url = os.getenv("REDIS_URL")
     status = {
         "posgresql": _check_posgresql_connection(),
-        "redis": _check_redis_connection(),
+        "redis": _check_redis_connection(redis_url),
     }
     # If any of the services are not reachable, return a 500 status code with the
     # status of the services that are not reachable.
