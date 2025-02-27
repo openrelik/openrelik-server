@@ -67,7 +67,7 @@ def _check_redis_connection(redis_url: str = None) -> str:
         return f"Redis connection error"
 
 
-@router.get("/")
+@router.get("/healthz")
 def healthz() -> JSONResponse:
     """Health check endpoint.
 
