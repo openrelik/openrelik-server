@@ -29,10 +29,10 @@ from api.v1 import schemas
 from api.v1 import taskqueue as taskqueue_v1
 from api.v1 import users as users_v1
 from api.v1 import workflows as workflows_v1
+from healthz import router as healthz_router
 from auth import common as common_auth
 from auth import google as google_auth
 from auth import local as local_auth
-from healthz import router as healthz_router
 from config import config
 from datastores.sql.crud.group import (
     add_user_to_group,
@@ -54,8 +54,7 @@ origins = config["server"]["allowed_origins"]
 async def populate_everyone_group(db):
     everyone_group = get_group_by_name_from_db(db, "Everyone")
     if not everyone_group:
-        everyone_group = create_group_in_db(
-            db, schemas.GroupCreate(name="Everyone"))
+        everyone_group = create_group_in_db(db, schemas.GroupCreate(name="Everyone"))
 
     # Add users that are not in the "Everyone" group.
     users_to_add = (
@@ -93,8 +92,7 @@ async def lifespan(app: FastAPI):
 
 # Create the main app
 app = FastAPI(lifespan=lifespan)
-app.add_middleware(SessionMiddleware,
-                   secret_key=config["auth"]["secret_session_key"])
+app.add_middleware(SessionMiddleware, secret_key=config["auth"]["secret_session_key"])
 
 # Create app for API version 1
 api_v1 = FastAPI()
