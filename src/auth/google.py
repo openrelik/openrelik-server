@@ -114,7 +114,7 @@ async def auth_header_token(request: Request, db: Session = Depends(get_db_conne
     expected_audiences = [*GOOGLE_EXTRA_AUDIENCES, GOOGLE_CLIENT_ID]
     user_info = _validate_google_token(token, expected_audiences)
 
-    # Validate the user is actually allowed based on OpenRelik coofig.
+    # Validate the user is actually allowed based on OpenRelik config.
     _validate_user_info(user_info)
 
     user_email = user_info.get("email", "")
