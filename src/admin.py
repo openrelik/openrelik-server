@@ -32,6 +32,10 @@ from datastores.sql.crud.user import (
     get_user_by_username_from_db,
     get_users_from_db,
 )
+from datastores.sql.crud.workflow import (
+    get_workflow_templates_from_db,
+    delete_workflow_template_from_db,
+)
 
 # Import models to make the ORM register correctly.
 from datastores.sql.models import file, folder, user, workflow
@@ -308,6 +312,46 @@ def fix_ownership():
     print(
         f"Added missing OWNER roles to {len(files_without_owner)} files and {len(folders_without_owner)} folders."
     )
+
+
+@app.command()
+def list_workflow_templates():
+    """Lists all workflow templates in a table."""
+    db = database.SessionLocal()
+
+    templates = get_workflow_templates_from_db(db)
+
+    table = Table(title="List of Workflow Templates")
+    table.add_column("Workflow template ID", style="cyan")
+    table.add_column("Display Name", style="green")
+    table.add_column("Description", style="magenta")
+    table.add_column("spec_json", style="cyan")
+    table.add_column("username", style="green")
+
+    for template in templates:
+        table.add_row(
+            str(template.id),
+            template.display_name,
+            template.description,
+            template.spec_json,
+            template.user.username, 
+        )
+
+    print(table)
+
+
+@app.command()
+def delete_workflow_template(
+    template_id: int = typer.Argument(help="The workflow template ID to delete."),
+):
+    """Deletes a workflow template from the database."""
+    db = database.SessionLocal()
+
+    try:
+        delete_workflow_template_from_db(db, template_id)
+        print(f"Workflow template with ID {template_id} has been deleted.")
+    except ValueError as e:
+        print(f"Error: {e}")
 
 
 if __name__ == "__main__":
