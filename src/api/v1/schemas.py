@@ -35,7 +35,7 @@ class BaseSchema(BaseModel):
     deleted_at: Optional[datetime] = None
     is_deleted: Optional[bool] = False
 
-    @field_serializer('uuid', check_fields=False)
+    @field_serializer("uuid", check_fields=False)
     def serialize_uuid(self, uuid: UUID):
         return custom_uuid_encoder(uuid)
 
@@ -45,9 +45,10 @@ class BaseSchemaCompact(BaseModel):
 
     id: Optional[int] = None
 
-    @field_serializer('uuid', check_fields=False)
+    @field_serializer("uuid", check_fields=False)
     def serialize_uuid(self, uuid: UUID):
         return custom_uuid_encoder(uuid)
+
 
 # User schemas
 class User(BaseSchema):
@@ -334,8 +335,10 @@ class WorkflowCreateRequest(BaseModel):
     file_ids: List[int]
     template_id: Optional[int] = None
 
+
 class WorkflowRunRequest(BaseModel):
     workflow_spec: dict
+
 
 class WorkflowTemplateCreateRequest(BaseModel):
     display_name: str
@@ -348,6 +351,7 @@ class WorkflowTemplateCreate(BaseModel):
     description: Optional[str] = None
     spec_json: str
     user_id: int
+
 
 class WorkflowTemplateResponse(BaseSchema):
     display_name: str
@@ -374,6 +378,18 @@ class Task(BaseSchema):
     workflow: Workflow
 
 
+class TaskReportCreate(BaseModel):
+    summary: str = ""
+    priority: int = 100
+    markdown: str = None
+
+
+class TaskReportResponseCompact(BaseModel):
+    summary: str = ""
+    priority: int = 100
+    markdown: str = ""
+
+
 class TaskResponse(BaseSchema):
     display_name: Optional[str]
     description: Optional[str]
@@ -388,6 +404,7 @@ class TaskResponse(BaseSchema):
     user: UserResponseCompact
     output_files: Optional[List[FileResponseCompact]]
     file_reports: Optional[List[FileReportResponseCompact]]
+    task_report: Optional[TaskReportResponseCompact]
 
 
 class TaskResponseCompact(BaseSchema):

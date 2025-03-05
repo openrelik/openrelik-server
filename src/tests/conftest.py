@@ -91,13 +91,13 @@ def task_response(user_db_model, workflow_schema_mock) -> schemas.TaskResponse:
         "user": user_mock,
         "output_files": [],
         "file_reports": [],
+        "task_report": None,
         "error_traceback": None,
         "error_exception": None,
         "workflow": workflow_schema_mock,
     }
     mock_task_response = schemas.TaskResponse(**task_data)
     return mock_task_response
-
 
 
 @pytest.fixture
