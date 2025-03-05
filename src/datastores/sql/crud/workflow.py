@@ -16,10 +16,10 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from datastores.sql.models.workflow import Workflow, Task, WorkflowTemplate
+from datastores.sql.models.workflow import Workflow, Task, TaskReport, WorkflowTemplate
 from api.v1 import schemas
 
-from datastores.sql.crud.file import get_file_from_db
+from datastores.sql.crud.file import get_file_from_db, get_file_by_uuid_from_db
 
 
 def get_file_workflows_from_db(db: Session, file_id: int):
@@ -210,3 +210,27 @@ def create_task_in_db(db: Session, task: schemas.Task):
     db.commit()
     db.refresh(task)
     return task
+
+
+def create_task_report_in_db(
+    db: Session, task_report: schemas.TaskReportCreate, task_id: int
+):
+    """Creates a new file report in the database.
+
+    Args:
+        db (Session): A SQLAlchemy database session object.
+        task_report (TaskReportCreate): The TaskReportCreate object.
+
+    Returns:
+        TaskReport: The newly created TaskReport object.
+    """
+    db_task_report = TaskReport(
+        summary=task_report.summary,
+        priority=task_report.priority,
+        markdown=task_report.markdown,
+        task_id=task_id,
+    )
+    db.add(db_task_report)
+    db.commit()
+    db.refresh(db_task_report)
+    return db_task_report

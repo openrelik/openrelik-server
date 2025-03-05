@@ -26,7 +26,11 @@ from datastores.sql import database
 from datastores.sql.models import file, folder, user, workflow
 
 from datastores.sql.crud.file import create_file_in_db, create_file_report_in_db
-from datastores.sql.crud.workflow import get_task_by_uuid_from_db, get_workflow_from_db
+from datastores.sql.crud.workflow import (
+    get_task_by_uuid_from_db,
+    get_workflow_from_db,
+    create_task_report_in_db,
+)
 
 from api.v1 import schemas
 
@@ -105,6 +109,7 @@ def process_successful_task(db, celery_task, db_task, celery_app):
 
     output_files = result_dict.get("output_files", [])
     file_reports = result_dict.get("file_reports", [])
+    task_report = result_dict.get("task_report", {})
 
     # Create files from the resulting output files
     for file_data in output_files:
@@ -139,6 +144,14 @@ def process_successful_task(db, celery_task, db_task, celery_app):
             content_file_uuid=file_report.get("content_file_uuid"),
         )
         create_file_report_in_db(db, new_file_report, task_id=db_task.id)
+
+    if task_report:
+        new_task_report = schemas.TaskReportCreate(
+            summary=task_report.get("summary"),
+            priority=task_report.get("priority"),
+            markdown=task_report.get("content"),
+        )
+        create_task_report_in_db(db, new_task_report, task_id=db_task.id)
 
 
 def process_failed_task(db, celery_task, db_task):
