@@ -1,5 +1,6 @@
 import json
 import secrets
+from typing import Any
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -21,7 +22,7 @@ from sqlalchemy.orm import Session
 from api.v1 import schemas
 from config import config
 from datastores.sql.crud.user import get_user_by_uuid_from_db
-from datastores.sql.models.user import UserApiKey
+from datastores.sql.models.user import UserApiKey, User
 from datastores.sql.database import get_db_connection
 
 router = APIRouter()
@@ -44,7 +45,7 @@ API_SERVER_URL = config["server"].get("api_server_url")
 UI_SERVER_URL = config["server"].get("ui_server_url")
 
 
-def generate_csrf_token():
+def generate_csrf_token() -> str:
     """Generates a CSRF token."""
     return secrets.token_urlsafe(32)
 
@@ -68,7 +69,7 @@ def create_jwt_token(
     subject: str,
     token_type: str,
     extra_data: dict = {},
-):
+) -> str:
     """Creates a JWT access token with the given data and expiration time.
 
     Args:
@@ -83,7 +84,7 @@ def create_jwt_token(
     """
     jwt_data = extra_data.copy()
     issued_at = datetime.now(timezone.utc)
-    not_before = issued_at  # Option to change this later if suport for future valid tokens is needed.
+    not_before = issued_at  # Option to change this later if support for future valid tokens is needed.
     expire_at = issued_at + timedelta(minutes=expire_minutes)
     issued_by = API_SERVER_URL if API_SERVER_URL else UI_SERVER_URL
     jwt_data.update({"sub": subject})
@@ -104,7 +105,7 @@ def validate_jwt_token(
     expected_audience: str,
     check_denylist: bool = False,
     db: Session = Depends(get_db_connection),
-):
+) -> dict[str, Any]:
     """Validates a JWT token.
 
     Args:
@@ -221,7 +222,7 @@ async def get_current_user(
     access_token_from_cookie: str | None = Depends(access_token_cookie),
     access_token_from_header: str | None = Depends(access_token_header),
     db: Session = Depends(get_db_connection),
-):
+) -> User:
     """Retrieves the currently logged-in user from the request.
 
     Args:
@@ -267,7 +268,7 @@ async def get_current_user(
 
 async def get_current_active_user(
     current_user: schemas.User = Depends(get_current_user),
-):
+) -> schemas.User:
     """Retrieves the currently logged-in active user from the request.
 
     Args:
@@ -289,7 +290,7 @@ async def refresh(
     refresh_token_from_cookie: str | None = Depends(refresh_token_cookie),
     refresh_token_from_header: str | None = Depends(refresh_token_header),
     db: Session = Depends(get_db_connection),
-):
+) -> Response:
     """
     Refresh access token using a refresh token.
 
@@ -352,7 +353,7 @@ async def refresh(
 async def csrf(
     csrf_token_from_cookie: str | None = Depends(csrf_token_cookie),
     current_user: schemas.User = Depends(get_current_active_user),
-):
+) -> str | None:
     """
     Returns the CSRF token from the users cookie.
 

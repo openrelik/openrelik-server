@@ -12,14 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import redis
+import os
+
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from datastores.sql import database
 
 router = APIRouter()
+
 
 def _check_posgresql_connection() -> str:
     """Check the connection to the PostgreSQL database.
@@ -32,12 +36,13 @@ def _check_posgresql_connection() -> str:
     """
     try:
         db = database.SessionLocal()
-        db.execute(text('SELECT 1'))
+        db.execute(text("SELECT 1"))
         return "Ok"
     except Exception:  # pylint: disable=broad-except
         return "Database connection error"
 
-def _check_redis_connection(redis_url: str) -> str:
+
+def _check_redis_connection(redis_url: str = None) -> str:
     """Check the connection to the Redis database.
 
     This function uses a broad exception to catch all errors but not expose them to the
@@ -49,6 +54,8 @@ def _check_redis_connection(redis_url: str) -> str:
     Returns:
         str: "Ok" if the connection is successful, otherwise an error message
     """
+    if not redis_url:
+        return f"Redis connection error"
     try:
         parsed_url = urlparse(redis_url)
         host = parsed_url.hostname
@@ -61,7 +68,7 @@ def _check_redis_connection(redis_url: str) -> str:
 
 
 @router.get("/healthz")
-def healthz() -> dict:
+def healthz() -> JSONResponse:
     """Health check endpoint.
 
     This endpoint checks the connection to critical services. If any of the services
@@ -74,9 +81,10 @@ def healthz() -> dict:
     Raises:
         HTTPException (500): If any of the services are not reachable
     """
+    redis_url = os.getenv("REDIS_URL")
     status = {
         "posgresql": _check_posgresql_connection(),
-        "redis": _check_redis_connection(),
+        "redis": _check_redis_connection(redis_url),
     }
     # If any of the services are not reachable, return a 500 status code with the
     # status of the services that are not reachable.
@@ -85,6 +93,4 @@ def healthz() -> dict:
 
     # If all services are reachable, return a 200 status code with the status of the
     # individual services.
-    return status
-
-
+    return JSONResponse(status_code=200, content=status)
