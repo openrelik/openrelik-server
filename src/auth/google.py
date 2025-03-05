@@ -11,11 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import List, Any
+from typing import List, Any, Annotated
 import uuid
 
 from authlib.integrations.starlette_client import OAuth, OAuthError
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.orm import Session
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
@@ -91,28 +91,28 @@ def _validate_user_info(user_info: dict[str, Any]) -> None:
 
 
 @router.get("/auth/google/token")
-async def auth_header_token(request: Request, db: Session = Depends(get_db_connection)):
+async def auth_header_token(
+    x_google_id_token: Annotated[str | None, Header()] = None,
+    db: Session = Depends(get_db_connection),
+):
     """Handles OpenRelik token generation for a user that provides a valid Google
         authentication token. Used by API clients.
 
     Args:
-        request (Request): The FastAPI request object.
+        x_google_id_token (str | None): The Google ID token in the header.
         db (Session): The database session object.
 
     Returns:
         dict: OpenRelik refresh and access tokens.
     """
-    token = None
-    if "x-google-id-token" in request.headers:
-        token = request.headers["x-google-id-token"]
-    if not token:
+    if not x_google_id_token:
         raise HTTPException(
             status_code=401, detail="Unauthorized, missing x-google-id-token header."
         )
 
     # Validate the JWT token's aud, exp and signature.
     expected_audiences = [*GOOGLE_EXTRA_AUDIENCES, GOOGLE_CLIENT_ID]
-    user_info = _validate_google_token(token, expected_audiences)
+    user_info = _validate_google_token(x_google_id_token, expected_audiences)
 
     # Validate the user is actually allowed based on OpenRelik config.
     _validate_user_info(user_info)
