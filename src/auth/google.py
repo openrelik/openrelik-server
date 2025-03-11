@@ -92,27 +92,27 @@ def _validate_user_info(user_info: dict[str, Any]) -> None:
 
 @router.get("/auth/google/token")
 async def auth_header_token(
-    x_google_id_token: Annotated[str | None, Header()] = None,
+    x_goog_id_token: Annotated[str | None, Header()] = None,
     db: Session = Depends(get_db_connection),
 ):
     """Handles OpenRelik token generation for a user that provides a valid Google
         authentication token. Used by API clients.
 
     Args:
-        x_google_id_token (str | None): The Google ID token in the header.
+        x_goog_id_token (str | None): The Google ID token in the header.
         db (Session): The database session object.
 
     Returns:
         dict: OpenRelik refresh and access tokens.
     """
-    if not x_google_id_token:
+    if not x_goog_id_token:
         raise HTTPException(
             status_code=401, detail="Unauthorized, missing x-google-id-token header."
         )
 
     # Validate the JWT token's aud, exp and signature.
     expected_audiences = [*GOOGLE_EXTRA_AUDIENCES, GOOGLE_CLIENT_ID]
-    user_info = _validate_google_token(x_google_id_token, expected_audiences)
+    user_info = _validate_google_token(x_goog_id_token, expected_audiences)
 
     # Validate the user is actually allowed based on OpenRelik config.
     _validate_user_info(user_info)
