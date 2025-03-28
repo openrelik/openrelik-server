@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import glob
 import html
 import json
 import os
@@ -18,7 +19,17 @@ from typing import List
 from uuid import uuid4
 
 import aiofiles
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Query, UploadFile, status
+import redis
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -46,6 +57,9 @@ router = APIRouter()
 
 # File types that are trusted to be returned unescaped to the client
 ALLOWED_DATA_TYPES_PREVIEW = config.get("ui", {}).get("allowed_data_types_preview", [])
+
+REDIS_URL = os.getenv("REDIS_URL")
+redis_client = redis.Redis.from_url(REDIS_URL)
 
 
 # Get file
@@ -147,9 +161,7 @@ async def download_file_stream(
         "Content-Length": str(file.filesize),
     }
 
-    return StreamingResponse(
-        iterfile(), headers=headers, media_type="application/octet-stream"
-    )
+    return StreamingResponse(iterfile(), headers=headers, media_type="application/octet-stream")
 
 
 # Delete file
@@ -186,22 +198,68 @@ async def upload_files(
     Returns:
         File: File metadata.
     """
-    is_last_chunk = resumableChunkNumber == resumableTotalChunks
+
+    def _remove_chunks(chunks_to_remove: set) -> None:
+        """Remove chunk files from disk.
+
+        Args:
+            chunks_to_remove (set): Set of chunk file paths to remove.
+        """
+        for chunk_path in chunks_to_remove:
+            try:
+                os.remove(chunk_file_path)
+            except FileNotFoundError:
+                pass
+
+    MAX_CHUNK_RETRIES = 5
+
+    # The folder that the file will be saved to.
     folder = get_folder_from_db(db, folder_id)
 
+    # We need to keep state between requests to track the status of the uploaded chunks.
+    # The resumableIdentifier is used to identify the upload session for a specific file.
+    # The resumableChunkNumber is used to identify the chunk being uploaded.
+    redis_uploaded_chunks_key = f"uploaded_chunks:{resumableIdentifier}"
+    redis_upload_retries_key = f"upload_retries:{resumableIdentifier}:{resumableChunkNumber}"
+
     # Construct the chunk file path
-    chunk_file_path = os.path.join(
-        folder.path, f"{resumableIdentifier}.{resumableChunkNumber}"
+    chunk_file_path = os.path.join(folder.path, f"{resumableIdentifier}.{resumableChunkNumber}")
+
+    # If the chunk has been retried more than MAX_CHUNK_RETRIES times, remove all chunks and return
+    # a 429 error to signal to the client to stop retrying uploading the chunk.
+    retry_count = redis_client.get(redis_upload_retries_key)
+    if retry_count and int(retry_count) >= MAX_CHUNK_RETRIES:
+        chunk_pattern = os.path.join(folder.path, f"{resumableIdentifier}.*")
+        chunks_to_remove = set(glob.glob(chunk_pattern))
+        _remove_chunks(chunks_to_remove)
+        redis_client.delete(redis_uploaded_chunks_key)
+        redis_client.delete(redis_upload_retries_key)
+        raise HTTPException(status_code=429, detail="Failed to upload file")
+
+    # Save the chunk to disk. If the chunk fails to save return a 503 error to signal to the client
+    # to retry the chunk.
+    try:
+        async with aiofiles.open(chunk_file_path, "wb") as fh:
+            while content := await file.read(4096000):  # Read 4MB chunks
+                await fh.write(content)
+                redis_client.sadd(redis_uploaded_chunks_key, resumableChunkNumber)
+    except Exception:
+        redis_client.incr(redis_upload_retries_key, 1)
+        raise HTTPException(status_code=503, detail="Failed to write chunk to disk")
+
+    # Check if all chunks have been uploaded
+    all_chunks_uploaded = (
+        len(redis_client.smembers(redis_uploaded_chunks_key)) == resumableTotalChunks
     )
 
-    # Save the chunk to disk
-    async with aiofiles.open(chunk_file_path, "wb") as fh:
-        while content := await file.read(1024000):  # Read 1MB chunks
-            await fh.write(content)
-
-    # Return early if this is NOT the last chunk.
-    if not is_last_chunk:
+    # If not all chunks have been uploaded, return a 200 OK response to let the client know to
+    # continue retrying uploading.
+    if not all_chunks_uploaded:
         return
+
+    # If all chunks have been successfully uploaded, remove the redis state keys.
+    redis_client.delete(redis_uploaded_chunks_key)
+    redis_client.delete(redis_upload_retries_key)
 
     # If all chunks has been uploaded then assemble the complete file.
     _, file_extension = os.path.splitext(resumableFilename)
@@ -209,16 +267,22 @@ async def upload_files(
     output_filename = f"{uuid.hex}{file_extension}"
     output_path = os.path.join(folder.path, output_filename)
 
-    async with aiofiles.open(output_path, "wb") as outfile:
-        for chunk_number in range(1, resumableTotalChunks + 1):
-            chunk_path = os.path.join(
-                folder.path, f"{resumableIdentifier}.{chunk_number}"
-            )
-            async with aiofiles.open(chunk_path, "rb") as infile:
-                while content := await infile.read(1024000):  # Read 1MB chunks
-                    await outfile.write(content)
-            # Remove the temporary chunk file.
-            os.remove(chunk_path)
+    chunks_to_remove = set()
+    try:
+        async with aiofiles.open(output_path, "wb") as outfile:
+            for chunk_number in range(1, resumableTotalChunks + 1):
+                chunk_path = os.path.join(folder.path, f"{resumableIdentifier}.{chunk_number}")
+                async with aiofiles.open(chunk_path, "rb") as infile:
+                    while content := await infile.read(1024000):  # Read 1MB chunks
+                        await outfile.write(content)
+                chunks_to_remove.add(chunk_path)
+    except Exception:
+        # If there is any error while writing the file, remove all chunks and return a 500 error.
+        _remove_chunks(chunks_to_remove)
+        raise HTTPException(status_code=500, detail="Failed to write file to disk")
+
+    # Remove all temporary chunk files
+    _remove_chunks(chunks_to_remove)
 
     # Save to database
     new_file = schemas.FileCreate(
@@ -290,9 +354,7 @@ def download_task_result(
     )
 
 
-@router.get(
-    "/{file_id}/summaries/{summary_id}", response_model=schemas.FileSummaryResponse
-)
+@router.get("/{file_id}/summaries/{summary_id}", response_model=schemas.FileSummaryResponse)
 @require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
 def get_file_summary(
     file_id: int,
