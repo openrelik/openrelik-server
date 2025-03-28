@@ -21,4 +21,4 @@ jobs:
         poetry install --with dev --no-root
     - name: Test with pytest - ${{ matrix.python-version }}
       run: |
-        OPENRELIK_SERVER_SETTINGS=./settings_example.toml REDIS_URL=redis://localhost:6379 poetry run pytest --cov=. -v
+        OPENRELIK_SERVER_SETTINGS=./settings_example.toml poetry run pytest --cov=. -v
