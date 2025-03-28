@@ -207,7 +207,7 @@ async def upload_files(
         """
         for chunk_path in chunks_to_remove:
             try:
-                os.remove(chunk_path)
+                os.remove(chunk_file_path)
             except FileNotFoundError:
                 pass
 
