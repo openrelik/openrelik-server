@@ -12,7 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import re
 import uuid
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 
 import typer
@@ -33,18 +35,15 @@ from datastores.sql.crud.user import (
     get_users_from_db,
 )
 from datastores.sql.crud.workflow import (
-    get_workflow_templates_from_db,
     delete_workflow_template_from_db,
+    get_workflow_templates_from_db,
 )
-
-# Import models to make the ORM register correctly.
-from datastores.sql.models import file, folder, user, workflow
-from datastores.sql.models.role import Role
-from datastores.sql.models.user import UserRole
-
 from datastores.sql.models.file import File
 from datastores.sql.models.folder import Folder
 
+# Import models to make the ORM register correctly.
+from datastores.sql.models.role import Role
+from datastores.sql.models.user import UserRole
 
 password_hasher = PasswordHasher()
 
@@ -123,9 +122,7 @@ def change_password(
             print("[bold red]Error: User does not exist.[/bold red]")
             raise typer.Exit(code=1)
         if existing_user.auth_method != "local":
-            print(
-                "[bold red]Error: You can only change password for local users.[/bold red]"
-            )
+            print("[bold red]Error: You can only change password for local users.[/bold red]")
             raise typer.Exit(code=1)
 
     # Get username and password, prompting if necessary
@@ -139,6 +136,7 @@ def change_password(
     db.add(existing_user)
     db.commit()
     print(f"Password updated for user '{username}'.")
+
 
 @app.command()
 def create_api_key(
@@ -183,6 +181,7 @@ def create_api_key(
     create_user_api_key_in_db(db, new_api_key)
 
     print(refresh_token)
+
 
 @app.command()
 def set_admin(
@@ -334,10 +333,93 @@ def list_workflow_templates():
             template.display_name,
             template.description,
             template.spec_json,
-            template.user.username, 
+            template.user.username,
         )
 
     print(table)
+
+
+@app.command()
+def purge_deleted_files(
+    force: bool = typer.Option(False, "--force", "-f", help="Purge files without asking."),
+    retention: Optional[str] = typer.Option(
+        None, "--older-than", help="Purge files older than this duration (e.g., '10D', '2W', '1M')."
+    ),
+):
+    """Aggregates and displays the total size and number of deleted files."""
+
+    def _parse_retention_time(retention: str) -> timedelta:
+        """Parses the retention time string (e.g., '10D', '2W', '1M') into a timedelta."""
+        match = re.match(r"(\d+)([mhDWMY])", retention)
+        if not match:
+            raise typer.BadParameter("Invalid retention time format. Use <number>[D|W|M].")
+        value = int(match.group(1))
+        unit = match.group(2)
+        if unit == "m":
+            return timedelta(minutes=value)
+        if unit == "h":
+            return timedelta(hours=value)
+        elif unit == "D":
+            return timedelta(days=value)
+        elif unit == "W":
+            return timedelta(weeks=value)
+        elif unit == "M":
+            # Approximate months to 30 days for simplicity in CLI
+            return timedelta(days=value * 30)
+        elif unit == "Y":
+            # Approximate years to 365 days for simplicity in CLI
+            return timedelta(days=value * 365)
+        raise typer.BadParameter("Invalid retention time unit.")
+
+    db = database.SessionLocal()
+    deleted_files_query = db.query(File)
+    deleted_files_query._include_deleted = True
+    deleted_files_query = deleted_files_query.filter(
+        File.is_deleted == True, File.is_purged == False
+    )
+
+    if retention:
+        try:
+            retention_delta = _parse_retention_time(retention)
+            cutoff_time = datetime.now(timezone.utc) - retention_delta
+            deleted_files_query = deleted_files_query.filter(File.deleted_at <= cutoff_time)
+        except typer.BadParameter as e:
+            print(f"[bold red]Error:[/bold red] {e}")
+            return
+
+    deleted_files = deleted_files_query.all()
+
+    if not deleted_files:
+        print("[bold green]No files are marked as deleted.[/bold green]")
+        return
+
+    total_size = sum(file.filesize for file in deleted_files if file.filesize)
+    num_files = len(deleted_files)
+
+    print("[bold blue]Delete request summary:[/bold blue]")
+    print(f"  Number of files to delete: [bold]{num_files}[/bold]")
+
+    def format_size(size_bytes):
+        """Formats bytes into a human-readable string."""
+        if size_bytes is None:
+            return "N/A"
+        units = ["bytes", "KB", "MB", "GB", "TB", "PB"]
+        i = 0
+        while size_bytes >= 1024 and i < len(units) - 1:
+            size_bytes /= 1024
+            i += 1
+        return f"{size_bytes:.2f} {units[i]}"
+
+    print(f"  Total size: [bold]{format_size(total_size)}[/bold]")
+
+    if not force and not typer.confirm(f"Are you sure you want to delete {num_files} files?"):
+        print("[bold red]Deletion cancelled.[/bold red]")
+        return
+
+    print("[bold yellow]Deleting files...[/bold yellow]")
+    for file in deleted_files:
+        file.purge(db)
+        print("  Deleted file:", file.path)
 
 
 @app.command()
