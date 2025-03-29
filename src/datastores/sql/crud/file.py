@@ -151,9 +151,7 @@ def update_file_summary_in_db(db: Session, file_summary: FileSummary):
     return file_summary
 
 
-def create_file_report_in_db(
-    db: Session, file_report: schemas.FileReportCreate, task_id: int
-):
+def create_file_report_in_db(db: Session, file_report: schemas.FileReportCreate, task_id: int):
     """Creates a new file report in the database.
 
     Args:

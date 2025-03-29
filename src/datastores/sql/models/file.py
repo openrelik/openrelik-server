@@ -18,14 +18,15 @@ from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import (
     UUID,
-    Integer,
     BigInteger,
+    Column,
     ForeignKey,
+    Integer,
+    Table,
     Unicode,
     UnicodeText,
     event,
-    Column,
-    Table,
+    func,
 )
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -38,8 +39,8 @@ from ..database import (
 
 if TYPE_CHECKING:
     from .folder import Folder
-    from .user import User, UserRole
     from .group import GroupRole
+    from .user import User, UserRole
     from .workflow import Task, Workflow
 
 
@@ -172,6 +173,17 @@ class File(BaseModel):
             filename = f"{filename}.{self.extension}"
         return os.path.join(self.folder.path, filename)
 
+    def purge(self, db):
+        # Check if the file is soft deleted before purging
+        if not self.is_deleted:
+            raise Exception("File must be deleted before purging")
+
+        if os.path.exists(self.path):
+            os.remove(self.path)
+        self.is_purged = True
+        self.purged_at = func.now()
+        db.commit()
+
 
 class FileAttribute(BaseModel, AttributeMixin):
     """Represents an attribute associated with a file.
@@ -271,9 +283,7 @@ class FileReport(BaseModel):
 
     # The file that this report is about.
     file_id: Mapped[int] = mapped_column(ForeignKey("file.id"))
-    file: Mapped["File"] = relationship(
-        back_populates="reports", foreign_keys=[file_id]
-    )
+    file: Mapped["File"] = relationship(back_populates="reports", foreign_keys=[file_id])
 
     # The task that created this report.
     task_id: Mapped[Optional[int]] = mapped_column(ForeignKey("task.id"))
