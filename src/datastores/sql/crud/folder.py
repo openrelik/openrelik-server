@@ -102,7 +102,7 @@ def get_all_folders_from_db(db: Session, current_user: User, search_term: str | 
     Retrieves accessible folders with conditional logic based on search term.
 
     - If search_term is NOT provided (Default View):
-        Returns user's pwned root folders plus all directly shared folders
+        Returns user's owned root folders plus all directly shared folders
         (root and subfolders where share is explicit). Uses non-recursive logic.
     - If search_term IS provided (Recursive Search Mode):
         Uses resursive logic to find ALL accessible folders (direct/inherited,
