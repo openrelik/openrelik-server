@@ -366,7 +366,7 @@ def get_file_summary(
 
 
 @router.post("/{file_id}/summaries")
-@require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
 def generate_file_summary(
     file_id: int,
     background_tasks: BackgroundTasks,
