@@ -12,12 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from datetime import datetime
+from typing import List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, field_serializer
-
-from datetime import datetime
-from typing import Optional, List
 
 
 def custom_uuid_encoder(uuid_object):
@@ -168,6 +167,7 @@ class FolderResponse(BaseSchema):
 class FolderResponseCompact(BaseSchema):
     display_name: str
     user: UserResponseCompact
+    workflows: List["WorkflowResponseCompact"]
     selectable: Optional[bool] = False
 
 
@@ -326,6 +326,10 @@ class WorkflowResponse(BaseSchema):
     folder: Optional["WorkflowFolder"]
 
 
+class WorkflowResponseCompact(BaseModel):
+    id: int
+
+
 class WorkflowStatusResponse(BaseSchema):
     tasks: Optional[List["TaskResponse"]]
 
@@ -358,6 +362,10 @@ class WorkflowTemplateResponse(BaseSchema):
     description: Optional[str] = None
     spec_json: str
     user_id: int
+
+
+class WorkflowGeneratedNameResponse(BaseModel):
+    generated_name: str
 
 
 class Task(BaseSchema):

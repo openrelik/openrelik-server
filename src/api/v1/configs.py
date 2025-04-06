@@ -16,7 +16,6 @@ from fastapi import APIRouter
 
 from config import config, get_active_llms
 
-
 router = APIRouter()
 
 
@@ -26,9 +25,7 @@ def get_system_config():
 
     # Data types that will be allowed to be returned as unescaped HTML for use in
     # sandboxed iframe preview.
-    allowed_data_types_preview = config.get("ui", {}).get(
-        "allowed_data_types_preview", []
-    )
+    allowed_data_types_preview = config.get("ui", {}).get("allowed_data_types_preview", [])
 
     return {
         "active_llms": active_llms,
