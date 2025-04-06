@@ -20,12 +20,14 @@ from uuid import uuid4
 from celery import chain as celery_chain
 from celery import group as celery_group
 from celery import signature
-from celery.canvas import Signature
 from celery.app import Celery
-from fastapi import APIRouter, Depends, status, HTTPException
+from celery.canvas import Signature
+from fastapi import APIRouter, Depends, HTTPException, status
+from openrelik_ai_common.providers import manager
 from sqlalchemy.orm import Session
 
 from auth.common import get_current_active_user
+from config import get_active_llms
 from datastores.sql.crud.authz import require_access
 from datastores.sql.crud.folder import create_subfolder_in_db
 from datastores.sql.crud.workflow import (
@@ -40,8 +42,8 @@ from datastores.sql.crud.workflow import (
     update_workflow_in_db,
 )
 from datastores.sql.database import get_db_connection
-from datastores.sql.models.workflow import Task
 from datastores.sql.models.role import Role
+from datastores.sql.models.workflow import Task
 
 from . import schemas
 
@@ -78,8 +80,7 @@ def get_task_signature(
     """
     task_uuid = task_data.get("uuid", uuid4().hex)
     task_config = {
-        option["name"]: option.get("value")
-        for option in task_data.get("task_config", {})
+        option["name"]: option.get("value") for option in task_data.get("task_config", {})
     }
 
     # Create a new DB task
@@ -281,9 +282,7 @@ async def create_workflow(
     new_folder = schemas.FolderCreateRequest(
         display_name=default_workflow_display_name, parent_id=request_body.folder_id
     )
-    new_workflow_folder = create_subfolder_in_db(
-        db, folder_id, new_folder, current_user
-    )
+    new_workflow_folder = create_subfolder_in_db(db, folder_id, new_folder, current_user)
 
     # Create new workflow
     new_workflow_db = schemas.Workflow(
@@ -293,9 +292,7 @@ async def create_workflow(
         file_ids=request_body.file_ids,
         folder_id=new_workflow_folder.id,
     )
-    new_workflow = create_workflow_in_db(
-        db, new_workflow_db, template_id=request_body.template_id
-    )
+    new_workflow = create_workflow_in_db(db, new_workflow_db, template_id=request_body.template_id)
     return new_workflow
 
 
@@ -600,3 +597,84 @@ async def create_workflow_template(
         user_id=current_user.id,
     )
     return create_workflow_template_in_db(db, new_template_db)
+
+
+# Generate workflow name
+# /folders/{folder_id}/workflows/{workflow_id}
+@router.get("/{workflow_id}/generate_name/")
+@require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
+async def generate_workflow_name(
+    folder_id: int,
+    workflow_id: int,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> schemas.WorkflowGeneratedNameResponse:
+    """Generate a name for a workflow.
+    This endpoint generates a concise name for a workflow based on its JSON representation
+    and input filenames. The generated name is intended to be descriptive and reflect the
+    purpose of the workflow.
+    The name is generated using a language model.
+
+    Args:
+        folder_id (int): The ID of the folder the workflow belongs to.
+        workflow_id (int): The ID of the workflow to generate a name for.
+        db (Session): The database session.
+        current_user (schemas.User): The current user.
+
+    Returns:
+        schemas.WorkflowGeneratedNameResponse: The generated workflow name.
+    """
+    workflow = get_workflow_from_db(db, workflow_id)
+    MAX_WORDS = 5
+
+    def _remove_task_config(data: dict | list) -> dict | list:
+        """Recursively removes 'task_config' keys from the workflow spec."""
+        if isinstance(data, dict):
+            new_data = {}
+            for key, value in data.items():
+                if key == "task_config":
+                    continue
+                else:
+                    new_data[key] = _remove_task_config(value)
+            return new_data
+        elif isinstance(data, list):
+            return [_remove_task_config(item) for item in data]
+        else:
+            return data
+
+    workflow_spec = _remove_task_config(json.loads(workflow.spec_json))
+    prompt = f"""
+    Generate a concise (3-5 words) title for a workflow based on its WORKFLOW_JSON representation
+    and input FILENAMES_WITH_FILETYPES.
+    * FILENAME_WITH_FILETYPES has the form of [(filename, filetype)]
+    * Focus on summarizing the main actions and data processed.
+    * The name should be descriptive and reflect the purpose of the workflow.
+    * The name should be in English and no more than {MAX_WORDS} words long.
+    * The name should be in title case.
+    * The name should NOT include any special characters or numbers.
+    * The name should NOT include the word 'workflow'.
+    * The name should NOT be formatted'.
+
+    Good examples:
+    * Evtx Timeline And Report
+    * PDF Text Extraction
+    * Evtx Triage And Timeline
+
+    WORKFLOW_JSON:
+    {json.dumps(workflow_spec)}
+
+    Input FILENAMES_WITH_FILETYPES:
+    {", ".join([f"({file.display_name}, {file.magic_mime})" for file in workflow.files])}
+    """
+    active_llm = get_active_llms()[0]
+    if not active_llm:
+        raise HTTPException(
+            status_code=503,
+            detail="No active LLM available.",
+        )
+    provider = manager.LLMManager().get_provider(active_llm["name"])
+    llm = provider(model_name=active_llm["config"]["model"])
+    generated_name = llm.generate(prompt=prompt)
+    # Limit the generated name to a maximum number of MAX_WORDS
+    generated_name = " ".join(generated_name.split()[:MAX_WORDS])
+    return {"generated_name": generated_name.strip()}
