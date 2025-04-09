@@ -335,7 +335,7 @@ def update_folder_in_db(db: Session, folder: schemas.FolderUpdateRequest):
     return folder_in_db
 
 
-def delete_folder_from_db(db: Session, folder_id: int):
+def delete_folder_from_db(db: Session, folder_id: int) -> None:
     """
     Function to soft-delete a folder and all its descendant folders and files using a recursive CTE
     and bulk updates.
