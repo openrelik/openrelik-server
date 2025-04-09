@@ -32,7 +32,6 @@ from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
     Query,
-    Session,
     declared_attr,
     mapped_column,
     relationship,
@@ -88,10 +87,9 @@ class BaseModel(DeclarativeBase):
     purged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     is_purged: Mapped[bool] = mapped_column(default=False)
 
-    def soft_delete(self, db: Session):
+    def soft_delete(self):
         self.deleted_at = func.now()
         self.is_deleted = True
-        db.commit()
 
 
 class AttributeMixin:

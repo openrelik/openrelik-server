@@ -26,7 +26,6 @@ from sqlalchemy import (
     Unicode,
     UnicodeText,
     event,
-    func,
 )
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -172,17 +171,6 @@ class File(BaseModel):
         if self.extension:
             filename = f"{filename}.{self.extension}"
         return os.path.join(self.folder.path, filename)
-
-    def purge(self, db):
-        # Check if the file is soft deleted before purging
-        if not self.is_deleted:
-            raise Exception("File must be deleted before purging")
-
-        if os.path.exists(self.path):
-            os.remove(self.path)
-        self.is_purged = True
-        self.purged_at = func.now()
-        db.commit()
 
 
 class FileAttribute(BaseModel, AttributeMixin):
