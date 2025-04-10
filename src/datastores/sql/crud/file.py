@@ -110,7 +110,8 @@ def delete_file_from_db(db: Session, file_id: int):
         file_id (int): The ID of the file representing the file to be deleted.
     """
     file = db.get(File, file_id)
-    file.soft_delete(db)
+    file.soft_delete()
+    db.commit()
 
 
 def get_file_summary_from_db(db: Session, file_summary_id: int):

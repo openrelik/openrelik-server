@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import re
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -22,7 +23,7 @@ from argon2 import PasswordHasher
 from rich import print
 from rich.prompt import Prompt
 from rich.table import Table
-from sqlalchemy import not_
+from sqlalchemy import and_, func, not_, select, update
 
 from api.v1 import schemas
 from auth.common import create_jwt_token, validate_jwt_token
@@ -343,16 +344,24 @@ def list_workflow_templates():
 def purge_deleted_files(
     force: bool = typer.Option(False, "--force", "-f", help="Purge files without asking."),
     retention: Optional[str] = typer.Option(
-        None, "--older-than", help="Purge files older than this duration (e.g., '10D', '2W', '1M')."
+        None,
+        "--older-than",
+        help="Purge files older than this duration (e.g., '10D', '2W', '1M', '6h').",
+    ),
+    batch_size: int = typer.Option(
+        1000, "--batch-size", "-b", help="Number of files to process per batch."
     ),
 ):
-    """Aggregates and displays the total size and number of deleted files."""
+    """
+    Permanently deletes files marked as deleted from the filesystem.
+    """
+    db = database.SessionLocal()
 
     def _parse_retention_time(retention: str) -> timedelta:
         """Parses the retention time string (e.g., '10D', '2W', '1M') into a timedelta."""
         match = re.match(r"(\d+)([mhDWMY])", retention)
         if not match:
-            raise typer.BadParameter("Invalid retention time format. Use <number>[D|W|M].")
+            raise typer.BadParameter("Invalid retention time format. Use <number>[m|h|D|W|M|Y].")
         value = int(match.group(1))
         unit = match.group(2)
         if unit == "m":
@@ -364,62 +373,208 @@ def purge_deleted_files(
         elif unit == "W":
             return timedelta(weeks=value)
         elif unit == "M":
-            # Approximate months to 30 days for simplicity in CLI
-            return timedelta(days=value * 30)
+            return timedelta(days=value * 30)  # Approx
         elif unit == "Y":
-            # Approximate years to 365 days for simplicity in CLI
-            return timedelta(days=value * 365)
-        raise typer.BadParameter("Invalid retention time unit.")
+            return timedelta(days=value * 365)  # Approx
+        raise typer.BadParameter(f"Invalid retention time unit: {unit}")
 
-    db = database.SessionLocal()
-    deleted_files_query = db.query(File)
-    deleted_files_query._include_deleted = True
-    deleted_files_query = deleted_files_query.filter(
-        File.is_deleted == True, File.is_purged == False
-    )
-
-    if retention:
-        try:
-            retention_delta = _parse_retention_time(retention)
-            cutoff_time = datetime.now(timezone.utc) - retention_delta
-            deleted_files_query = deleted_files_query.filter(File.deleted_at <= cutoff_time)
-        except typer.BadParameter as e:
-            print(f"[bold red]Error:[/bold red] {e}")
-            return
-
-    deleted_files = deleted_files_query.all()
-
-    if not deleted_files:
-        print("[bold green]No files are marked as deleted.[/bold green]")
-        return
-
-    total_size = sum(file.filesize for file in deleted_files if file.filesize)
-    num_files = len(deleted_files)
-
-    print("[bold blue]Delete request summary:[/bold blue]")
-    print(f"  Number of files to delete: [bold]{num_files}[/bold]")
-
-    def format_size(size_bytes):
+    def _format_size(size_bytes):
         """Formats bytes into a human-readable string."""
-        if size_bytes is None:
-            return "N/A"
+        if size_bytes is None or size_bytes == 0:
+            return "0 bytes"
         units = ["bytes", "KB", "MB", "GB", "TB", "PB"]
         i = 0
+        size_bytes = float(size_bytes)
         while size_bytes >= 1024 and i < len(units) - 1:
             size_bytes /= 1024
             i += 1
         return f"{size_bytes:.2f} {units[i]}"
 
-    print(f"  Total size: [bold]{format_size(total_size)}[/bold]")
+    base_storage_path = None
+    try:
+        # Load Config for Storage Path
+        try:
+            current_config = get_config()
+            base_storage_path = current_config.get("server").get("storage_path")
+            if not base_storage_path:
+                print(
+                    "[bold red]Error: Could not retrieve 'storage_path' from server configuration.[/bold red]"
+                )
+                return  # Exit if path is missing
+        except Exception as config_e:
+            print(f"[bold red]Error loading configuration: {config_e}[/bold red]")
+            return
 
-    if not force and not typer.confirm(f"Are you sure you want to delete {num_files} files?"):
-        print("[bold red]Deletion cancelled.[/bold red]")
-        return
+        # 1. Build Base Query Filter based on Retention and Purge Status
+        filters = [File.is_deleted == True, File.is_purged == False]
+        if retention:
+            try:
+                retention_delta = _parse_retention_time(retention)
+                cutoff_time = datetime.now(timezone.utc) - retention_delta
+                filters.append(File.deleted_at <= cutoff_time)
+                print(
+                    f"Applying retention filter: Purging files deleted on or before {cutoff_time.strftime('%Y-%m-%d %H:%M:%S %Z')}"
+                )
+            except typer.BadParameter as e:
+                print(f"[bold red]Error:[/bold red] {e}")
+                return
 
-    print("[bold yellow]Deleting files...[/bold yellow]")
-    for file in deleted_files:
-        file.purge(db)
-        print("  Deleted file:", file.path)
+        # 2. Get Summary
+        summary_query = select(func.count(File.id), func.sum(File.filesize)).where(and_(*filters))
+        num_files, total_size = db.execute(summary_query).first()
+        total_size = total_size or 0
+
+        if not num_files or num_files == 0:
+            print("[bold green]No files matching criteria are waiting for purging.[/bold green]")
+            return
+
+        print("[bold blue]Purge request summary:[/bold blue]")
+        print(f"  Number of files to purge: [bold]{num_files}[/bold]")
+        print(f"  Total size: [bold]{_format_size(total_size)}[/bold]")
+
+        # 3. Confirmation from the user
+        if not force and not typer.confirm(
+            f"Are you sure you want to permanently delete {num_files} files from the filesystem and database?"
+        ):
+            print("[bold red]Purge cancelled.[/bold red]")
+            return
+
+        # 4. Process in Batches
+        print(f"[bold yellow]Starting purge process in batches of {batch_size}...[/bold yellow]")
+        processed_count = 0
+        all_successfully_purged_ids = []
+
+        # Build query to fetch files to delete
+        files_to_process_query = (
+            select(File.id, File.uuid, File.extension, File.folder_id)
+            .where(and_(*filters))
+            .order_by(File.id)
+            .execution_options(stream_results=True, yield_per=batch_size)
+        )
+
+        try:
+            folder_paths_cache = {}  # Cache folder paths
+            for batch in db.execute(files_to_process_query).partitions():
+                # IDs successfully handled in filesystem for this specific batch
+                batch_ids_processed_in_fs = []
+
+                # Pre-fetch folder components for this batch
+                folder_ids_in_batch = {
+                    folder_id for _, _, _, folder_id in batch if folder_id is not None
+                }
+                new_folder_ids = folder_ids_in_batch - folder_paths_cache.keys()
+                if new_folder_ids:
+                    folder_components_results = db.execute(
+                        select(Folder.id, Folder.uuid).where(Folder.id.in_(new_folder_ids))
+                    ).all()
+
+                    # Reconstruct path using config and cache it
+                    for f_id, f_uuid in folder_components_results:
+                        if f_uuid:
+                            reconstructed_path = os.path.join(base_storage_path, f_uuid.hex)
+                            folder_paths_cache[f_id] = reconstructed_path
+                        else:
+                            print(f"Warning: Folder ID {f_id} has no UUID. Cannot determine path.")
+                            folder_paths_cache[f_id] = None
+
+                # Delete files from the filesystem in the batch
+                for file_id, file_uuid, file_extension, folder_id in batch:
+                    processed_count += 1
+                    actual_file_path = None
+                    # Reconstruct the file path manually
+                    if file_uuid and folder_id and folder_id in folder_paths_cache:
+                        folder_path = folder_paths_cache[folder_id]
+                        if folder_path:
+                            base_filename = file_uuid.hex
+                            filename = (
+                                f"{base_filename}.{file_extension}"
+                                if file_extension
+                                else base_filename
+                            )
+                            actual_file_path = os.path.join(folder_path, filename)
+
+                    file_removed_successfully = False
+                    if actual_file_path and os.path.exists(actual_file_path):
+                        try:
+                            os.remove(actual_file_path)
+                            file_removed_successfully = True
+                        except OSError as e:
+                            print(
+                                f"[bold red]Error removing file {actual_file_path} (ID: {file_id}): {e}. Skipping DB purge.[/bold red]"
+                            )
+                    elif not actual_file_path:
+                        print(
+                            f"Skipping FS removal for File ID {file_id} due to missing path info."
+                        )
+                    else:  # Path constructed but file doesn't exist
+                        print(
+                            f"Warning: Filesystem file not found: {actual_file_path} (ID: {file_id}). Assuming removed."
+                        )
+                        file_removed_successfully = True
+
+                    if file_removed_successfully:
+                        batch_ids_processed_in_fs.append(file_id)
+
+                # Add successfully deleted IDs from this batch to the main list
+                all_successfully_purged_ids.extend(batch_ids_processed_in_fs)
+                print(f"  Batch processed: {processed_count}/{num_files} files deleted.")
+
+        except Exception as loop_e:
+            # Catch errors during the cursor iteration or FS processing
+            print(f"[bold red]ERROR during file processing loop: {loop_e}[/bold red]")
+            raise loop_e
+
+        # 5. Perform ONE Bulk Update and Commit AFTER the loop
+        if all_successfully_purged_ids:
+            try:
+                update_query = (
+                    update(File)
+                    .where(File.id.in_(all_successfully_purged_ids))
+                    .values(
+                        is_purged=True,
+                        purged_at=func.now(),
+                    )
+                    .execution_options(synchronize_session=False)
+                )
+                # Execute the single bulk update
+                db.execute(update_query)
+
+                # Commit the single transaction
+                db.commit()
+                print("Database updates committed [bold green]successfully[/bold green].")
+
+            except Exception as final_commit_e:
+                print(
+                    f"[bold red]Error during final database update/commit. Rolling back: {final_commit_e}[/bold red]"
+                )
+                db.rollback()
+                # Re-raise the error after rollback
+                raise final_commit_e
+        else:
+            print(
+                "No files required database update (none were successfully processed on filesystem)."
+            )
+
+        # Final Summary
+        total_successfully_purged = len(all_successfully_purged_ids)
+        print(f"[bold green]Successfully[/bold green] purged {total_successfully_purged} files")
+        if processed_count != total_successfully_purged:
+            print(
+                f"[bold yellow]Note: {processed_count - total_successfully_purged} files encountered errors during filesystem removal or had missing info.[/bold yellow]"
+            )
+
+    # --- Outer Exception Handling ---
+    except Exception as outer_e:
+        # Catches errors from setup (config, summary query) or errors re-raised from inner blocks
+        print(
+            f"[bold red]An unexpected error occurred during the purge process: {outer_e}[/bold red]"
+        )
+        # Rollback any potential transaction state if an error occurred before final commit attempt
+        db.rollback()
+    finally:
+        # --- Always close the DB Session ---
+        if db:
+            db.close()
 
 
 @app.command()

@@ -15,10 +15,11 @@
 import os
 import uuid
 
-from sqlalchemy import and_, select, union
+from sqlalchemy import and_, func, select, union, update
 from sqlalchemy.orm import Session, aliased
 
 from api.v1 import schemas
+from datastores.sql.models.file import File
 from datastores.sql.models.folder import Folder
 from datastores.sql.models.group import Group, GroupRole
 from datastores.sql.models.role import Role
@@ -334,24 +335,67 @@ def update_folder_in_db(db: Session, folder: schemas.FolderUpdateRequest):
     return folder_in_db
 
 
-def delete_folder_from_db(db: Session, folder_id: int):
-    """Delete a folder from the database by its ID.
+def delete_folder_from_db(db: Session, folder_id: int) -> None:
+    """
+    Function to soft-delete a folder and all its descendant folders and files using a recursive CTE
+    and bulk updates.
 
     Args:
         db (Session): A SQLAlchemy database session object.
-        folder_id (int): The ID of the folder to be deleted.
+        folder_id (int): The ID of the root folder to be deleted.
     """
-    folder = db.get(Folder, folder_id)
+    # Define the CTE to find all descendant folders including the starting one
+    folder_cte = (
+        select(Folder.id).where(Folder.id == folder_id).cte(name="folder_hierarchy", recursive=True)
+    )
 
-    def _recursive_soft_delete(folder: Folder):
-        """Recursive function to delete all files and subfolders."""
-        for file in folder.files:
-            file.soft_delete(db)
+    # Alias for the CTE to use in the recursive part
+    folder_alias = folder_cte.alias()
+    folder_recursive_alias = Folder.__table__.alias()
 
-        for child_folder in folder.children:
-            _recursive_soft_delete(child_folder)
+    # Recursive part of the CTE
+    folder_cte = folder_cte.union_all(
+        select(folder_recursive_alias.c.id).where(
+            folder_recursive_alias.c.parent_id == folder_alias.c.id
+        )
+    )
 
-        folder.soft_delete(db)
+    # 1. Get all folder IDs to delete
+    folder_ids_to_delete_stmt = select(folder_cte.c.id)
+    folder_ids_result = db.execute(folder_ids_to_delete_stmt).scalars().all()
 
-    _recursive_soft_delete(folder)
-    db.commit()
+    if not folder_ids_result:
+        print(f"Folder with ID {folder_id} not found or has no descendants.")
+        return
+
+    # 2. Bulk update files in these folders
+    file_update_query = (
+        update(File)
+        .where(File.folder_id.in_(folder_ids_result))
+        .values(is_deleted=True, deleted_at=func.now())
+        # Important for bulk updates: prevents trying to sync ORM state
+        .execution_options(synchronize_session=False)
+    )
+    db.execute(file_update_query)
+
+    # 3. Bulk update the folders themselves
+    folder_update_query = (
+        update(Folder)
+        .where(Folder.id.in_(folder_ids_result))
+        .values(
+            is_deleted=True,
+            deleted_at=func.now(),
+        )
+        # Important for bulk updates: prevents trying to sync ORM state
+        .execution_options(synchronize_session=False)
+    )
+    db.execute(folder_update_query)
+
+    # 4. Commit the transaction
+    try:
+        db.commit()
+        print(f"Soft deleted folder {folder_id} and its contents successfully.")
+    except Exception as e:
+        db.rollback()
+        print(f"Error during bulk delete commit for folder {folder_id}: {e}")
+        raise  # Re-raise the exception after rollback
