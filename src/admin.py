@@ -77,7 +77,7 @@ def create_user(
         None, "--password", "-p", help="Password for the new user."
     ),
     admin: bool = typer.Option(False, "--admin", "-a", help="Make the user an admin."),
-):
+) -> None:
     """Creates a new user."""
     db = database.SessionLocal()
 
@@ -111,7 +111,7 @@ def change_password(
     new_password: Optional[str] = typer.Option(
         None, "--password", "-p", help="New password for the user."
     ),
-):
+) -> None:
     """Changes the password of an existing user."""
     db = database.SessionLocal()
     existing_user = None
@@ -146,7 +146,7 @@ def create_api_key(
     key_description: Optional[str] = typer.Option(
         None, "--description", "-d", help="Description for the API key (optional)."
     ),
-):
+) -> None:
     """Create an API key for a user."""
     db = database.SessionLocal()
 
@@ -190,7 +190,7 @@ def set_admin(
     admin: bool = typer.Option(
         True, "--admin/--no-admin", "-a/-na", help="Set admin status of the user."
     ),
-):
+) -> None:
     """Set or remove admin privileges for a user."""
     db = database.SessionLocal()
 
@@ -215,7 +215,7 @@ def set_admin(
 @app.command()
 def user_details(
     username: str = typer.Argument(..., help="Username of the user."),
-):
+) -> None:
     """Displays details of a user in a table."""
     db = database.SessionLocal()
 
@@ -237,7 +237,7 @@ def user_details(
 
 
 @app.command()
-def list_users():
+def list_users() -> None:
     """Displays a list of all users in a table."""
     db = database.SessionLocal()
     users = get_users_from_db(db)
@@ -266,7 +266,7 @@ def list_users():
 
 
 @app.command()
-def fix_ownership():
+def fix_ownership() -> None:
     """Fixes ownership by adding missing OWNER roles to Files and Folders."""
     db = database.SessionLocal()
 
@@ -315,7 +315,7 @@ def fix_ownership():
 
 
 @app.command()
-def list_workflow_templates():
+def list_workflow_templates() -> None:
     """Lists all workflow templates in a table."""
     db = database.SessionLocal()
 
@@ -351,7 +351,7 @@ def purge_deleted_files(
     batch_size: int = typer.Option(
         1000, "--batch-size", "-b", help="Number of files to process per batch."
     ),
-):
+) -> None:
     """
     Permanently deletes files marked as deleted from the filesystem.
     """
@@ -580,7 +580,7 @@ def purge_deleted_files(
 @app.command()
 def delete_workflow_template(
     template_id: int = typer.Argument(help="The workflow template ID to delete."),
-):
+) -> None:
     """Deletes a workflow template from the database."""
     db = database.SessionLocal()
 
