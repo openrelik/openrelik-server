@@ -429,3 +429,7 @@ class MetricsRequest(BaseModel):
     step: int
     resolution: str
     aggregate: bool
+
+
+class FileChatRequest(BaseModel):
+    prompt: str

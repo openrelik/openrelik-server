@@ -49,6 +49,7 @@ from datastores.sql.database import get_db_connection
 from datastores.sql.models.role import Role
 from datastores.sql.models.workflow import Task
 from lib.file_hashes import generate_hashes
+from lib.llm_file_chat import chat_response
 from lib.llm_summary import generate_summary
 
 from . import schemas
@@ -386,4 +387,21 @@ def generate_file_summary(
         llm_model=active_llm["config"]["model"],
         file_id=file_id,
         file_summary_id=file_summary_db.id,
+    )
+
+
+@router.post("/{file_id}/chat")
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
+def file_chat(
+    file_id: int,
+    requestBody: schemas.FileChatRequest,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+):
+    active_llm = get_active_llms()[0]
+    return chat_response(
+        llm_provider=active_llm["name"],
+        llm_model=active_llm["config"]["model"],
+        file_id=file_id,
+        prompt=requestBody.prompt,
     )
