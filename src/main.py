@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from contextlib import asynccontextmanager
 
+from celery.app import Celery
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import not_, or_, text
@@ -28,8 +30,8 @@ from api.v1 import metrics as metrics_v1
 from api.v1 import schemas
 from api.v1 import taskqueue as taskqueue_v1
 from api.v1 import users as users_v1
+from api.v1 import websockets as websockets_v1
 from api.v1 import workflows as workflows_v1
-from healthz import router as healthz_router
 from auth import common as common_auth
 from auth import google as google_auth
 from auth import local as local_auth
@@ -42,10 +44,8 @@ from datastores.sql.crud.group import (
 from datastores.sql.database import SessionLocal
 from datastores.sql.models.group import Group
 from datastores.sql.models.user import User
+from healthz import router as healthz_router
 from lib import celery_utils
-import os
-from celery.app import Celery
-
 
 # Allow Frontend origin to make API calls.
 origins = config["server"]["allowed_origins"]
@@ -62,9 +62,7 @@ async def populate_everyone_group(db):
         .filter(
             or_(
                 not_(User.groups.any()),  # Users with no groups
-                not_(
-                    User.groups.any(Group.id == everyone_group.id)
-                ),  # Users not in everyone_group
+                not_(User.groups.any(Group.id == everyone_group.id)),  # Users not in everyone_group
             )
         )
         .all()
@@ -202,6 +200,14 @@ api_v1.include_router(
     dependencies=[
         Depends(common_auth.get_current_active_user),
         Depends(common_auth.verify_csrf),
+    ],
+)
+api_v1.include_router(
+    websockets_v1.router,
+    prefix="/websockets",
+    tags=["websockets"],
+    dependencies=[
+        Depends(common_auth.websocket_get_current_active_user),
     ],
 )
 
