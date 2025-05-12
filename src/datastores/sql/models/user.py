@@ -18,11 +18,11 @@ from sqlalchemy import UUID, Boolean, DateTime, Enum, ForeignKey, Unicode, Unico
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import BaseModel
-from .role import Role
 from .group import group_user_association_table
+from .role import Role
 
 if TYPE_CHECKING:
-    from .file import File
+    from .file import File, FileChat
     from .folder import Folder
     from .group import Group
     from .workflow import Task, Workflow, WorkflowTemplate
@@ -51,25 +51,17 @@ class User(BaseModel):
 
     display_name: Mapped[str] = mapped_column(UnicodeText, unique=False, index=True)
     username: Mapped[str] = mapped_column(UnicodeText, unique=True, index=True)
-    password_hash: Mapped[str] = mapped_column(
-        UnicodeText, unique=True, index=False, nullable=True
-    )
-    password_hash_algorithm: Mapped[str] = mapped_column(
-        Unicode(255), index=True, nullable=True
-    )
+    password_hash: Mapped[str] = mapped_column(UnicodeText, unique=True, index=False, nullable=True)
+    password_hash_algorithm: Mapped[str] = mapped_column(Unicode(255), index=True, nullable=True)
     auth_method: Mapped[str] = mapped_column(Unicode(255), index=True)
-    email: Mapped[str] = mapped_column(
-        UnicodeText, unique=False, index=True, nullable=True
-    )
+    email: Mapped[str] = mapped_column(UnicodeText, unique=False, index=True, nullable=True)
     profile_picture_url: Mapped[Optional[str]] = mapped_column(
         UnicodeText, unique=False, index=False, nullable=True
     )
     preferences: Mapped[Optional[str]] = mapped_column(
         UnicodeText, unique=False, index=False, nullable=True
     )
-    uuid: Mapped[uuid_module.UUID] = mapped_column(
-        UUID(as_uuid=True), unique=True, index=True
-    )
+    uuid: Mapped[uuid_module.UUID] = mapped_column(UUID(as_uuid=True), unique=True, index=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     is_robot: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
@@ -77,10 +69,9 @@ class User(BaseModel):
     # Relationships
     folders: Mapped[List["Folder"]] = relationship(back_populates="user")
     files: Mapped[List["File"]] = relationship(back_populates="user")
+    file_chats: Mapped[List["FileChat"]] = relationship(back_populates="user")
     workflows: Mapped[List["Workflow"]] = relationship(back_populates="user")
-    workflow_templates: Mapped[List["WorkflowTemplate"]] = relationship(
-        back_populates="user"
-    )
+    workflow_templates: Mapped[List["WorkflowTemplate"]] = relationship(back_populates="user")
     tasks: Mapped[List["Task"]] = relationship(back_populates="user")
     api_keys: Mapped[List["UserApiKey"]] = relationship(back_populates="user")
     user_roles: Mapped[List["UserRole"]] = relationship(back_populates="user")
@@ -101,9 +92,7 @@ class UserRole(BaseModel):
     # Relationships
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
     user: Mapped["User"] = relationship(back_populates="user_roles")
-    folder_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("folder.id"), nullable=True
-    )
+    folder_id: Mapped[Optional[int]] = mapped_column(ForeignKey("folder.id"), nullable=True)
     folder: Mapped[Optional["Folder"]] = relationship(back_populates="user_roles")
     file_id: Mapped[Optional[int]] = mapped_column(ForeignKey("file.id"), nullable=True)
     file: Mapped[Optional["File"]] = relationship(back_populates="user_roles")

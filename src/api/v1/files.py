@@ -42,6 +42,7 @@ from datastores.sql.crud.file import (
     delete_file_from_db,
     get_file_from_db,
     get_file_summary_from_db,
+    get_latest_file_chat_from_db,
 )
 from datastores.sql.crud.folder import get_folder_from_db
 from datastores.sql.crud.workflow import get_file_workflows_from_db, get_task_from_db
@@ -390,4 +391,23 @@ def generate_file_summary(
         llm_model=active_llm["config"]["model"],
         file_id=file_id,
         file_summary_id=file_summary_db.id,
+    )
+
+
+@router.get("/{file_id}/chat")
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
+def get_latest_file_chat(
+    file_id: int,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> schemas.FileChatResponse:
+    """Get the latest file chat for a given file ID."""
+    chat = get_latest_file_chat_from_db(
+        db=db,
+        file_id=file_id,
+        user_id=current_user.id,
+    )
+    return schemas.FileChatResponse(
+        title=chat.title if chat else None,
+        history=chat.get_chat_history() if chat else [],
     )

@@ -13,7 +13,6 @@
 # limitations under the License.
 
 import os
-import sys
 
 from celery.app import Celery
 from fastapi import APIRouter

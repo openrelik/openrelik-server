@@ -16,27 +16,14 @@
 from openrelik_ai_common.providers import manager
 
 from datastores.sql import database
-from datastores.sql.crud.file import (
-    get_file_from_db,
-)
+from datastores.sql.crud.file import get_file_from_db
 
-SYSTEM_INSTRUCTION = """
-File type:
-{magic_text}
-
-Filename:
-{filename}
-
-File content:
-{content}
-
-AI generated summary of the file focusing on security issues:
-{summary}
-
+BASE_SYSTEM_INSTRUCTIONS = """
 You are a helpful security engineer that is an expert in digital forensics and reverse engineering.
 I'm investigating a system and need your help analyzing a digital artifact file.
-Ihave provided the artifact in this system prompt together with file type, filename and if available
-I have also provided an AI generated summary of the file focusing on security issues.
+I have provided the artifact in this system prompt together with file type, filename
+* If available, I have also provided an AI generated summary of the file focusing on security issues.
+* If available, I have also provided our previous conversation history.
 * Please respond in a way that is optimal for a chat response.
 * Use MAX 100 words in the response.
 * ONLY USE information from the file content or your previous responses when asked about the content.
@@ -44,13 +31,38 @@ I have also provided an AI generated summary of the file focusing on security is
 * DO NOT answer any other questions that is NOT PRESENT in the file content OR your previous responses.
 """
 
+SYSTEM_INSTRUCTION = """
+{base_system_instructions}
 
-def create_chat_session(llm_provider: str, llm_model: str, file_id: int):
+File type:
+{magic_text}
+
+Filename:
+{filename}
+
+AI generated summary of the file focusing on security issues:
+{summary}
+
+File content:
+{content}
+
+Our previous conversation history:
+{history}
+"""
+
+
+def create_chat_session(
+    llm_provider: str, llm_model: str, file_id: int, history: str | None = None
+):
     """Generate a summary for a given file.
 
     Args:
         llm_provider (str): The name of the LLM provider to use.
-        file_id (int): The ID of the file to generate the summary for.
+        file_id (int): The ID of the file to start the chat session for.
+        history (str): The chat history to include.
+
+    Returns:
+        LLM: The LLM instance for the chat session.
     """
     db = database.SessionLocal()
     file = get_file_from_db(db, file_id)
@@ -68,14 +80,12 @@ def create_chat_session(llm_provider: str, llm_model: str, file_id: int):
     llm = provider(
         model_name=llm_model,
         system_instructions=SYSTEM_INSTRUCTION.format(
+            base_system_instructions=BASE_SYSTEM_INSTRUCTIONS,
             content=file_content,
             magic_text=file.magic_text,
             filename=file.display_name,
             summary=file.summaries[0].summary if file.summaries else "No summary available",
+            history=history,
         ),
     )
-
-    # prompt=prompt.format(magic_text=file.magic_text, filename=file.display_name)
-    # print(help(chat_session))
-
     return llm
