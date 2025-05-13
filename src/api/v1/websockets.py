@@ -65,7 +65,11 @@ async def websocket_endpoint(
     # Get the file chat history for the current user
     history = file_chat.get_chat_history()
 
-    active_llm = get_active_llms()[0]
+    active_llms = get_active_llms()
+    if not active_llms:
+        await websocket.send_text("No LLM configured.")
+        return
+    active_llm = active_llms[0]
     llm_provider = active_llm["name"]
     llm_model = active_llm["config"]["model"]
     chat_session = create_chat_session(llm_provider, llm_model, file_id, history)
