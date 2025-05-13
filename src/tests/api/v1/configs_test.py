@@ -26,5 +26,7 @@ def test_get_system_config(fastapi_test_client, mocker):
     assert response.status_code == 200
     assert response.json()["active_llms"] == mock_active_llms
     assert response.json()["allowed_data_types_preview"] == [
-        "openrelik:hayabusa:html_report"
+        "openrelik:hayabusa:html_report",
+        "openrelik:worker:thor-lite:html_report",
+        "thor:report:html",
     ]
