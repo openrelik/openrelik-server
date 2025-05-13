@@ -19,7 +19,7 @@ import magic
 from sqlalchemy.orm import Session
 
 from api.v1 import schemas
-from datastores.sql.models.file import File, FileReport, FileSummary
+from datastores.sql.models.file import File, FileChat, FileChatMessage, FileReport, FileSummary
 from datastores.sql.models.role import Role
 from datastores.sql.models.user import User, UserRole
 
@@ -180,3 +180,57 @@ def create_file_report_in_db(db: Session, file_report: schemas.FileReportCreate,
     db.commit()
     db.refresh(db_file_report)
     return db_file_report
+
+
+def create_file_chat_in_db(db: Session, file_chat: schemas.FileChatCreate):
+    """Creates a new file chat in the database.
+
+    Args:
+        db (Session): A SQLAlchemy database session object.
+        file_chat (dict): A dictionary representing a FileChat.
+
+    Returns:
+        FileChat: The newly created FileChat object.
+    """
+    db_file_chat = FileChat(**file_chat.model_dump())
+    db.add(db_file_chat)
+    db.commit()
+    db.refresh(db_file_chat)
+
+    return db_file_chat
+
+
+def create_file_chat_message_in_db(db: Session, file_chat_message: schemas.FileChatMessageCreate):
+    """Creates a new file chat message in the database.
+
+    Args:
+        db (Session): A SQLAlchemy database session object.
+        file_chat_message (dict): A dictionary representing a FileChatMessage.
+
+    Returns:
+        FileChatMessage: The newly created FileChatMessage object.
+    """
+    db_file_chat_message = FileChatMessage(**file_chat_message.model_dump())
+    db.add(db_file_chat_message)
+    db.commit()
+    db.refresh(db_file_chat_message)
+
+    return db_file_chat_message
+
+
+def get_latest_file_chat_from_db(db: Session, file_id: int, user_id: int):
+    """Retrieves the latest file chat from the database for a specific file.
+
+    Args:
+        db (Session): A SQLAlchemy database session object.
+        file_id (int): The ID of the file to retrieve the latest chat from.
+
+    Returns:
+        FileChat: The latest FileChat object for the specified file.
+    """
+    return (
+        db.query(FileChat)
+        .filter_by(file_id=file_id, user_id=user_id)
+        .order_by(FileChat.id.desc())
+        .first()
+    )

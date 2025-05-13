@@ -429,3 +429,25 @@ class MetricsRequest(BaseModel):
     step: int
     resolution: str
     aggregate: bool
+
+
+class FileChatRequest(BaseModel):
+    prompt: str
+
+
+class FileChatCreate(BaseModel):
+    system_instructions: str
+    user_id: int
+    file_id: int
+
+
+class FileChatResponse(BaseSchema):
+    title: Optional[str] = None
+    history: Optional[list] = None
+
+
+class FileChatMessageCreate(BaseModel):
+    file_chat_id: int
+    request_prompt: str
+    response_text: str
+    runtime: float

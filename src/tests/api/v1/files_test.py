@@ -22,8 +22,8 @@ import pytest
 
 
 @pytest.mark.parametrize(
-    "theme, expected_background, expected_color",
-    [("light", "#fff", "#000"), ("dark", "#000", "#fff")],
+    "theme, expected_background, expected_color, expected_scrollbar",
+    [("light", "#fff", "#000", "#ddd #fff"), ("dark", "#000", "#fff", "#333 #000")],
 )
 def test_get_file_content(
     fastapi_test_client,
@@ -32,6 +32,7 @@ def test_get_file_content(
     theme,
     expected_background,
     expected_color,
+    expected_scrollbar,
 ):
     """Test the get_file_content endpoint."""
     mock_get_file_from_db = mocker.patch("api.v1.files.get_file_from_db")
@@ -42,7 +43,10 @@ def test_get_file_content(
     mocker.patch("builtins.open", mock_open)
     response = fastapi_test_client.get(f"/files/{file_db_model.id}/content?theme={theme}")
     assert response.status_code == 200
-    assert f'<html style="background:{expected_background}">' in response.text
+    assert (
+        f'<html style="background:{expected_background}; scrollbar-color: {expected_scrollbar};">'
+        in response.text
+    )
     assert (
         f'<pre style="color:{expected_color};padding:10px;white-space: pre-wrap;">{file_content}</pre>'
         in response.text
