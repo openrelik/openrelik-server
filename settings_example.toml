@@ -7,7 +7,7 @@ api_server_url = "http://localhost:8710"
 ui_server_url = "http://localhost:8711"
 
 # This should be set to the URL of your frontend server.
-allowed_origins = ["http://localhost:8711"]
+allowed_origins = ["http://127.0.0.1:8711", "http://localhost:8711"]
 
 # Path to files
 storage_path = "<REPLACE_WITH_STORAGE_PATH>"
