@@ -647,25 +647,31 @@ def rename_group(
 
 
 @app.command()
-def add_user_to_group(
+def add_users_to_group(
     group_name: str = typer.Argument(..., help="Name of the group."),
-    username: str = typer.Argument(..., help="Username of the user to add."),
+    usernames: str = typer.Argument(..., help="List of usernames to add to the group."),
 ):
-    """Adds a user to a group."""
+    """Adds a list of users to a group."""
     with database.SessionLocal() as db:
         group = get_group_by_name_from_db(db, group_name)
         if not group:
             print(f"Group '{group_name}' not found.")
             raise typer.Exit(code=1)
 
-        user = get_user_by_username_from_db(db, username)
-        if not user:
-            print(f"User '{username}' not found.")
-            raise typer.Exit(code=1)
+        for username in usernames.split(","):
+            user = get_user_by_username_from_db(db, username)
+            if not user:
+                print(f"User '{username}' not found.")
+                continue
 
-        group.users.append(user)
+            if user in group.users:
+                print(f"User '{username}' is already in group '{group_name}'.")
+                continue
+
+            group.users.append(user)
+            print(f"User '{username}' added to group '{group_name}'.")
+
         db.commit()
-        print(f"User '{username}' added to group '{group_name}'.")
 
 
 if __name__ == "__main__":
