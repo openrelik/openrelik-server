@@ -29,6 +29,11 @@ from api.v1 import schemas
 from auth.common import create_jwt_token, validate_jwt_token
 from config import get_config
 from datastores.sql import database
+from datastores.sql.crud.group import (
+    create_group_in_db,
+    get_group_by_name_from_db,
+    get_groups_from_db,
+)
 from datastores.sql.crud.user import (
     create_user_api_key_in_db,
     create_user_in_db,
@@ -589,6 +594,84 @@ def delete_workflow_template(
         print(f"Workflow template with ID {template_id} has been deleted.")
     except ValueError as e:
         print(f"Error: {e}")
+
+
+@app.command()
+def list_groups():
+    """Lists all groups in a table."""
+    with database.SessionLocal() as db:
+        groups = get_groups_from_db(db)
+        table = Table(title="List of Groups")
+        table.add_column("Group Name", style="green")
+        table.add_column("Description", style="magenta")
+        table.add_column("Number of users", style="yellow")
+        table.add_column("Created")
+        for group in groups:
+            table.add_row(
+                group.name, group.description, str(len(group.users)), str(group.created_at)
+            )
+        print(table)
+
+
+@app.command()
+def create_group(
+    group_name: str = typer.Argument(..., help="Name of the group to create."),
+    description: str = typer.Option("", "--description", "-d", help="Description of the group."),
+):
+    """Creates a new group."""
+    with database.SessionLocal() as db:
+        group = get_group_by_name_from_db(db, group_name)
+        if group:
+            print(f"Group '{group_name}' already exists.")
+            raise typer.Exit(code=1)
+        new_group = schemas.GroupCreate(name=group_name, description=description)
+        create_group_in_db(db, new_group)
+        print(f"Group '{group_name}' created")
+
+
+@app.command()
+def rename_group(
+    old_group_name: str = typer.Argument(..., help="Old name of the group."),
+    new_group_name: str = typer.Argument(..., help="New name of the group."),
+):
+    """Renames an existing group."""
+    with database.SessionLocal() as db:
+        group = get_group_by_name_from_db(db, old_group_name)
+        if not group:
+            print(f"Group '{old_group_name}' not found.")
+            raise typer.Exit(code=1)
+
+        group.name = new_group_name
+        db.commit()
+        print(f"Group '{old_group_name}' renamed to '{new_group_name}'.")
+
+
+@app.command()
+def add_users_to_group(
+    group_name: str = typer.Argument(..., help="Name of the group."),
+    usernames: str = typer.Argument(..., help="List of usernames to add to the group."),
+):
+    """Adds a list of users to a group."""
+    with database.SessionLocal() as db:
+        group = get_group_by_name_from_db(db, group_name)
+        if not group:
+            print(f"Group '{group_name}' not found.")
+            raise typer.Exit(code=1)
+
+        for username in usernames.split(","):
+            user = get_user_by_username_from_db(db, username)
+            if not user:
+                print(f"User '{username}' not found.")
+                continue
+
+            if user in group.users:
+                print(f"User '{username}' is already in group '{group_name}'.")
+                continue
+
+            group.users.append(user)
+            print(f"User '{username}' added to group '{group_name}'.")
+
+        db.commit()
 
 
 if __name__ == "__main__":

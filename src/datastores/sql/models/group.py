@@ -47,12 +47,8 @@ class Group(BaseModel):
     """
 
     name: Mapped[str] = mapped_column(UnicodeText, unique=True, index=True)
-    description: Mapped[Optional[str]] = mapped_column(
-        UnicodeText, unique=False, index=False
-    )
-    uuid: Mapped[uuid_module.UUID] = mapped_column(
-        UUID(as_uuid=True), unique=True, index=True
-    )
+    description: Mapped[Optional[str]] = mapped_column(UnicodeText, unique=False, index=False)
+    uuid: Mapped[uuid_module.UUID] = mapped_column(UUID(as_uuid=True), unique=True, index=True)
     users: Mapped[List["User"]] = relationship(
         secondary=group_user_association_table,
         back_populates="groups",
@@ -72,9 +68,7 @@ class GroupRole(BaseModel):
     # Relationships
     group_id: Mapped[int] = mapped_column(ForeignKey("group.id"))
     group: Mapped["Group"] = relationship(back_populates="group_roles")
-    folder_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("folder.id"), nullable=True
-    )
+    folder_id: Mapped[Optional[int]] = mapped_column(ForeignKey("folder.id"), nullable=True)
     folder: Mapped[Optional["Folder"]] = relationship(back_populates="group_roles")
     file_id: Mapped[Optional[int]] = mapped_column(ForeignKey("file.id"), nullable=True)
     file: Mapped[Optional["File"]] = relationship(back_populates="group_roles")
