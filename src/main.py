@@ -47,13 +47,17 @@ from datastores.sql.models.user import User
 from healthz import router as healthz_router
 from lib import celery_utils
 
-from opentelemetry import trace
-from opentelemetry.exporter.otlp.proto.grpc import trace_exporter as grpc_trace_exporter
-from opentelemetry.exporter.otlp.proto.http import trace_exporter as http_trace_exporter
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.sdk.resources import Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+telemetry_enabled = os.environ.get("OTEL_MODE", '') != ''
+
+if telemetry_enabled:
+    from opentelemetry import trace
+
+    from opentelemetry.exporter.otlp.proto.grpc import trace_exporter as grpc_exporter
+    from opentelemetry.exporter.otlp.proto.http import trace_exporter as http_exporter
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+    from opentelemetry.sdk.resources import Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 # Allow Frontend origin to make API calls.
 origins = config["server"]["allowed_origins"]
@@ -97,7 +101,6 @@ async def lifespan(app: FastAPI):
 
 
 def setup_telemetry(service_name: str):
-
     resource = Resource(attributes={
         "service.name": service_name
     })
@@ -111,13 +114,11 @@ def setup_telemetry(service_name: str):
 
     trace_exporter = None
     if otel_mode == "otlp-grpc":
-        trace_exporter = grpc_trace_exporter.OTLPSpanExporter(
+        trace_exporter = grpc_exporter.OTLPSpanExporter(
                 endpoint=otlp_grpc_endpoint, insecure=True)
-        logging.info(f"Sending OTLP data via GRPC to {otlp_grpc_endpoint}")
     elif otel_mode == "otlp-http":
-        trace_exporter = http_trace_exporter.OTLPSpanExporter(
+        trace_exporter = http_exporter.OTLPSpanExporter(
                 endpoint=otlp_http_endpoint)
-        logging.info(f"Sending OTLP data via HTTP to {otlp_http_endpoint}")
     else:
         raise Exception("Unsupported OTEL tracing mode %s", otel_mode)
 
@@ -125,7 +126,8 @@ def setup_telemetry(service_name: str):
 
 
 
-setup_telemetry("openrelik-server")
+if telemetry_enabled:
+    setup_telemetry("openrelik-server")
 
 # Create the main app
 app = FastAPI(lifespan=lifespan)
@@ -251,7 +253,8 @@ api_v1.include_router(
     ],
 )
 
-FastAPIInstrumentor.instrument_app(api_v1)
+if telemetry_enabled:
+    FastAPIInstrumentor.instrument_app(api_v1)
 
 # Setup the queues. This function take all registered tasks on the celery task queue
 # and generate the task queue config automatically.
