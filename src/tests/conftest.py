@@ -14,23 +14,17 @@
 
 """Contains pytest fixtures used in multiple unit tests."""
 
-import pytest
-import uuid
-import os
 import json
-from httpx import ASGITransport, AsyncClient
+import os
+import uuid
 from typing import Sequence
 
-from datastores.sql.database import get_db_connection
-from datastores.sql.models.group import Group
-from datastores.sql.models.user import User
-from datastores.sql.models.file import File
-from datastores.sql.models.folder import Folder
-from datastores.sql.models.workflow import Workflow
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy.orm import Session
-from auth.common import get_current_active_user
+
 from api.v1 import schemas
 from api.v1.configs import router as configs_router
 from api.v1.files import router as files_router
@@ -41,8 +35,25 @@ from api.v1.taskqueue import router as taskqueue_router
 from api.v1.users import router as users_router
 from api.v1.workflows import (
     router as workflows_router,
+)
+from api.v1.workflows import (
     router_root as workflows_root_router,
 )
+from auth.common import get_current_active_user
+from datastores.sql.database import get_db_connection
+from datastores.sql.models.file import File
+from datastores.sql.models.folder import Folder
+from datastores.sql.models.group import Group
+from datastores.sql.models.user import User
+from datastores.sql.models.workflow import Workflow
+from healthz import router as healthz_router
+
+
+@pytest.fixture(autouse=True)
+def redis(mocker):
+    mock_redis = mocker.patch("api.v1.files.redis_client")
+    mock_redis.return_value = True
+    return mock_redis
 
 
 @pytest.fixture(autouse=True)
@@ -90,13 +101,13 @@ def task_response(user_db_model, workflow_schema_mock) -> schemas.TaskResponse:
         "user": user_mock,
         "output_files": [],
         "file_reports": [],
+        "task_report": None,
         "error_traceback": None,
         "error_exception": None,
         "workflow": workflow_schema_mock,
     }
     mock_task_response = schemas.TaskResponse(**task_data)
     return mock_task_response
-
 
 
 @pytest.fixture
@@ -564,9 +575,7 @@ def user_api_key_response() -> Sequence[schemas.UserApiKeyResponse]:
 @pytest.fixture
 def fastapi_async_test_client(setup_test_app) -> AsyncClient:
     """This fixture sets up an AsyncClient for the OpenRelik v1 API."""
-    async_client = AsyncClient(
-        transport=ASGITransport(setup_test_app), base_url="http://test"
-    )
+    async_client = AsyncClient(transport=ASGITransport(setup_test_app), base_url="http://test")
     return async_client
 
 
@@ -582,22 +591,12 @@ def setup_test_app(user_response, db) -> FastAPI:
     """Set up the FastAPI application for testing."""
     app: FastAPI = FastAPI()
     # Set up all the necessary FastAPI routes.
-    app.include_router(
-        taskqueue_router, prefix="/taskqueue", tags=["taskqueue"], dependencies=[]
-    )
-    app.include_router(
-        configs_router, prefix="/configs", tags=["configs"], dependencies=[]
-    )
+    app.include_router(taskqueue_router, prefix="/taskqueue", tags=["taskqueue"], dependencies=[])
+    app.include_router(configs_router, prefix="/configs", tags=["configs"], dependencies=[])
     app.include_router(files_router, prefix="/files", tags=["files"], dependencies=[])
-    app.include_router(
-        folders_router, prefix="/folders", tags=["folders"], dependencies=[]
-    )
-    app.include_router(
-        groups_router, prefix="/groups", tags=["groups"], dependencies=[]
-    )
-    app.include_router(
-        metrics_router, prefix="/metrics", tags=["metrics"], dependencies=[]
-    )
+    app.include_router(folders_router, prefix="/folders", tags=["folders"], dependencies=[])
+    app.include_router(groups_router, prefix="/groups", tags=["groups"], dependencies=[])
+    app.include_router(metrics_router, prefix="/metrics", tags=["metrics"], dependencies=[])
     app.include_router(users_router, prefix="/users", tags=["users"], dependencies=[])
     app.include_router(
         workflows_root_router, prefix="/workflows", tags=["workflows"], dependencies=[]
@@ -607,6 +606,8 @@ def setup_test_app(user_response, db) -> FastAPI:
         prefix="/folders/{folder_id}/workflows",
         tags=["workflows"],
     )
+    app.include_router(healthz_router, tags=["healthz"])
+
     # Override authentication check dependency injection.
     app.dependency_overrides[get_current_active_user] = lambda: user_response
     app.dependency_overrides[get_db_connection] = lambda: db

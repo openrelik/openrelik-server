@@ -21,15 +21,16 @@ import uuid
 from celery import Celery
 from celery.result import AsyncResult
 
-# Import models to make the ORM register correctly.
-from datastores.sql import database
-from datastores.sql.models import file, folder, user, workflow
-
-from datastores.sql.crud.file import create_file_in_db, create_file_report_in_db
-from datastores.sql.crud.workflow import get_task_by_uuid_from_db, get_workflow_from_db
-
 from api.v1 import schemas
 
+# Import models to make the ORM register correctly.
+from datastores.sql import database
+from datastores.sql.crud.file import create_file_in_db, create_file_report_in_db
+from datastores.sql.crud.workflow import (
+    create_task_report_in_db,
+    get_task_by_uuid_from_db,
+    get_workflow_from_db,
+)
 from lib.file_hashes import generate_hashes
 
 # Number of times to retry database lookups
@@ -52,10 +53,7 @@ def get_task_from_db(db, task_uuid):
         task = get_task_by_uuid_from_db(db, task_uuid)
         if task:
             break
-        print(
-            f"Database lookup for task {task_uuid} failed, "
-            f"retrying..{retry_count + 1}"
-        )
+        print(f"Database lookup for task {task_uuid} failed, retrying..{retry_count + 1}")
         time.sleep(DATABASE_LOOKUP_RETRY_DELAY_SECONDS)
     return task
 
@@ -70,6 +68,40 @@ def update_database(db, model_instance):
     db.add(model_instance)
     db.commit()
     db.refresh(model_instance)
+
+
+def create_file_in_database(db, file_data, task_result_dict, db_task):
+    """Creates a file in the database based on the provided file data and task result.
+
+    Args:
+        db: The database session.
+        file_data: A dictionary containing file data.
+        task_result_dict: A dictionary containing task result data.
+        db_task: The task object in the database.
+
+    Returns:
+        The created file object.
+    """
+    workflow = get_workflow_from_db(db, task_result_dict.get("workflow_id"))
+    display_name = file_data.get("display_name")
+    data_type = file_data.get("data_type")
+    file_uuid = uuid.UUID(file_data.get("uuid"))
+    file_extension = file_data.get("extension")
+    original_path = file_data.get("original_path")
+    source_file_id = file_data.get("source_file_id")
+    new_file = schemas.FileCreate(
+        display_name=display_name,
+        uuid=file_uuid,
+        filename=display_name,
+        extension=file_extension.lstrip("."),
+        original_path=original_path,
+        data_type=data_type,
+        folder_id=workflow.folder.id,
+        user_id=workflow.user.id,
+        source_file_id=source_file_id,
+        task_output_id=db_task.id,
+    )
+    return create_file_in_db(db, new_file, workflow.user)
 
 
 def process_task_progress_event(db, state, event):
@@ -98,38 +130,25 @@ def process_successful_task(db, celery_task, db_task, celery_app):
         celery_app: The Celery application.
     """
     celery_task_result = AsyncResult(celery_task.uuid, app=celery_app).get()
-    result_dict = json.loads(
-        base64.b64decode(celery_task_result.encode("utf-8")).decode("utf-8")
-    )
+    result_dict = json.loads(base64.b64decode(celery_task_result.encode("utf-8")).decode("utf-8"))
     db_task.result = json.dumps(result_dict)
 
     output_files = result_dict.get("output_files", [])
+    task_logs = result_dict.get("task_logs", [])
     file_reports = result_dict.get("file_reports", [])
+    task_report = result_dict.get("task_report", {})
 
     # Create files from the resulting output files
     for file_data in output_files:
-        workflow = get_workflow_from_db(db, result_dict.get("workflow_id"))
-        display_name = file_data.get("display_name")
-        data_type = file_data.get("data_type")
-        file_uuid = uuid.UUID(file_data.get("uuid"))
-        file_extension = file_data.get("extension")
-        original_path = file_data.get("original_path")
-        source_file_id = file_data.get("source_file_id")
-        new_file = schemas.FileCreate(
-            display_name=display_name,
-            uuid=file_uuid,
-            filename=display_name,
-            extension=file_extension.lstrip("."),
-            original_path=original_path,
-            data_type=data_type,
-            folder_id=workflow.folder.id,
-            user_id=workflow.user.id,
-            source_file_id=source_file_id,
-            task_output_id=db_task.id,
-        )
-        new_file_db = create_file_in_db(db, new_file, workflow.user)
+        new_file = create_file_in_database(db, file_data, result_dict, db_task)
         # TODO: Move this to a celery task to run in the background
-        generate_hashes(new_file_db.id)
+        generate_hashes(new_file.id)
+
+    # Create files from task log files
+    for log_file_data in task_logs:
+        new_log_file = create_file_in_database(db, log_file_data, result_dict, db_task)
+        # TODO: Move this to a celery task to run in the background
+        generate_hashes(new_log_file.id)
 
     for file_report in file_reports:
         new_file_report = schemas.FileReportCreate(
@@ -139,6 +158,14 @@ def process_successful_task(db, celery_task, db_task, celery_app):
             content_file_uuid=file_report.get("content_file_uuid"),
         )
         create_file_report_in_db(db, new_file_report, task_id=db_task.id)
+
+    if task_report:
+        new_task_report = schemas.TaskReportCreate(
+            summary=task_report.get("summary"),
+            priority=task_report.get("priority"),
+            markdown=task_report.get("content"),
+        )
+        create_task_report_in_db(db, new_task_report, task_id=db_task.id)
 
 
 def process_failed_task(db, celery_task, db_task):
@@ -204,9 +231,7 @@ def monitor_celery_tasks(celery_app, db):
                 "worker-heartbeat": on_worker_event,
                 "worker-online": on_worker_event,
                 "worker-offline": on_worker_event,
-                "task-progress": lambda event: process_task_progress_event(
-                    db, state, event
-                ),
+                "task-progress": lambda event: process_task_progress_event(db, state, event),
                 "*": lambda event: process_task_event(db, state, event, celery_app),
             },
         )

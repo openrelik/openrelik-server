@@ -2,6 +2,7 @@ import json
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import (
     APIRouter,
@@ -11,6 +12,8 @@ from fastapi import (
     HTTPException,
     Request,
     Response,
+    WebSocket,
+    WebSocketException,
     status,
 )
 from fastapi.encoders import jsonable_encoder
@@ -21,8 +24,8 @@ from sqlalchemy.orm import Session
 from api.v1 import schemas
 from config import config
 from datastores.sql.crud.user import get_user_by_uuid_from_db
-from datastores.sql.models.user import UserApiKey
 from datastores.sql.database import get_db_connection
+from datastores.sql.models.user import User, UserApiKey
 
 router = APIRouter()
 
@@ -44,7 +47,7 @@ API_SERVER_URL = config["server"].get("api_server_url")
 UI_SERVER_URL = config["server"].get("ui_server_url")
 
 
-def generate_csrf_token():
+def generate_csrf_token() -> str:
     """Generates a CSRF token."""
     return secrets.token_urlsafe(32)
 
@@ -68,7 +71,7 @@ def create_jwt_token(
     subject: str,
     token_type: str,
     extra_data: dict = {},
-):
+) -> str:
     """Creates a JWT access token with the given data and expiration time.
 
     Args:
@@ -83,7 +86,9 @@ def create_jwt_token(
     """
     jwt_data = extra_data.copy()
     issued_at = datetime.now(timezone.utc)
-    not_before = issued_at  # Option to change this later if suport for future valid tokens is needed.
+    not_before = (
+        issued_at  # Option to change this later if support for future valid tokens is needed.
+    )
     expire_at = issued_at + timedelta(minutes=expire_minutes)
     issued_by = API_SERVER_URL if API_SERVER_URL else UI_SERVER_URL
     jwt_data.update({"sub": subject})
@@ -104,7 +109,7 @@ def validate_jwt_token(
     expected_audience: str,
     check_denylist: bool = False,
     db: Session = Depends(get_db_connection),
-):
+) -> dict[str, Any]:
     """Validates a JWT token.
 
     Args:
@@ -156,9 +161,7 @@ def validate_jwt_token(
     # Note: This only check api-client API keys and not Browser tokens.
     # TODO: Consider supporting revoking Browser based tokens as well.
     if check_denylist and expected_audience == "api-client":
-        api_key_db = (
-            db.query(UserApiKey).filter(UserApiKey.token_jti == payload["jti"]).first()
-        )
+        api_key_db = db.query(UserApiKey).filter(UserApiKey.token_jti == payload["jti"]).first()
         if not api_key_db:
             raise_credentials_exception(detail="Invalid API key")
 
@@ -221,7 +224,7 @@ async def get_current_user(
     access_token_from_cookie: str | None = Depends(access_token_cookie),
     access_token_from_header: str | None = Depends(access_token_header),
     db: Session = Depends(get_db_connection),
-):
+) -> User:
     """Retrieves the currently logged-in user from the request.
 
     Args:
@@ -267,7 +270,7 @@ async def get_current_user(
 
 async def get_current_active_user(
     current_user: schemas.User = Depends(get_current_user),
-):
+) -> schemas.User:
     """Retrieves the currently logged-in active user from the request.
 
     Args:
@@ -284,12 +287,67 @@ async def get_current_active_user(
     return current_user
 
 
+async def websocket_get_current_user(
+    websocket: WebSocket,
+    db: Session = Depends(get_db_connection),
+) -> User:
+    """
+    Authenticates a user during the WebSocket handshake using JWT tokens.
+    """
+    cookies = websocket.headers.get("cookie")
+    access_token = None
+    if cookies:
+        for cookie in cookies.split("; "):
+            key, value = cookie.split("=", 1)
+            if key == "access_token":
+                access_token = value
+                break
+
+    if not access_token:
+        raise WebSocketException(code=1011, reason="Token is missing from request")
+
+    expected_audience = "browser-client"
+
+    payload = validate_jwt_token(
+        token=access_token,
+        expected_token_type="access",
+        expected_audience=expected_audience,
+        db=db,
+    )
+    user_uuid: str = payload.get("sub")
+    user = get_user_by_uuid_from_db(db, uuid=user_uuid)
+    if not user:
+        raise WebSocketException(code=1011, reason="No such user")
+
+    return user
+
+
+async def websocket_get_current_active_user(
+    current_user: schemas.User = Depends(websocket_get_current_user),
+) -> schemas.User:
+    """Retrieves the currently logged-in active user from the websocket request.
+
+    Args:
+        current_user (User): The currently logged-in user.
+
+    Returns:
+        User: The currently logged-in active user.
+
+    Raises:
+        WebSocketException: If the user is not active.
+    """
+    if not current_user.is_active:
+        raise WebSocketException(code=1011, reason="Inactive user")
+
+    return current_user
+
+
 @router.get("/auth/refresh")
 async def refresh(
     refresh_token_from_cookie: str | None = Depends(refresh_token_cookie),
     refresh_token_from_header: str | None = Depends(refresh_token_header),
     db: Session = Depends(get_db_connection),
-):
+) -> Response:
     """
     Refresh access token using a refresh token.
 
@@ -352,7 +410,7 @@ async def refresh(
 async def csrf(
     csrf_token_from_cookie: str | None = Depends(csrf_token_cookie),
     current_user: schemas.User = Depends(get_current_active_user),
-):
+) -> str | None:
     """
     Returns the CSRF token from the users cookie.
 

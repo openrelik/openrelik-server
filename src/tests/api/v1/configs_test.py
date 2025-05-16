@@ -25,6 +25,4 @@ def test_get_system_config(fastapi_test_client, mocker):
     response = fastapi_test_client.get("/configs/system/")
     assert response.status_code == 200
     assert response.json()["active_llms"] == mock_active_llms
-    assert response.json()["allowed_data_types_preview"] == [
-        "openrelik:hayabusa:html_report"
-    ]
+    assert response.json()["allowed_data_types_preview"] == ["openrelik:hayabusa:html_report"]

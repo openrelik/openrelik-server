@@ -16,15 +16,12 @@ import os
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-
 from sqlalchemy import (
     BigInteger,
     Boolean,
-    Column,
     DateTime,
     ForeignKey,
     Integer,
-    Table,
     Unicode,
     UnicodeText,
     create_engine,
@@ -35,7 +32,6 @@ from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
     Query,
-    Session,
     declared_attr,
     mapped_column,
     relationship,
@@ -43,7 +39,7 @@ from sqlalchemy.orm import (
 )
 
 if TYPE_CHECKING:
-    from .models.user import User
+    pass
 
 from config import config
 
@@ -80,22 +76,20 @@ class BaseModel(DeclarativeBase):
         return cls.__name__.lower()
 
     # Common columns
-    id: Mapped[int] = mapped_column(
-        BigInteger().with_variant(Integer, "sqlite"), primary_key=True
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
-    )
+    id: Mapped[int] = mapped_column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     deleted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
     is_deleted: Mapped[bool] = mapped_column(default=False)
 
-    def soft_delete(self, db: Session):
+    purged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_purged: Mapped[bool] = mapped_column(default=False)
+
+    def soft_delete(self):
         self.deleted_at = func.now()
         self.is_deleted = True
-        db.commit()
 
 
 class AttributeMixin:
@@ -180,6 +174,10 @@ class FeedbackMixin:
 
 @event.listens_for(Query, "before_compile", retval=True)
 def before_compile(query):
+    # If the query has `_include_deleted` = True, skip adding "is_deleted == False"
+    if getattr(query, "_include_deleted", False):
+        return query
+
     for desc in query.column_descriptions:
         entity = desc["entity"]
         query = query.enable_assertions(False).filter(

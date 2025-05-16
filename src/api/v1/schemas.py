@@ -12,12 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from datetime import datetime
+from typing import List, Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, field_serializer
-
-from datetime import datetime
-from typing import Optional, List
 
 
 def custom_uuid_encoder(uuid_object):
@@ -35,7 +34,7 @@ class BaseSchema(BaseModel):
     deleted_at: Optional[datetime] = None
     is_deleted: Optional[bool] = False
 
-    @field_serializer('uuid', check_fields=False)
+    @field_serializer("uuid", check_fields=False)
     def serialize_uuid(self, uuid: UUID):
         return custom_uuid_encoder(uuid)
 
@@ -45,9 +44,10 @@ class BaseSchemaCompact(BaseModel):
 
     id: Optional[int] = None
 
-    @field_serializer('uuid', check_fields=False)
+    @field_serializer("uuid", check_fields=False)
     def serialize_uuid(self, uuid: UUID):
         return custom_uuid_encoder(uuid)
+
 
 # User schemas
 class User(BaseSchema):
@@ -167,6 +167,7 @@ class FolderResponse(BaseSchema):
 class FolderResponseCompact(BaseSchema):
     display_name: str
     user: UserResponseCompact
+    workflows: List["WorkflowResponseCompact"]
     selectable: Optional[bool] = False
 
 
@@ -325,6 +326,10 @@ class WorkflowResponse(BaseSchema):
     folder: Optional["WorkflowFolder"]
 
 
+class WorkflowResponseCompact(BaseModel):
+    id: int
+
+
 class WorkflowStatusResponse(BaseSchema):
     tasks: Optional[List["TaskResponse"]]
 
@@ -334,8 +339,10 @@ class WorkflowCreateRequest(BaseModel):
     file_ids: List[int]
     template_id: Optional[int] = None
 
+
 class WorkflowRunRequest(BaseModel):
     workflow_spec: dict
+
 
 class WorkflowTemplateCreateRequest(BaseModel):
     display_name: str
@@ -349,11 +356,16 @@ class WorkflowTemplateCreate(BaseModel):
     spec_json: str
     user_id: int
 
+
 class WorkflowTemplateResponse(BaseSchema):
     display_name: str
     description: Optional[str] = None
     spec_json: str
     user_id: int
+
+
+class WorkflowGeneratedNameResponse(BaseModel):
+    generated_name: str
 
 
 class Task(BaseSchema):
@@ -374,6 +386,18 @@ class Task(BaseSchema):
     workflow: Workflow
 
 
+class TaskReportCreate(BaseModel):
+    summary: str = ""
+    priority: int = 100
+    markdown: str = None
+
+
+class TaskReportResponseCompact(BaseModel):
+    summary: str = ""
+    priority: int = 100
+    markdown: str = ""
+
+
 class TaskResponse(BaseSchema):
     display_name: Optional[str]
     description: Optional[str]
@@ -388,6 +412,7 @@ class TaskResponse(BaseSchema):
     user: UserResponseCompact
     output_files: Optional[List[FileResponseCompact]]
     file_reports: Optional[List[FileReportResponseCompact]]
+    task_report: Optional[TaskReportResponseCompact]
 
 
 class TaskResponseCompact(BaseSchema):
@@ -404,3 +429,25 @@ class MetricsRequest(BaseModel):
     step: int
     resolution: str
     aggregate: bool
+
+
+class FileChatRequest(BaseModel):
+    prompt: str
+
+
+class FileChatCreate(BaseModel):
+    system_instructions: str
+    user_id: int
+    file_id: int
+
+
+class FileChatResponse(BaseSchema):
+    title: Optional[str] = None
+    history: Optional[list] = None
+
+
+class FileChatMessageCreate(BaseModel):
+    file_chat_id: int
+    request_prompt: str
+    response_text: str
+    runtime: float

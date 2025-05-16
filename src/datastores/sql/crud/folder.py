@@ -15,10 +15,11 @@
 import os
 import uuid
 
-from sqlalchemy.orm import Session
-from sqlalchemy.sql import and_
+from sqlalchemy import and_, func, select, union, update
+from sqlalchemy.orm import Session, aliased
 
 from api.v1 import schemas
+from datastores.sql.models.file import File
 from datastores.sql.models.folder import Folder
 from datastores.sql.models.group import Group, GroupRole
 from datastores.sql.models.role import Role
@@ -82,9 +83,7 @@ def get_shared_folders_from_db(db: Session, current_user: User):
     return (
         db.query(Folder)
         .select_from(shared_folders)  # Use select_from to make the join explicit
-        .join(
-            Folder, Folder.id == shared_folders.c.id
-        )  # Specify the join condition here
+        .join(Folder, Folder.id == shared_folders.c.id)  # Specify the join condition here
         .outerjoin(
             UserRole,
             and_(
@@ -99,6 +98,126 @@ def get_shared_folders_from_db(db: Session, current_user: User):
     )
 
 
+def get_all_folders_from_db(db: Session, current_user: User, search_term: str | None = None):
+    """
+    Retrieves accessible folders with conditional logic based on search term.
+
+    - If search_term is NOT provided (Default View):
+        Returns user's owned root folders plus all directly shared folders
+        (root and subfolders where share is explicit). Uses non-recursive logic.
+    - If search_term IS provided (Recursive Search Mode):
+        Uses resursive logic to find ALL accessible folders (direct/inherited,
+        including root folders), and filters them by search term (case-insensitive).
+
+    Args:
+        db (Session): database session
+        current_user (User): current user
+        search_term (str | None, optional): Term to filter folder names by
+
+    Returns:
+        list[Folder]: List of folders based on the mode, ordered by creation date desc.
+    """
+
+    final_query = None
+
+    if search_term:
+        # --- Search Mode: Recursive CTE for ALL accessible folders (Root + Subfolders) ---
+
+        # Step 1: Find IDs of Folders with DIRECT Access (Anchor Folders)
+        owned_anchor_ids = (
+            select(Folder.id)
+            .join(UserRole)
+            .filter(UserRole.user_id == current_user.id, UserRole.role == Role.OWNER)
+        )
+        direct_shared_anchor_ids = (
+            select(Folder.id)
+            .join(UserRole)
+            .filter(UserRole.user_id == current_user.id, UserRole.role != Role.OWNER)
+        )
+        group_shared_anchor_ids = (
+            select(Folder.id)
+            .join(GroupRole)
+            .join(Group)
+            .filter(Group.users.any(id=current_user.id))
+        )
+
+        direct_access_folder_ids_query = union(
+            owned_anchor_ids, direct_shared_anchor_ids, group_shared_anchor_ids
+        )
+
+        # Step 2: Define the Recursive CTE
+        accessible_folders_cte = (
+            select(Folder.id.label("id"))
+            .filter(Folder.id.in_(direct_access_folder_ids_query))
+            .cte(name="accessible_folders", recursive=True)
+        )
+        cte_alias = aliased(accessible_folders_cte, name="cte_alias")
+        folder_alias = aliased(Folder, name="folder_alias")
+        recursive_part = select(folder_alias.id).join(
+            cte_alias, folder_alias.parent_id == cte_alias.c.id
+        )
+        accessible_folders_cte = accessible_folders_cte.union_all(recursive_part)
+
+        # Step 3: Query Folders using the CTE and Apply Filters
+        # Join Folder with CTE results to get only accessible folders
+        final_query = db.query(Folder).join(
+            accessible_folders_cte, Folder.id == accessible_folders_cte.c.id
+        )
+
+        # Apply Search Filter (mandatory in this branch)
+        search_pattern = f"%{search_term}%"
+        final_query = final_query.filter(Folder.display_name.ilike(search_pattern))
+
+    else:
+        # --- Default View: Non-Recursive - Owned Roots + Direct Shares ---
+
+        # Query for root folders owned by the user
+        owned_root_folders_query = (
+            db.query(Folder)
+            .join(UserRole, UserRole.folder_id == Folder.id)
+            .filter(
+                UserRole.user_id == current_user.id,
+                UserRole.role == Role.OWNER,
+                Folder.parent_id.is_(None),  # Owned ROOT only for default view
+            )
+        )
+        # Query for folders directly shared (not owned)
+        user_shared_ids = (
+            db.query(Folder.id.label("id"))
+            .join(UserRole, UserRole.folder_id == Folder.id)
+            .filter(
+                UserRole.user_id == current_user.id,
+                UserRole.role != Role.OWNER,
+            )
+        )
+        group_shared_ids = (
+            db.query(Folder.id.label("id"))
+            .join(GroupRole, GroupRole.folder_id == Folder.id)
+            .join(Group, Group.id == GroupRole.group_id)
+            .filter(Group.users.any(id=current_user.id))
+        )
+        potentially_shared_folder_ids = user_shared_ids.union(group_shared_ids).subquery()
+        shared_folders_query = (
+            db.query(Folder)
+            .select_from(potentially_shared_folder_ids)
+            .join(Folder, Folder.id == potentially_shared_folder_ids.c.id)
+            .outerjoin(
+                UserRole,
+                and_(
+                    UserRole.folder_id == Folder.id,
+                    UserRole.user_id == current_user.id,
+                    UserRole.role == Role.OWNER,
+                ),
+            )
+            .filter(UserRole.id.is_(None))
+        )
+        # Combine owned roots and direct shares using UNION for the default view
+        final_query = owned_root_folders_query.union(shared_folders_query)
+
+    # --- Execute the selected query ---
+    return final_query.order_by(Folder.created_at.desc()).all()
+
+
 def get_subfolders_from_db(db: Session, parent_folder_id: str):
     """Get all folders in a folder
 
@@ -109,12 +228,7 @@ def get_subfolders_from_db(db: Session, parent_folder_id: str):
     Returns:
         list: list of folders
     """
-    return (
-        db.query(Folder)
-        .filter_by(parent_id=parent_folder_id)
-        .order_by(Folder.id.desc())
-        .all()
-    )
+    return db.query(Folder).filter_by(parent_id=parent_folder_id).order_by(Folder.id.desc()).all()
 
 
 def get_folder_from_db(db: Session, folder_id: int):
@@ -221,24 +335,67 @@ def update_folder_in_db(db: Session, folder: schemas.FolderUpdateRequest):
     return folder_in_db
 
 
-def delete_folder_from_db(db: Session, folder_id: int):
-    """Delete a folder from the database by its ID.
+def delete_folder_from_db(db: Session, folder_id: int) -> None:
+    """
+    Function to soft-delete a folder and all its descendant folders and files using a recursive CTE
+    and bulk updates.
 
     Args:
         db (Session): A SQLAlchemy database session object.
-        folder_id (int): The ID of the folder to be deleted.
+        folder_id (int): The ID of the root folder to be deleted.
     """
-    folder = db.get(Folder, folder_id)
+    # Define the CTE to find all descendant folders including the starting one
+    folder_cte = (
+        select(Folder.id).where(Folder.id == folder_id).cte(name="folder_hierarchy", recursive=True)
+    )
 
-    def _recursive_soft_delete(folder: Folder):
-        """Recursive function to delete all files and subfolders."""
-        for file in folder.files:
-            file.soft_delete(db)
+    # Alias for the CTE to use in the recursive part
+    folder_alias = folder_cte.alias()
+    folder_recursive_alias = Folder.__table__.alias()
 
-        for child_folder in folder.children:
-            _recursive_soft_delete(child_folder)
+    # Recursive part of the CTE
+    folder_cte = folder_cte.union_all(
+        select(folder_recursive_alias.c.id).where(
+            folder_recursive_alias.c.parent_id == folder_alias.c.id
+        )
+    )
 
-        folder.soft_delete(db)
+    # 1. Get all folder IDs to delete
+    folder_ids_to_delete_stmt = select(folder_cte.c.id)
+    folder_ids_result = db.execute(folder_ids_to_delete_stmt).scalars().all()
 
-    _recursive_soft_delete(folder)
-    db.commit()
+    if not folder_ids_result:
+        print(f"Folder with ID {folder_id} not found or has no descendants.")
+        return
+
+    # 2. Bulk update files in these folders
+    file_update_query = (
+        update(File)
+        .where(File.folder_id.in_(folder_ids_result))
+        .values(is_deleted=True, deleted_at=func.now())
+        # Important for bulk updates: prevents trying to sync ORM state
+        .execution_options(synchronize_session=False)
+    )
+    db.execute(file_update_query)
+
+    # 3. Bulk update the folders themselves
+    folder_update_query = (
+        update(Folder)
+        .where(Folder.id.in_(folder_ids_result))
+        .values(
+            is_deleted=True,
+            deleted_at=func.now(),
+        )
+        # Important for bulk updates: prevents trying to sync ORM state
+        .execution_options(synchronize_session=False)
+    )
+    db.execute(folder_update_query)
+
+    # 4. Commit the transaction
+    try:
+        db.commit()
+        print(f"Soft deleted folder {folder_id} and its contents successfully.")
+    except Exception as e:
+        db.rollback()
+        print(f"Error during bulk delete commit for folder {folder_id}: {e}")
+        raise  # Re-raise the exception after rollback

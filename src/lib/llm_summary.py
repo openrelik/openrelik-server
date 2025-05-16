@@ -14,13 +14,14 @@
 
 from datetime import datetime
 
+from openrelik_ai_common.providers import manager
+
 from datastores.sql import database
 from datastores.sql.crud.file import (
     get_file_from_db,
     get_file_summary_from_db,
     update_file_summary_in_db,
 )
-from openrelik_ai_common.providers import manager
 
 SYSTEM_INSTRUCTION = """
 I'm security engineer and I'm investigating a system and need your help analyzing a digital artifact file.
@@ -67,9 +68,7 @@ Format: Markdown with clear subtitles.
 """
 
 
-def generate_summary(
-    llm_provider: str, llm_model: str, file_id: int, file_summary_id: int
-):
+def generate_summary(llm_provider: str, llm_model: str, file_id: int, file_summary_id: int):
     """Generate a summary for a given file.
 
     Args:
@@ -96,9 +95,7 @@ def generate_summary(
 
     try:
         details = llm.generate_file_analysis(
-            prompt=ANALYSIS_PROMPT.format(
-                magic_text=file.magic_text, filename=file.display_name
-            ),
+            prompt=ANALYSIS_PROMPT.format(magic_text=file.magic_text, filename=file.display_name),
             file_content=file_content,
         )
         summary = llm.generate(prompt=SUMMARY_PROMPT.format(analysis_details=details))

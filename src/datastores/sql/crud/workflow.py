@@ -16,10 +16,10 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from datastores.sql.models.workflow import Workflow, Task, WorkflowTemplate
+from datastores.sql.models.workflow import Workflow, Task, TaskReport, WorkflowTemplate
 from api.v1 import schemas
 
-from datastores.sql.crud.file import get_file_from_db
+from datastores.sql.crud.file import get_file_from_db, get_file_by_uuid_from_db
 
 
 def get_file_workflows_from_db(db: Session, file_id: int):
@@ -122,6 +122,20 @@ def delete_workflow_from_db(db: Session, workflow_id: int):
     db.commit()
 
 
+def delete_workflow_template_from_db(db: Session, workflow_template_id: int):
+    """Deles a workflow template in the database.
+    
+    Args:
+        db (Session): SQLAlchemy session object
+        workflow_template_id (int): ID of the workflow template
+    """
+    workflow_template = db.get(WorkflowTemplate, workflow_template_id)
+    if not workflow_template:
+        raise ValueError(f"Workflow template with id {workflow_template_id} not found") 
+    db.delete(workflow_template)
+    db.commit()
+
+
 def get_workflow_template_from_db(db: Session, template_id: int):
     """Get a workflow template by ID.
 
@@ -210,3 +224,27 @@ def create_task_in_db(db: Session, task: schemas.Task):
     db.commit()
     db.refresh(task)
     return task
+
+
+def create_task_report_in_db(
+    db: Session, task_report: schemas.TaskReportCreate, task_id: int
+):
+    """Creates a new file report in the database.
+
+    Args:
+        db (Session): A SQLAlchemy database session object.
+        task_report (TaskReportCreate): The TaskReportCreate object.
+
+    Returns:
+        TaskReport: The newly created TaskReport object.
+    """
+    db_task_report = TaskReport(
+        summary=task_report.summary,
+        priority=task_report.priority,
+        markdown=task_report.markdown,
+        task_id=task_id,
+    )
+    db.add(db_task_report)
+    db.commit()
+    db.refresh(db_task_report)
+    return db_task_report

@@ -13,7 +13,7 @@
 # limitations under the License.
 from typing import List
 
-from fastapi import APIRouter, Depends, status, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from auth.common import get_current_active_user
@@ -23,6 +23,7 @@ from datastores.sql.crud.folder import (
     create_root_folder_in_db,
     create_subfolder_in_db,
     delete_folder_from_db,
+    get_all_folders_from_db,
     get_folder_from_db,
     get_root_folders_from_db,
     get_shared_folders_from_db,
@@ -73,6 +74,26 @@ def get_shared_folders(
         list: list of folders
     """
     return get_shared_folders_from_db(db, current_user)
+
+
+# Get all shared root folders for a user
+@router.get("/all/")
+def get_all_folders(
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+    q: str | None = None,
+) -> List[schemas.FolderResponseCompact]:
+    """Get all shared folders for a user.
+
+    Args:
+        db (Session): database session
+        current_user (User): current user
+        q (str | None): search term
+
+    Returns:
+        list: list of folders
+    """
+    return get_all_folders_from_db(db, current_user, search_term=q)
 
 
 # Get all sub-folders for a parent folder
@@ -258,8 +279,7 @@ def share_folder(
     for user_id in request.user_ids:
         create_user_role_in_db(db, Role(request.user_role), user_id, folder_id)
     for group_id in request.group_ids:
-        create_group_role_in_db(
-            db, Role(request.group_role), group_id, folder_id)
+        create_group_role_in_db(db, Role(request.group_role), group_id, folder_id)
 
 
 @router.get("/{folder_id}/roles/me")
@@ -279,6 +299,7 @@ def get_my_folder_role(
         )
     except ValueError as exception:
         raise HTTPException(status_code=404, detail=str(exception))
+
 
 @router.delete("/{folder_id}/roles/groups/{role_id}")
 @require_access(allowed_roles=[Role.EDITOR, Role.OWNER])

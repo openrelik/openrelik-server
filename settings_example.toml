@@ -7,7 +7,7 @@ api_server_url = "http://localhost:8710"
 ui_server_url = "http://localhost:8711"
 
 # This should be set to the URL of your frontend server.
-allowed_origins = ["http://localhost:8711"]
+allowed_origins = ["http://127.0.0.1:8711", "http://localhost:8711"]
 
 # Path to files
 storage_path = "<REPLACE_WITH_STORAGE_PATH>"
@@ -38,6 +38,9 @@ jwt_header_default_access_expire_minutes = 5  # 5 minutes
 # https://developers.google.com/workspace/guides/create-credentials#oauth-client-id
 client_id = ""
 client_secret = ""
+
+# Extra client_ids for apps that authenticate with OpenRelik using Google OAuth.
+extra_audiences = []
 
 # Restrict logins from a Google Workspace domain.
 # Empty value = any domain, including gmail.com

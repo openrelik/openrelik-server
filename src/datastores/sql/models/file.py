@@ -18,14 +18,14 @@ from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import (
     UUID,
-    Integer,
     BigInteger,
+    Column,
     ForeignKey,
+    Integer,
+    Table,
     Unicode,
     UnicodeText,
     event,
-    Column,
-    Table,
 )
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -38,8 +38,8 @@ from ..database import (
 
 if TYPE_CHECKING:
     from .folder import Folder
-    from .user import User, UserRole
     from .group import GroupRole
+    from .user import User, UserRole
     from .workflow import Task, Workflow
 
 
@@ -135,6 +135,10 @@ class File(BaseModel):
     )
 
     summaries: Mapped[List["FileSummary"]] = relationship(
+        back_populates="file", cascade="all, delete-orphan"
+    )
+
+    chats: Mapped[List["FileChat"]] = relationship(
         back_populates="file", cascade="all, delete-orphan"
     )
 
@@ -271,9 +275,7 @@ class FileReport(BaseModel):
 
     # The file that this report is about.
     file_id: Mapped[int] = mapped_column(ForeignKey("file.id"))
-    file: Mapped["File"] = relationship(
-        back_populates="reports", foreign_keys=[file_id]
-    )
+    file: Mapped["File"] = relationship(back_populates="reports", foreign_keys=[file_id])
 
     # The task that created this report.
     task_id: Mapped[Optional[int]] = mapped_column(ForeignKey("task.id"))
@@ -288,6 +290,162 @@ class FileReport(BaseModel):
         foreign_keys=[content_file_id],
         uselist=False,
     )
+
+
+class FileChat(BaseModel):
+    """Represents a chat for a file in the database.
+
+    Attributes:
+        title (Optional[str]): The title of the chat.
+        system_instructions (str): The system instructions for the chat.
+        uuid (uuid_module.UUID): The UUID of the chat.
+        incognito (bool): Indicates whether the chat is in incognito mode (no history saved).
+        user_id (int): The ID of the user who created the chat.
+        file_id (int): The ID of the file associated with the chat.
+        messages (List[FileChatMessage]): The messages in the chat.
+    """
+
+    title: Mapped[Optional[str]] = mapped_column(UnicodeText, index=True)
+    system_instructions: Mapped[str] = mapped_column(UnicodeText, index=False)
+    uuid: Mapped[uuid_module.UUID] = mapped_column(
+        UUID(as_uuid=True), index=True, default=uuid_module.uuid4()
+    )
+    incognito: Mapped[bool] = mapped_column(index=True, default=False)
+
+    # Relationships
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
+    user: Mapped["User"] = relationship(back_populates="file_chats")
+
+    file_id: Mapped[int] = mapped_column(ForeignKey("file.id"))
+    file: Mapped["File"] = relationship(back_populates="chats")
+
+    summaries: Mapped[List["FileChatSummary"]] = relationship(
+        back_populates="file_chat", cascade="all, delete-orphan"
+    )
+
+    messages: Mapped[List["FileChatMessage"]] = relationship(
+        back_populates="file_chat", cascade="all, delete-orphan"
+    )
+
+    def get_chat_history(self):
+        """Returns the messages in the chat in a format for the LLM."""
+        history = []
+        for message in self.messages:
+            history.extend(
+                [
+                    {
+                        "role": "user",
+                        "content": message.request_prompt,
+                    },
+                    {
+                        "role": "assistant",
+                        "content": message.response_text,
+                    },
+                ]
+            )
+        return history
+
+
+class FileChatSummary(BaseModel):
+    """Represents a summary of a file chat.
+
+    Attributes:
+        summary (str): The summary of the chat.
+        uuid (uuid_module.UUID): The UUID of the chat summary.
+        is_shared (bool): Visible to everyone that has access to the File.
+        runtime (float): The runtime of the chat.
+        status_short (str): The short status of the chat.
+        status_detail (str): The detail status of the chat.
+        status_progress (str): The progress status of the chat.
+        model_prompt (str): The prompt used to generate the summary.
+        model_provider (str): The provider of the model used to generate the summary.
+        model_name (str): The name of the model used to generate the summary.
+        model_config (str): The configuration of the model used to generate the summary.
+        file_chat_id (int): The ID of the file chat being summarized.
+        file_chat (FileChat): The file chat being summarized.
+    """
+
+    summary: Mapped[str] = mapped_column(UnicodeText, index=False)
+    uuid: Mapped[uuid_module.UUID] = mapped_column(UUID(as_uuid=True), index=True)
+    is_shared: Mapped[bool] = mapped_column(index=True, default=False)
+    runtime: Mapped[Optional[float]] = mapped_column(index=True)
+
+    # Status of processing the summary
+    status_short: Mapped[Optional[str]] = mapped_column(UnicodeText, index=True)
+    status_detail: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
+    status_progress: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
+
+    # LLM model details
+    llm_model_prompt: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
+    llm_model_provider: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
+    llm_model_name: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
+    llm_model_config: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
+
+    # Relationships
+    file_chat_id: Mapped[int] = mapped_column(ForeignKey("filechat.id"))
+    file_chat: Mapped["FileChat"] = relationship(back_populates="summaries")
+
+
+class FileChatMessage(BaseModel):
+    """Represents a message in a file chat.
+
+    Attributes:
+        request_prompt (str): The prompt sent to the LLM.
+        response_text (str): The response from the LLM.
+        uuid (uuid_module.UUID): The UUID of the message.
+        runtime (Optional[float]): The runtime of the message.
+        llm_model_provider (Optional[str]): The provider of the LLM model.
+        llm_model_name (Optional[str]): The name of the LLM model.
+        llm_model_config (Optional[str]): The configuration of the LLM model.
+        file_chat_id (int): The ID of the file chat this message belongs to.
+        file_chat (FileChat): The file chat this message belongs to.
+        user_id (int): The ID of the user who created the message.
+        user (User): The user who created the message.
+        feedbacks (List[FileChatMessageFeedback]): The feedbacks on the message.
+    """
+
+    request_prompt: Mapped[str] = mapped_column(UnicodeText, index=False)
+    response_text: Mapped[str] = mapped_column(UnicodeText, index=False)
+    uuid: Mapped[uuid_module.UUID] = mapped_column(
+        UUID(as_uuid=True), index=True, default=uuid_module.uuid4()
+    )
+    runtime: Mapped[Optional[float]] = mapped_column(index=True)
+
+    # LLM model details
+    llm_model_provider: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
+    llm_model_name: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
+    llm_model_config: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
+
+    # Relationships
+    file_chat_id: Mapped[int] = mapped_column(ForeignKey("filechat.id"))
+    file_chat: Mapped["FileChat"] = relationship(back_populates="messages")
+
+    feedbacks: Mapped[List["FileChatMessageFeedback"]] = relationship(
+        back_populates="file_chat_message", cascade="all, delete-orphan"
+    )
+
+
+class FileChatMessageFeedback(BaseModel, FeedbackMixin):
+    """Represents feedback on a FileChatMessage.
+
+    This class get base attributes from FeedbackMixin and adds a relationship to the
+    FileChatMessage model.
+
+    Attributes from FeedbackMixin:
+        upvote (bool): Indicates whether the user upvoted the message.
+        downvote (bool): Indicates whether the user downvoted the message.
+        feedback_text (str): Optional text feedback from the user.
+        user_id (int): The ID of the user who created the feedback
+        user (User): The user who created the feedback
+
+    Attributes:
+        file_chat_message_id (int): The ID of the FileChatMessage being given feedback on.
+        file_chat_message (FileChatMessage): The FileChatMessage being given feedback on.
+    """
+
+    # Relationships
+    file_chat_message_id: Mapped[int] = mapped_column(ForeignKey("filechatmessage.id"))
+    file_chat_message: Mapped["FileChatMessage"] = relationship(back_populates="feedbacks")
 
 
 # Delete file from the filesystem when the database row is deleted.

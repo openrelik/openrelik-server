@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 from contextlib import asynccontextmanager
 
+from celery.app import Celery
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import not_, or_, text
@@ -28,11 +30,11 @@ from api.v1 import metrics as metrics_v1
 from api.v1 import schemas
 from api.v1 import taskqueue as taskqueue_v1
 from api.v1 import users as users_v1
+from api.v1 import websockets as websockets_v1
 from api.v1 import workflows as workflows_v1
 from auth import common as common_auth
 from auth import google as google_auth
 from auth import local as local_auth
-from healthz import router as healthz_router
 from config import config
 from datastores.sql.crud.group import (
     add_user_to_group,
@@ -42,22 +44,16 @@ from datastores.sql.crud.group import (
 from datastores.sql.database import SessionLocal
 from datastores.sql.models.group import Group
 from datastores.sql.models.user import User
+from healthz import router as healthz_router
 from lib import celery_utils
-import os
-from celery.app import Celery
 
 from opentelemetry import trace
-
 from opentelemetry.exporter.otlp.proto.grpc import trace_exporter as grpc_trace_exporter
 from opentelemetry.exporter.otlp.proto.http import trace_exporter as http_trace_exporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-
-import logging
-
-logging.basicConfig(level=logging.DEBUG)
 
 # Allow Frontend origin to make API calls.
 origins = config["server"]["allowed_origins"]
@@ -66,8 +62,7 @@ origins = config["server"]["allowed_origins"]
 async def populate_everyone_group(db):
     everyone_group = get_group_by_name_from_db(db, "Everyone")
     if not everyone_group:
-        everyone_group = create_group_in_db(
-            db, schemas.GroupCreate(name="Everyone"))
+        everyone_group = create_group_in_db(db, schemas.GroupCreate(name="Everyone"))
 
     # Add users that are not in the "Everyone" group.
     users_to_add = (
@@ -75,9 +70,7 @@ async def populate_everyone_group(db):
         .filter(
             or_(
                 not_(User.groups.any()),  # Users with no groups
-                not_(
-                    User.groups.any(Group.id == everyone_group.id)
-                ),  # Users not in everyone_group
+                not_(User.groups.any(Group.id == everyone_group.id)),  # Users not in everyone_group
             )
         )
         .all()
@@ -136,8 +129,7 @@ setup_telemetry("openrelik-server")
 
 # Create the main app
 app = FastAPI(lifespan=lifespan)
-app.add_middleware(SessionMiddleware,
-                   secret_key=config["auth"]["secret_session_key"])
+app.add_middleware(SessionMiddleware, secret_key=config["auth"]["secret_session_key"])
 
 
 # Create app for API version 1
@@ -248,6 +240,14 @@ api_v1.include_router(
     dependencies=[
         Depends(common_auth.get_current_active_user),
         Depends(common_auth.verify_csrf),
+    ],
+)
+api_v1.include_router(
+    websockets_v1.router,
+    prefix="/websockets",
+    tags=["websockets"],
+    dependencies=[
+        Depends(common_auth.websocket_get_current_active_user),
     ],
 )
 

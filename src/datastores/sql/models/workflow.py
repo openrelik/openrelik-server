@@ -16,7 +16,7 @@ import uuid as uuid_module
 
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import ForeignKey, UnicodeText, UUID
+from sqlalchemy import ForeignKey, UnicodeText, UUID, Integer
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import BaseModel
@@ -87,7 +87,32 @@ class Task(BaseModel):
         back_populates="task_output", foreign_keys="[File.task_output_id]"
     )
 
-    # Processing and analysis reports for a task.
+    # Processing and analysis file reports for a task.
     file_reports: Mapped[List["FileReport"]] = relationship(
         back_populates="task", cascade="all, delete-orphan"
+    )
+
+    # Processing and analysis report for a task.
+    task_report: Mapped["TaskReport"] = relationship(
+        back_populates="task", cascade="all, delete-orphan"
+    )
+
+
+class TaskReport(BaseModel):
+    """Represents a task report.
+
+    Attributes:
+        summary (str): The summary of the report.
+        priority (int): The priority of the report.
+        markdown (str): The markdown content of the report.
+    """
+
+    summary: Mapped[str] = mapped_column(UnicodeText, index=False)
+    priority: Mapped[int] = mapped_column(Integer, index=True)
+    markdown: Mapped[str] = mapped_column(UnicodeText, index=False)
+
+    # The task that created this report.
+    task_id: Mapped[Optional[int]] = mapped_column(ForeignKey("task.id"))
+    task: Mapped[Optional["Task"]] = relationship(
+        back_populates="task_report", foreign_keys=[task_id]
     )
