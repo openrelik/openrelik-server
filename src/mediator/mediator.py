@@ -18,8 +18,11 @@ import os
 import time
 import uuid
 
-from celery import Celery
+from celery import Celery, states as celery_states
 from celery.result import AsyncResult
+from celery.events.state import State as CeleryEventState, Task as CeleryEventTask
+from sqlalchemy.orm import Session
+from typing import Any, Dict, Optional
 
 from api.v1 import schemas
 
@@ -31,6 +34,8 @@ from datastores.sql.crud.workflow import (
     get_task_by_uuid_from_db,
     get_workflow_from_db,
 )
+from datastores.sql.models.file import File
+from datastores.sql.models.workflow import Task
 from lib.file_hashes import generate_hashes
 
 # Number of times to retry database lookups
@@ -38,7 +43,7 @@ MAX_DATABASE_LOOKUP_RETRIES = 10
 DATABASE_LOOKUP_RETRY_DELAY_SECONDS = 1
 
 
-def get_task_from_db(db, task_uuid):
+def get_task_from_db(db: Session, task_uuid: str) -> Optional[Task]:
     """Retrieves a task from the database with retry logic.
 
     Args:
@@ -53,12 +58,14 @@ def get_task_from_db(db, task_uuid):
         task = get_task_by_uuid_from_db(db, task_uuid)
         if task:
             break
-        print(f"Database lookup for task {task_uuid} failed, retrying..{retry_count + 1}")
+        print(
+            f"Database lookup for task {task_uuid} failed, retrying..{retry_count + 1}"
+        )
         time.sleep(DATABASE_LOOKUP_RETRY_DELAY_SECONDS)
     return task
 
 
-def update_database(db, model_instance):
+def update_database(db: Session, model_instance: Any) -> None:
     """Updates a model instance in the database.
 
     Args:
@@ -70,7 +77,12 @@ def update_database(db, model_instance):
     db.refresh(model_instance)
 
 
-def create_file_in_database(db, file_data, task_result_dict, db_task):
+def create_file_in_database(
+    db: Session,
+    file_data: Dict[str, Any],
+    task_result_dict: Dict[str, Any],
+    db_task: Task,
+) -> File:
     """Creates a file in the database based on the provided file data and task result.
 
     Args:
@@ -104,7 +116,9 @@ def create_file_in_database(db, file_data, task_result_dict, db_task):
     return create_file_in_db(db, new_file, workflow.user)
 
 
-def process_task_progress_event(db, state, event):
+def process_task_progress_event(
+    db: Session, state: CeleryEventState, event: Dict[str, Any]
+) -> None:
     """Processes a task progress event and updates the database.
 
     Args:
@@ -120,7 +134,9 @@ def process_task_progress_event(db, state, event):
     update_database(db, db_task)
 
 
-def process_successful_task(db, celery_task, db_task, celery_app):
+def process_successful_task(
+    db: Session, celery_task: CeleryEventTask, db_task: Task, celery_app: Celery
+) -> None:
     """Processes a successful Celery task and updates the database.
 
     Args:
@@ -130,7 +146,9 @@ def process_successful_task(db, celery_task, db_task, celery_app):
         celery_app: The Celery application.
     """
     celery_task_result = AsyncResult(celery_task.uuid, app=celery_app).get()
-    result_dict = json.loads(base64.b64decode(celery_task_result.encode("utf-8")).decode("utf-8"))
+    result_dict = json.loads(
+        base64.b64decode(celery_task_result.encode("utf-8")).decode("utf-8")
+    )
     db_task.result = json.dumps(result_dict)
 
     output_files = result_dict.get("output_files", [])
@@ -168,7 +186,9 @@ def process_successful_task(db, celery_task, db_task, celery_app):
         create_task_report_in_db(db, new_task_report, task_id=db_task.id)
 
 
-def process_failed_task(db, celery_task, db_task):
+def process_failed_task(
+    db: Session, celery_task: CeleryEventTask, db_task: Task
+) -> None:
     """Processes a failed Celery task and updates the database.
 
     Args:
@@ -180,7 +200,9 @@ def process_failed_task(db, celery_task, db_task):
     db_task.error_traceback = celery_task.traceback
 
 
-def process_task_event(db, state, event, celery_app):
+def process_task_event(
+    db: Session, state: CeleryEventState, event: Dict[str, Any], celery_app: Celery
+) -> None:
     """Processes a task event and updates the database.
 
     Args:
@@ -201,16 +223,16 @@ def process_task_event(db, state, event, celery_app):
 
     db_task.status_short = celery_task.state
 
-    if celery_task.state == "SUCCESS":
+    if celery_task.state == celery_states.SUCCESS:
         process_successful_task(db, celery_task, db_task, celery_app)
-    elif celery_task.state == "FAILURE":
+    elif celery_task.state == celery_states.FAILURE:
         process_failed_task(db, celery_task, db_task)
 
     db_task.runtime = celery_task.runtime
     update_database(db, db_task)
 
 
-def monitor_celery_tasks(celery_app, db):
+def monitor_celery_tasks(celery_app: Celery, db: Session) -> None:
     """Monitor Celery tasks and update the database.
 
     Args:
@@ -219,7 +241,7 @@ def monitor_celery_tasks(celery_app, db):
     """
     state = celery_app.events.State()
 
-    def on_worker_event(event):
+    def on_worker_event(event: Dict[str, Any]) -> None:
         if event.get("type") == "worker-heartbeat":
             return
         print("Event.type", event.get("type"))
@@ -231,7 +253,9 @@ def monitor_celery_tasks(celery_app, db):
                 "worker-heartbeat": on_worker_event,
                 "worker-online": on_worker_event,
                 "worker-offline": on_worker_event,
-                "task-progress": lambda event: process_task_progress_event(db, state, event),
+                "task-progress": lambda event: process_task_progress_event(
+                    db, state, event
+                ),
                 "*": lambda event: process_task_event(db, state, event, celery_app),
             },
         )
