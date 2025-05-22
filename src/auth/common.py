@@ -301,7 +301,6 @@ def authenticated_as_admin(
     Raises:
         HTTPException: If the user is not an admin.
     """
-    print(f"Authenticated as admin: {current_user.is_admin}")
     if not current_user.is_admin:
         raise HTTPException(status_code=403, detail="User is not an admin")
     return current_user
