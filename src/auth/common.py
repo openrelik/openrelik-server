@@ -86,9 +86,7 @@ def create_jwt_token(
     """
     jwt_data = extra_data.copy()
     issued_at = datetime.now(timezone.utc)
-    not_before = (
-        issued_at  # Option to change this later if support for future valid tokens is needed.
-    )
+    not_before = issued_at  # Option to change this later if support for future valid tokens is needed.
     expire_at = issued_at + timedelta(minutes=expire_minutes)
     issued_by = API_SERVER_URL if API_SERVER_URL else UI_SERVER_URL
     jwt_data.update({"sub": subject})
@@ -161,7 +159,9 @@ def validate_jwt_token(
     # Note: This only check api-client API keys and not Browser tokens.
     # TODO: Consider supporting revoking Browser based tokens as well.
     if check_denylist and expected_audience == "api-client":
-        api_key_db = db.query(UserApiKey).filter(UserApiKey.token_jti == payload["jti"]).first()
+        api_key_db = (
+            db.query(UserApiKey).filter(UserApiKey.token_jti == payload["jti"]).first()
+        )
         if not api_key_db:
             raise_credentials_exception(detail="Invalid API key")
 
@@ -284,6 +284,25 @@ async def get_current_active_user(
     """
     if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
+    return current_user
+
+
+def authenticated_as_admin(
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> bool:
+    """Checks if the currently logged-in user is an admin.
+
+    Args:
+        current_user (User): The currently logged-in user.
+
+    Returns:
+        current_user: The currently logged-in user.
+
+    Raises:
+        HTTPException: If the user is not an admin.
+    """
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="User is not an admin")
     return current_user
 
 

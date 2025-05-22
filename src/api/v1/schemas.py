@@ -80,6 +80,7 @@ class UserResponse(BaseSchema):
     auth_method: str
     profile_picture_url: Optional[str]
     uuid: UUID
+    is_admin: Optional[bool] = False
 
 
 class UserResponseCompact(BaseSchemaCompact):
@@ -123,6 +124,7 @@ class UserSearchResponse(BaseSchema):
 class GroupCreate(BaseSchema):
     name: str
     description: Optional[str] = None
+    users: Optional[List[str]] = None
 
 
 class GroupResponse(BaseSchema):
