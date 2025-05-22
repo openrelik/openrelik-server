@@ -14,10 +14,18 @@
 
 """Contains pytest fixtures used in multiple unit tests."""
 
-import json
 import os
+
+# Set default environment variables for testing if not already set.
+# This needs to be done *before* other modules are imported,
+# especially those that might initialize clients like Redis at import time.
+if "REDIS_URL" not in os.environ:
+    os.environ["REDIS_URL"] = "redis://testhost:6379/0"  # Dummy URL for parsing
+
+import json
 import uuid
 from typing import Sequence
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -39,7 +47,7 @@ from api.v1.workflows import (
 from api.v1.workflows import (
     router_root as workflows_root_router,
 )
-from auth.common import get_current_active_user
+from auth.common import get_current_active_user, authenticated_as_admin
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.file import File
 from datastores.sql.models.folder import Folder
@@ -52,7 +60,8 @@ from healthz import router as healthz_router
 @pytest.fixture(autouse=True)
 def redis(mocker):
     mock_redis = mocker.patch("api.v1.files.redis_client")
-    mock_redis.return_value = True
+    # mock_redis is now a MagicMock. Configure its methods if needed,
+    # e.g., mock_redis.ping.return_value = True
     return mock_redis
 
 
@@ -71,13 +80,53 @@ def db(mocker):
 
 
 @pytest.fixture
-def example_groups() -> Sequence[Group]:
+def example_user_1(regular_user: schemas.User) -> User:
+    user_data = regular_user.model_dump()
+    user_data.update({
+        "id": 1,
+        "username": "user1_uname",
+        "display_name": "User 1",
+        "email": "user1@example.com",
+        "profile_picture_url": "http://localhost/profile/pic1",
+        "uuid": uuid.uuid4(), # Keep as UUID object, Pydantic handles it
+        "auth_method": "test_auth",
+        "is_admin": False,
+    })
+    # Ensure all fields for User model are present if not covered by user_db_model
+    user_instance = User(**user_data)
+    return user_instance
+
+
+@pytest.fixture
+def example_user_2(regular_user: schemas.User) -> User:
+    user_data = regular_user.model_dump()
+    user_data.update({
+        "id": 2,
+        "username": "user2_uname",
+        "display_name": "User 2",
+        "email": "user2@example.com",
+        "profile_picture_url": "http://localhost/profile/pic2",
+        "uuid": uuid.uuid4(), # Keep as UUID object
+        "auth_method": "test_auth",
+        "is_admin": False,
+    })
+    user_instance = User(**user_data)
+    return user_instance
+
+
+@pytest.fixture
+def example_groups(example_user_1: User, example_user_2: User) -> Sequence[Group]:
     groups_data = [
-        {"name": "Group 1", "description": "Description 1", "id": 1},  # Add IDs
-        {"name": "Group 2", "description": "Description 2", "id": 2},
+        {"name": "Group 1", "description": "Description 1", "id": 1, "uuid": uuid.uuid4().hex},
+        {"name": "Group 2", "description": "Description 2", "id": 2, "uuid": uuid.uuid4().hex},
     ]
-    groups = [Group(**data) for data in groups_data]
-    return groups
+    
+    group1 = Group(**groups_data[0])
+    # SQLAlchemy relationships are typically appendable lists
+    group1.users = [example_user_1, example_user_2] 
+
+    group2 = Group(**groups_data[1])
+    return [group1, group2]
 
 
 @pytest.fixture
@@ -611,4 +660,5 @@ def setup_test_app(user_response, db) -> FastAPI:
     # Override authentication check dependency injection.
     app.dependency_overrides[get_current_active_user] = lambda: user_response
     app.dependency_overrides[get_db_connection] = lambda: db
+    app.dependency_overrides[authenticated_as_admin] = lambda: True
     return app

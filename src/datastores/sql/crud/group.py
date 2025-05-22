@@ -14,6 +14,8 @@
 
 import uuid
 
+from typing import List
+
 from sqlalchemy.orm import Session
 
 from api.v1 import schemas
@@ -61,6 +63,9 @@ def get_group_by_name_from_db(db: Session, name: str):
 
 def create_group_in_db(db: Session, new_group: schemas.GroupCreate):
     """Create a group in the database.
+    
+    Pre-condition: The group name must be unique.
+    Post-condition: The group is created in the database.
 
     Args:
         db: SQLAlchemy session
@@ -92,6 +97,53 @@ def add_user_to_group(db: Session, group: Group, user: User):
     db.commit()
     db.refresh(group)
 
+def add_users_to_group(db: Session, group: Group, users: List[str]):
+    """Adds users to a group.
+
+    Args:
+        db: SQLAlchemy session
+        group_id: Group id
+        user_ids: User id
+    """
+    for username in users:
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            continue
+        if user in group.users:
+            continue
+        group.users.append(user)
+    db.commit()
+    db.refresh(group)
+
+def remove_user_from_group(db: Session, group: Group, user: User):
+    """Remove a user from a group.
+
+    Args:
+        db: SQLAlchemy session
+        group_id: Group id
+        user_id: User id
+    """
+    group.users.remove(user)
+    db.commit()
+    db.refresh(group)
+
+def remove_users_from_group(db: Session, group: Group, users: List[str]):
+    """Remove users from a group.
+
+    Args:
+        db: SQLAlchemy session
+        group_id: Group id
+        user_ids: User id
+    """
+    for username in users:
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            continue
+        if user not in group.users:
+            continue
+        group.users.remove(user)
+    db.commit()
+    db.refresh(group)
 
 def search_groups(db: Session, search_string: str):
     """
