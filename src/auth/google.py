@@ -86,7 +86,7 @@ def _validate_user_info(user_info: dict[str, Any]) -> None:
     # Check if the user is allowed to login.
     if GOOGLE_PUBLIC_ACCESS:
         pass  # Let everyone in.
-    elif not user_info.get("email", "") in GOOGLE_ALLOW_LIST:
+    elif user_info.get("email", "") not in GOOGLE_ALLOW_LIST:
         raise HTTPException(status_code=401, detail="Unauthorized. Not in allowlist.")
 
 
@@ -94,7 +94,7 @@ def _validate_user_info(user_info: dict[str, Any]) -> None:
 async def auth_header_token(
     x_goog_id_token: Annotated[str | None, Header()] = None,
     db: Session = Depends(get_db_connection),
-):
+) -> dict[str, str]:
     """Handles OpenRelik token generation for a user that provides a valid Google
         authentication token. Used by API clients.
 
@@ -153,7 +153,7 @@ async def auth_header_token(
 
 
 @router.get("/login/google")
-async def login(request: Request):
+async def login(request: Request) -> Any:
     """Redirects the user to the Google authentication endpoint.
 
     Args:
@@ -174,7 +174,7 @@ async def login(request: Request):
 
 
 @router.get("/auth/google")
-async def auth(request: Request, db: Session = Depends(get_db_connection)):
+async def auth(request: Request, db: Session = Depends(get_db_connection)) -> RedirectResponse:
     """Handles the Google authentication callback and issues a JWT access token to the
         authorized user.
 
