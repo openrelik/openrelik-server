@@ -23,7 +23,6 @@ from api.v1 import schemas
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.group import Group
 from datastores.sql.models.user import User
-from datastores.sql.models.group import GroupRole
 from datastores.sql.crud.group import (
     create_group_in_db,
     add_users_to_group,
