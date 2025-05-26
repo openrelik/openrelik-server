@@ -49,7 +49,7 @@ workspace_domain = ""
 # Allow only these users (email address) to access the server.
 allowlist = ["<REPLACE_WITH_USERNAME>@gmail.com"]
 
-# Allow anyone (who is authenitcated) to access the server.
+# Allow anyone (who is authenticated) to access the server.
 # Note: If a workspace_domain is set then the public_access is limited to that domain.
 # WARNING: This allows anyone to login to your server!
 public_access = false
