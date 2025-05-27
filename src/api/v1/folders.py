@@ -312,12 +312,14 @@ def share_folder(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Cannot share a deleted folder.",
         )
-
+    user_permission_role = None
+    group_permission_role = None
     try:
         if request.user_ids or request.user_names:
             user_permission_role = Role(request.user_role)
-        elif request.group_ids or request.group_names:
+        if request.group_ids or request.group_names:
             group_permission_role = Role(request.group_role)
+
     except ValueError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

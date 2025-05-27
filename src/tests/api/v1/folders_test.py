@@ -129,7 +129,10 @@ def test_share_folder(fastapi_test_client, mocker, db, folder_db_model, folder_r
     folder_db_model.id = folder_id  # Ensure the fixture's ID matches
     folder_db_model.is_deleted = False  # CRITICAL: Ensure folder is not deleted
     mock_get_folder_db.return_value = folder_db_model
-
+    mock_group_role_exists = mocker.patch("api.v1.folders.group_role_exists")
+    mock_group_role_exists.return_value = False
+    mock_user_role_exists = mocker.patch("api.v1.folders.user_role_exists")
+    mock_user_role_exists.return_value = False
     mock_user_1 = mocker.MagicMock(spec=UserSQLModel, id=1, username="user1")
     mock_user_2 = mocker.MagicMock(spec=UserSQLModel, id=2, username="user2")
     mock_user_admin = mocker.MagicMock(
