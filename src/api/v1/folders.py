@@ -30,8 +30,20 @@ from datastores.sql.crud.folder import (
     get_subfolders_from_db,
     update_folder_in_db,
 )
-from datastores.sql.crud.group import create_group_role_in_db, delete_group_role_from_db
-from datastores.sql.crud.user import create_user_role_in_db, delete_user_role_from_db
+from datastores.sql.crud.group import (
+    create_group_role_in_db,
+    delete_group_role_from_db,
+    get_group_by_name_from_db,
+    get_group_from_db,
+    group_role_exists,
+)
+from datastores.sql.crud.user import (
+    create_user_role_in_db,
+    delete_user_role_from_db,
+    get_user_by_username_from_db,
+    get_user_from_db,
+    user_role_exists,
+)
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.role import Role
 
@@ -265,21 +277,136 @@ def share_folder(
     request: schemas.FolderShareRequest,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
-) -> None:
+) -> schemas.FolderResponse:
     """Share a folder.
+    Assigns specified roles to users and groups for the given folder.
+
+    The `@require_access` decorator ensures the current user has EDITOR or OWNER
+    permissions on the folder.
 
     Args:
-        db (Session): database session
-        share_folder_request: dictionary for a share request
-        current_user (User): current user
+        folder_id: The ID of the folder to share.
+        request: The share request details including users, groups, and roles.
+        db: Database session.
+        current_user: The currently authenticated user.
 
     Returns:
-        Folder: folder
+        The updated folder information with new roles.
+
+    Raises:
+        HTTPException:
+            - 400 Bad Request: If an invalid role string is provided.
+            - 404 Not Found: If the folder, a user, or a group is not found,
+                             or if trying to share a deleted folder.
+            - 409 Conflict: If a user or group already has the specified role
+                            on the folder.
     """
-    for user_id in request.user_ids:
-        create_user_role_in_db(db, Role(request.user_role), user_id, folder_id)
-    for group_id in request.group_ids:
-        create_group_role_in_db(db, Role(request.group_role), group_id, folder_id)
+    folder_to_share = get_folder_from_db(db, folder_id)
+    # @require_access handles folder not found, but this is an explicit check.
+    if not folder_to_share:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found."
+        )
+    if folder_to_share.is_deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Cannot share a deleted folder.",
+        )
+
+    try:
+        user_permission_role = Role(request.user_role)
+        group_permission_role = Role(request.group_role)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid role provided. Valid roles are: {[r.value for r in Role]}",
+        )
+
+    # Process User IDs
+    if request.user_ids:
+        for user_id_to_share in request.user_ids:
+            user = get_user_from_db(db, user_id_to_share)
+            if not user:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"User with ID {user_id_to_share} not found.",
+                )
+            # Use enum member's name (e.g., "OWNER") instead of value (e.g., "Owner")
+            if user_role_exists(
+                db, user_id_to_share, folder_id, user_permission_role.name
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"User ID {user_id_to_share} already has the role '{user_permission_role.name}' on folder {folder_id}.",
+                )
+            # Pass enum member's name for creation
+            create_user_role_in_db(
+                db, user_permission_role.name, user_id_to_share, folder_id=folder_id
+            )
+
+    # Process User Names
+    if request.user_names:
+        for user_name_to_share in request.user_names:
+            user = get_user_by_username_from_db(db, user_name_to_share)
+            if not user:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"User with username '{user_name_to_share}' not found.",
+                )
+            # Use enum member's name (e.g., "OWNER") instead of value (e.g., "Owner")
+            if user_role_exists(db, user.id, folder_id, user_permission_role.name):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"User '{user_name_to_share}' (ID: {user.id}) already has the role '{user_permission_role.name}' on folder {folder_id}.",
+                )
+            # Pass enum member's name for creation
+            create_user_role_in_db(
+                db, user_permission_role.name, user.id, folder_id=folder_id
+            )
+
+    # Process Group IDs
+    if request.group_ids:
+        for group_id_to_share in request.group_ids:
+            group = get_group_from_db(db, group_id_to_share)
+            if not group:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Group with ID {group_id_to_share} not found.",
+                )
+            # Use enum member's name (e.g., "OWNER") instead of value (e.g., "Owner")
+            if group_role_exists(
+                db, group_id_to_share, folder_id, group_permission_role.name
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Group ID {group_id_to_share} already has the role '{group_permission_role.name}' on folder {folder_id}.",
+                )
+            # Pass enum member's name for creation
+            create_group_role_in_db(
+                db, group_permission_role.name, group_id_to_share, folder_id=folder_id
+            )
+
+    # Process Group Names
+    if request.group_names:
+        for group_name_to_share in request.group_names:
+            group = get_group_by_name_from_db(db, group_name_to_share)
+            if not group:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Group with name '{group_name_to_share}' not found.",
+                )
+            # Use enum member's name (e.g., "OWNER") instead of value (e.g., "Owner")
+            if group_role_exists(db, group.id, folder_id, group_permission_role.name):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Group '{group_name_to_share}' (ID: {group.id}) already has the role '{group_permission_role.name}' on folder {folder_id}.",
+                )
+            # Pass enum member's name for creation
+            create_group_role_in_db(
+                db, group_permission_role.name, group.id, folder_id=folder_id
+            )
+
+    return get_folder_from_db(db, folder_id)
 
 
 @router.get("/{folder_id}/roles/me")

@@ -66,8 +66,7 @@ def create_group(
     Returns:
         schemas.GroupResponse: The created group.
     """
-    existing_group = db.query(Group).filter(
-        Group.name == group_request.name).first()
+    existing_group = db.query(Group).filter(Group.name == group_request.name).first()
     if existing_group and existing_group.name == group_request.name:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -154,7 +153,7 @@ def add_users_to_group_endpoint(
     ]
 
 
-@router.delete("/{group_name}/users", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/{group_name}/users")
 def remove_users_from_group_endpoint(
     group_name: str,
     user_requests: List[str],

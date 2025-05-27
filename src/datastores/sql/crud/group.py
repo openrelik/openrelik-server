@@ -63,7 +63,7 @@ def get_group_by_name_from_db(db: Session, name: str):
 
 def create_group_in_db(db: Session, new_group: schemas.GroupCreate):
     """Create a group in the database.
-    
+
     Pre-condition: The group name must be unique.
     Post-condition: The group is created in the database.
 
@@ -97,6 +97,7 @@ def add_user_to_group(db: Session, group: Group, user: User):
     db.commit()
     db.refresh(group)
 
+
 def add_users_to_group(db: Session, group: Group, users: List[str]):
     """Adds users to a group.
 
@@ -115,6 +116,7 @@ def add_users_to_group(db: Session, group: Group, users: List[str]):
     db.commit()
     db.refresh(group)
 
+
 def remove_user_from_group(db: Session, group: Group, user: User):
     """Remove a user from a group.
 
@@ -126,6 +128,7 @@ def remove_user_from_group(db: Session, group: Group, user: User):
     group.users.remove(user)
     db.commit()
     db.refresh(group)
+
 
 def remove_users_from_group(db: Session, group: Group, users: List[str]):
     """Remove users from a group.
@@ -144,6 +147,7 @@ def remove_users_from_group(db: Session, group: Group, users: List[str]):
         group.users.remove(user)
     db.commit()
     db.refresh(group)
+
 
 def search_groups(db: Session, search_string: str):
     """
@@ -168,6 +172,18 @@ def search_groups(db: Session, search_string: str):
     return groups
 
 
+def group_role_exists(db: Session, group_id: int, folder_id: int, role: str) -> bool:
+    return (
+        db.query(GroupRole)
+        .filter(
+            GroupRole.group_id == group_id,
+            GroupRole.folder_id == folder_id,
+            GroupRole.role == role,
+        )
+        .first()
+    ) is not None
+
+
 def create_group_role_in_db(
     db: Session, role: str, group_id: int, folder_id: int = None, file_id: int = None
 ):
@@ -180,6 +196,7 @@ def create_group_role_in_db(
 
 
 def delete_group_role_from_db(db: Session, group_role_id: int) -> None:
-    group_role = db.query(GroupRole).filter(GroupRole.id == group_role_id).first()
+    group_role = db.query(GroupRole).filter(
+        GroupRole.id == group_role_id).first()
     db.delete(group_role)
     db.commit()
