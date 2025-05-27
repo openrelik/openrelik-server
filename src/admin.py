@@ -33,6 +33,7 @@ from datastores.sql.crud.group import (
     create_group_in_db,
     get_group_by_name_from_db,
     get_groups_from_db,
+    remove_users_from_group as remove_users_from_group_db,  # Alias to avoid conflict
 )
 from datastores.sql.crud.user import (
     create_user_api_key_in_db,
@@ -127,7 +128,9 @@ def change_password(
                 print("[bold red]Error: User does not exist.[/bold red]")
                 raise typer.Exit(code=1)
             if existing_user.auth_method != "local":
-                print("[bold red]Error: You can only change password for local users.[/bold red]")
+                print(
+                    "[bold red]Error: You can only change password for local users.[/bold red]"
+                )
                 raise typer.Exit(code=1)
 
         # Get username and password, prompting if necessary
@@ -159,11 +162,15 @@ def create_api_key(
 
         user = get_user_by_username_from_db(db, username)
         if not user:
-            print(f"[bold red]Error: User with username '{username}' not found.[/bold red]")
+            print(
+                f"[bold red]Error: User with username '{username}' not found.[/bold red]"
+            )
             raise typer.Exit(code=1)
 
         current_config = get_config()
-        TOKEN_EXPIRE_MINUTES = current_config["auth"]["jwt_header_default_refresh_expire_minutes"]
+        TOKEN_EXPIRE_MINUTES = current_config["auth"][
+            "jwt_header_default_refresh_expire_minutes"
+        ]
         refresh_token = create_jwt_token(
             audience="api-client",
             expire_minutes=TOKEN_EXPIRE_MINUTES,
@@ -201,7 +208,9 @@ def set_admin(
     with database.SessionLocal() as db:
         existing_user = get_user_by_username_from_db(db, username)
         if not existing_user:
-            print(f"[bold red]Error: User with username '{username}' not found.[/bold red]")
+            print(
+                f"[bold red]Error: User with username '{username}' not found.[/bold red]"
+            )
             raise typer.Exit(code=1)
 
         existing_user.is_admin = admin
@@ -222,7 +231,9 @@ def user_details(
     with database.SessionLocal() as db:
         existing_user = get_user_by_username_from_db(db, username)
         if not existing_user:
-            print(f"[bold red]Error: User with username '{username}' not found.[/bold red]")
+            print(
+                f"[bold red]Error: User with username '{username}' not found.[/bold red]"
+            )
             raise typer.Exit(code=1)
 
         table = Table(title=f"User Details: {username}")
@@ -341,7 +352,9 @@ def list_workflow_templates() -> None:
 
 @app.command()
 def purge_deleted_files(
-    force: bool = typer.Option(False, "--force", "-f", help="Purge files without asking."),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Purge files without asking."
+    ),
     retention: Optional[str] = typer.Option(
         None,
         "--older-than",
@@ -360,7 +373,9 @@ def purge_deleted_files(
         """Parses the retention time string (e.g., '10D', '2W', '1M') into a timedelta."""
         match = re.match(r"(\d+)([mhDWMY])", retention)
         if not match:
-            raise typer.BadParameter("Invalid retention time format. Use <number>[m|h|D|W|M|Y].")
+            raise typer.BadParameter(
+                "Invalid retention time format. Use <number>[m|h|D|W|M|Y]."
+            )
         value = int(match.group(1))
         unit = match.group(2)
         if unit == "m":
@@ -419,12 +434,16 @@ def purge_deleted_files(
                 return
 
         # 2. Get Summary
-        summary_query = select(func.count(File.id), func.sum(File.filesize)).where(and_(*filters))
+        summary_query = select(func.count(File.id), func.sum(File.filesize)).where(
+            and_(*filters)
+        )
         num_files, total_size = db.execute(summary_query).first()
         total_size = total_size or 0
 
         if not num_files or num_files == 0:
-            print("[bold green]No files matching criteria are waiting for purging.[/bold green]")
+            print(
+                "[bold green]No files matching criteria are waiting for purging.[/bold green]"
+            )
             return
 
         print("[bold blue]Purge request summary:[/bold blue]")
@@ -439,7 +458,9 @@ def purge_deleted_files(
             return
 
         # 4. Process in Batches
-        print(f"[bold yellow]Starting purge process in batches of {batch_size}...[/bold yellow]")
+        print(
+            f"[bold yellow]Starting purge process in batches of {batch_size}...[/bold yellow]"
+        )
         processed_count = 0
         all_successfully_purged_ids = []
 
@@ -464,16 +485,22 @@ def purge_deleted_files(
                 new_folder_ids = folder_ids_in_batch - folder_paths_cache.keys()
                 if new_folder_ids:
                     folder_components_results = db.execute(
-                        select(Folder.id, Folder.uuid).where(Folder.id.in_(new_folder_ids))
+                        select(Folder.id, Folder.uuid).where(
+                            Folder.id.in_(new_folder_ids)
+                        )
                     ).all()
 
                     # Reconstruct path using config and cache it
                     for f_id, f_uuid in folder_components_results:
                         if f_uuid:
-                            reconstructed_path = os.path.join(base_storage_path, f_uuid.hex)
+                            reconstructed_path = os.path.join(
+                                base_storage_path, f_uuid.hex
+                            )
                             folder_paths_cache[f_id] = reconstructed_path
                         else:
-                            print(f"Warning: Folder ID {f_id} has no UUID. Cannot determine path.")
+                            print(
+                                f"Warning: Folder ID {f_id} has no UUID. Cannot determine path."
+                            )
                             folder_paths_cache[f_id] = None
 
                 # Delete files from the filesystem in the batch
@@ -516,7 +543,9 @@ def purge_deleted_files(
 
                 # Add successfully deleted IDs from this batch to the main list
                 all_successfully_purged_ids.extend(batch_ids_processed_in_fs)
-                print(f"  Batch processed: {processed_count}/{num_files} files deleted.")
+                print(
+                    f"  Batch processed: {processed_count}/{num_files} files deleted."
+                )
 
         except Exception as loop_e:
             # Catch errors during the cursor iteration or FS processing
@@ -540,7 +569,9 @@ def purge_deleted_files(
 
                 # Commit the single transaction
                 db.commit()
-                print("Database updates committed [bold green]successfully[/bold green].")
+                print(
+                    "Database updates committed [bold green]successfully[/bold green]."
+                )
 
             except Exception as final_commit_e:
                 print(
@@ -556,7 +587,9 @@ def purge_deleted_files(
 
         # Final Summary
         total_successfully_purged = len(all_successfully_purged_ids)
-        print(f"[bold green]Successfully[/bold green] purged {total_successfully_purged} files")
+        print(
+            f"[bold green]Successfully[/bold green] purged {total_successfully_purged} files"
+        )
         if processed_count != total_successfully_purged:
             print(
                 f"[bold yellow]Note: {processed_count - total_successfully_purged} files encountered errors during filesystem removal or had missing info.[/bold yellow]"
@@ -601,7 +634,10 @@ def list_groups():
         table.add_column("Created")
         for group in groups:
             table.add_row(
-                group.name, group.description, str(len(group.users)), str(group.created_at)
+                group.name,
+                group.description,
+                str(len(group.users)),
+                str(group.created_at),
             )
         print(table)
 
@@ -609,7 +645,9 @@ def list_groups():
 @app.command()
 def create_group(
     group_name: str = typer.Argument(..., help="Name of the group to create."),
-    description: str = typer.Option("", "--description", "-d", help="Description of the group."),
+    description: str = typer.Option(
+        "", "--description", "-d", help="Description of the group."
+    ),
 ):
     """Creates a new group."""
     with database.SessionLocal() as db:
@@ -665,6 +703,84 @@ def add_users_to_group(
             print(f"User '{username}' added to group '{group_name}'.")
 
         db.commit()
+
+
+@app.command()
+def remove_users_from_group(
+    group_name: str = typer.Argument(..., help="Name of the group."),
+    usernames: str = typer.Argument(
+        ..., help="Comma-separated list of usernames to remove from the group."
+    ),
+):
+    """
+    Removes one or more users from a specified group.
+
+    This command will attempt to remove each user listed in the comma-separated
+    `usernames` argument from the group identified by `group_name`.
+    It will print warnings for users not found or users not currently in the group.
+
+    Args:
+        group_name: The name of the group from which users will be removed.
+        usernames: A comma-separated string of usernames to remove from the group.
+    """
+    with database.SessionLocal() as db:
+        group = get_group_by_name_from_db(db, group_name)
+        if not group:
+            print(f"[bold red]Error: Group '{group_name}' not found.[/bold red]")
+            raise typer.Exit(code=1)
+
+        usernames_to_remove = [uname.strip() for uname in usernames.split(",")]
+        actual_usernames_removed = []
+
+        for username in usernames_to_remove:
+            user = get_user_by_username_from_db(db, username)
+            if not user:
+                print(f"Warning: User '{username}' not found. Skipping.")
+                continue
+
+            if user not in group.users:
+                print(
+                    f"Info: User '{username}' is not in group '{group_name}'. Skipping."
+                )
+                continue
+            actual_usernames_removed.append(username)
+
+        remove_users_from_group_db(db, group, actual_usernames_removed)
+        print(f"Attempted to remove users from group '{group_name}'.")
+
+
+@app.command()
+def list_group_members(
+    group_name: str = typer.Argument(..., help="Name of the group."),
+):
+    """
+    Lists all members of a specific group in a formatted table.
+
+    Args:
+        group_name: The name of the group whose members are to be listed.
+    """
+    with database.SessionLocal() as db:
+        group = get_group_by_name_from_db(db, group_name)
+        if not group:
+            print(f"[bold red]Error: Group '{group_name}' not found.[/bold red]")
+            raise typer.Exit(code=1)
+
+        if not group.users:
+            print(f"Group '{group_name}' has no members.")
+            raise typer.Exit()
+
+        table = Table(title=f"Members of Group: {group_name}")
+        table.add_column("Username", style="green")
+        table.add_column("Display Name", style="magenta")
+        table.add_column("UUID", style="cyan")
+
+        for user in group.users:
+            table.add_row(
+                user.username,
+                user.display_name,
+                str(user.uuid),
+            )
+        print(table)
 
 
 if __name__ == "__main__":
