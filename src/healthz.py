@@ -25,7 +25,7 @@ from datastores.sql import database
 router = APIRouter()
 
 
-def _check_posgresql_connection() -> str:
+def _check_postgresql_connection() -> str:
     """Check the connection to the PostgreSQL database.
 
     This function uses a broad exception to catch all errors but not expose them to the
@@ -83,7 +83,7 @@ def healthz() -> JSONResponse:
     """
     redis_url = os.getenv("REDIS_URL")
     status = {
-        "posgresql": _check_posgresql_connection(),
+        "postgresql": _check_postgresql_connection(),
         "redis": _check_redis_connection(redis_url),
     }
     # If any of the services are not reachable, return a 500 status code with the
