@@ -33,6 +33,7 @@ from datastores.sql.crud.group import (
     create_group_in_db,
     get_group_by_name_from_db,
     get_groups_from_db,
+    remove_users_from_group as remove_users_from_group_db,  # Alias to avoid conflict
 )
 from datastores.sql.crud.user import (
     create_user_api_key_in_db,
@@ -842,6 +843,84 @@ def add_users_to_group(
             print(f"User '{username}' added to group '{group_name}'.")
 
         db.commit()
+
+
+@app.command()
+def remove_users_from_group(
+    group_name: str = typer.Argument(..., help="Name of the group."),
+    usernames: str = typer.Argument(
+        ..., help="Comma-separated list of usernames to remove from the group."
+    ),
+):
+    """
+    Removes one or more users from a specified group.
+
+    This command will attempt to remove each user listed in the comma-separated
+    `usernames` argument from the group identified by `group_name`.
+    It will print warnings for users not found or users not currently in the group.
+
+    Args:
+        group_name: The name of the group from which users will be removed.
+        usernames: A comma-separated string of usernames to remove from the group.
+    """
+    with database.SessionLocal() as db:
+        group = get_group_by_name_from_db(db, group_name)
+        if not group:
+            print(f"[bold red]Error: Group '{group_name}' not found.[/bold red]")
+            raise typer.Exit(code=1)
+
+        usernames_to_remove = [uname.strip() for uname in usernames.split(",")]
+        actual_usernames_removed = []
+
+        for username in usernames_to_remove:
+            user = get_user_by_username_from_db(db, username)
+            if not user:
+                print(f"Warning: User '{username}' not found. Skipping.")
+                continue
+
+            if user not in group.users:
+                print(
+                    f"Info: User '{username}' is not in group '{group_name}'. Skipping."
+                )
+                continue
+            actual_usernames_removed.append(username)
+
+        remove_users_from_group_db(db, group, actual_usernames_removed)
+        print(f"Attempted to remove users from group '{group_name}'.")
+
+
+@app.command()
+def list_group_members(
+    group_name: str = typer.Argument(..., help="Name of the group."),
+):
+    """
+    Lists all members of a specific group in a formatted table.
+
+    Args:
+        group_name: The name of the group whose members are to be listed.
+    """
+    with database.SessionLocal() as db:
+        group = get_group_by_name_from_db(db, group_name)
+        if not group:
+            print(f"[bold red]Error: Group '{group_name}' not found.[/bold red]")
+            raise typer.Exit(code=1)
+
+        if not group.users:
+            print(f"Group '{group_name}' has no members.")
+            raise typer.Exit()
+
+        table = Table(title=f"Members of Group: {group_name}")
+        table.add_column("Username", style="green")
+        table.add_column("Display Name", style="magenta")
+        table.add_column("UUID", style="cyan")
+
+        for user in group.users:
+            table.add_row(
+                user.username,
+                user.display_name,
+                str(user.uuid),
+            )
+        print(table)
 
 
 if __name__ == "__main__":
