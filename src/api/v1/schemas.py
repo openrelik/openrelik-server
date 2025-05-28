@@ -143,12 +143,12 @@ class FolderUpdateRequest(BaseModel):
 
 
 class FolderShareRequest(BaseModel):
-    user_ids: List[int]
-    user_names: List[str]
-    group_names: List[str]
-    group_ids: List[int]
-    user_role: str
-    group_role: str
+    user_ids: Optional[List[int]] = None
+    user_names: Optional[List[str]] = None
+    group_ids: Optional[List[int]] = None
+    group_names: Optional[List[str]] = None
+    user_role: Optional[str] = None
+    group_role: Optional[str] = None
 
 
 class FolderCreate(BaseSchema):
