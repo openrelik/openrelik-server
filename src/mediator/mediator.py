@@ -152,7 +152,7 @@ def process_successful_task(
     db_task.result = json.dumps(result_dict)
 
     output_files = result_dict.get("output_files", [])
-    task_logs = result_dict.get("task_logs", [])
+    task_files = result_dict.get("task_files", [])
     file_reports = result_dict.get("file_reports", [])
     task_report = result_dict.get("task_report", {})
 
@@ -163,8 +163,8 @@ def process_successful_task(
         generate_hashes(new_file.id)
 
     # Create files from task log files
-    for log_file_data in task_logs:
-        new_log_file = create_file_in_database(db, log_file_data, result_dict, db_task)
+    for task_file_data in task_files:
+        new_log_file = create_file_in_database(db, task_file_data, result_dict, db_task)
         # TODO: Move this to a celery task to run in the background
         generate_hashes(new_log_file.id)
 
