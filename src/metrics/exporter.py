@@ -92,7 +92,7 @@ def get_queue_lengths(celery_app):
 class QueueMetricsCollector(Collector):
     """Collector for Celery task queue.
 
-    This collector retrieves the lengths of Celery task queues (bumber of tasks in the
+    This collector retrieves the lengths of Celery task queues (number of tasks in the
     queue) and exposes them as a Prometheus Counter metric named `celery_queue_length`.
 
     It uses the provided Celery app instance to connect to the broker

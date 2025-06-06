@@ -71,7 +71,7 @@ def get_user_by_uuid_from_db(db: Session, uuid: str):
     return db.query(User).filter(User.uuid == uuid).first()
 
 
-def get_user_by_username_from_db(db: Session, username: str):
+def get_user_by_username_from_db(db: Session, username: str) -> schemas.User:
     """Get a user by username.
 
     Args:
@@ -195,6 +195,18 @@ def search_users(db: Session, search_string: str):
         .all()
     )
     return users
+
+
+def user_role_exists(db: Session, user_id: int, folder_id: int, role: str) -> bool:
+    return (
+        db.query(UserRole)
+        .filter(
+            UserRole.user_id == user_id,
+            UserRole.folder_id == folder_id,
+            UserRole.role == role,
+        )
+        .first()
+    ) is not None
 
 
 def create_user_role_in_db(

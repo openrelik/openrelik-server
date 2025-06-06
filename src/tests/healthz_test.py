@@ -12,20 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+
 def test_healthz_success(fastapi_test_client, mocker):
     """Test healthz endpoint when all services are reachable."""
-    mocker.patch("healthz._check_posgresql_connection", return_value="Ok")
+    mocker.patch("healthz._check_postgresql_connection", return_value="Ok")
     mocker.patch("healthz._check_redis_connection", return_value="Ok")
 
     response = fastapi_test_client.get(f"/healthz")
     assert response.status_code == 200
-    assert response.json() == {"posgresql": "Ok", "redis": "Ok"}
+    assert response.json() == {"postgresql": "Ok", "redis": "Ok"}
 
 
 def test_healthz_postgresql_failure(fastapi_test_client, mocker):
     """Test healthz endpoint when PostgreSQL connection fails."""
     mocker.patch(
-        "healthz._check_posgresql_connection",
+        "healthz._check_postgresql_connection",
         return_value="Database connection error",
     )
     mocker.patch("healthz._check_redis_connection", return_value="Ok")
@@ -34,14 +35,14 @@ def test_healthz_postgresql_failure(fastapi_test_client, mocker):
 
     assert response.status_code == 500
     assert response.json()["detail"] == {
-        "posgresql": "Database connection error",
+        "postgresql": "Database connection error",
         "redis": "Ok",
     }
 
 
 def test_healthz_redis_failure(fastapi_test_client, mocker):
     """Test healthz endpoint when Redis connection fails."""
-    mocker.patch("healthz._check_posgresql_connection", return_value="Ok")
+    mocker.patch("healthz._check_postgresql_connection", return_value="Ok")
     mocker.patch(
         "healthz._check_redis_connection", return_value="Redis connection error"
     )
@@ -50,7 +51,7 @@ def test_healthz_redis_failure(fastapi_test_client, mocker):
 
     assert response.status_code == 500
     assert response.json()["detail"] == {
-        "posgresql": "Ok",
+        "postgresql": "Ok",
         "redis": "Redis connection error",
     }
 
@@ -58,7 +59,7 @@ def test_healthz_redis_failure(fastapi_test_client, mocker):
 def test_healthz_both_failures(fastapi_test_client, mocker):
     """Test healthz endpoint when both PostgreSQL and Redis connections fail."""
     mocker.patch(
-        "healthz._check_posgresql_connection",
+        "healthz._check_postgresql_connection",
         return_value="Database connection error",
     )
     mocker.patch(
@@ -69,6 +70,6 @@ def test_healthz_both_failures(fastapi_test_client, mocker):
 
     assert response.status_code == 500
     assert response.json()["detail"] == {
-        "posgresql": "Database connection error",
+        "postgresql": "Database connection error",
         "redis": "Redis connection error",
     }

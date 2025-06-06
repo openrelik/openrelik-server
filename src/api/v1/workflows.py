@@ -53,7 +53,7 @@ celery = Celery(broker=redis_url, backend=redis_url)
 # Workflows in a folder context.
 router = APIRouter()
 
-# Router for resouces that live under /workflows, i.e. outside of a folder context.
+# Router for resources that live under /workflows, i.e. outside of a folder context.
 router_root = APIRouter()
 
 
