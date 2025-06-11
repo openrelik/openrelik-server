@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "openrelik-server"
-version = "0.5.0"
+version = "0.6.0"
 description = "Experimental forensic workflow system"
 authors = ["Johan Berggren <jberggren@gmail.com>"]
 license = "Apache 2.0"
@@ -14,7 +14,7 @@ uvicorn = "^0.34.0"
 Authlib = "^1.3.1"
 itsdangerous = "^2.1.2"
 SQLAlchemy = "^2.0.27"
-requests = "^2.31.0"
+requests = "^2.32.4"
 httpx = "^0.27.0"
 python-jose = { extras = ["cryptography"], version = "^3.4.0" }
 python-multipart = "^0.0.18"

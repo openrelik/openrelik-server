@@ -13,7 +13,7 @@
 # limitations under the License.
 """
 Defines the Roles enum. The actual models for UserRole and GroupRole are defined in
-user.py and group.py respectivly.
+user.py and group.py respectively.
 """
 import enum
 

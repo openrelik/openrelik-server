@@ -106,7 +106,7 @@ def get_all_folders_from_db(db: Session, current_user: User, search_term: str | 
         Returns user's owned root folders plus all directly shared folders
         (root and subfolders where share is explicit). Uses non-recursive logic.
     - If search_term IS provided (Recursive Search Mode):
-        Uses resursive logic to find ALL accessible folders (direct/inherited,
+        Uses recursive logic to find ALL accessible folders (direct/inherited,
         including root folders), and filters them by search term (case-insensitive).
 
     Args:
