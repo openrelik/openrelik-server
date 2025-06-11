@@ -101,6 +101,12 @@ async def lifespan(app: FastAPI):
 
 
 def setup_telemetry(service_name: str):
+    """Configures the OpenTelemetry trace exporter.
+
+    Args:
+        service_name (str): the service name used to identify generated traces.
+    """
+
     resource = Resource(attributes={
         "service.name": service_name
     })
