@@ -183,6 +183,26 @@ def create_workflow_template_in_db(
     db.refresh(db_template)
     return db_template
 
+def update_workflow_template_in_db(
+    db: Session,
+    template: WorkflowTemplate
+):
+    """Update a workflow template.
+
+    Args:
+        db (Session): SQLAlchemy session object
+        template (WorkflowTemplate): Workflow template object
+
+    Returns:
+        WorkflowTemplate object
+    """
+    template_in_db = db.get(WorkflowTemplate, template.id)
+    for key, value in template.model_dump().items():
+        setattr(template_in_db, key, value) if value else None
+    db.commit()
+    db.refresh(template_in_db)
+    return template_in_db
+
 
 def get_task_from_db(db: Session, task_id: str):
     """Get a task by ID.
