@@ -324,6 +324,20 @@ async def test_get_workflow_templates(
     assert response.status_code == 200
     assert response.json() == [workflow_template_response.model_dump(mode="json")]
 
+@pytest.mark.asyncio
+async def test_get_workflow_template_by_id(
+    fastapi_async_test_client, mocker, workflow_template_response
+):
+    """Test get workflow template by id route."""
+    mock_get_workflow_template_by_id = mocker.patch(
+        "api.v1.workflows.get_workflow_template_from_db"
+    )
+    mock_get_workflow_template_by_id.return_value = workflow_template_response
+    
+    workflow_template_id=1
+    response = await fastapi_async_test_client.get(f"/workflows/templates/{workflow_template_id}")
+    assert response.status_code == 200
+    assert response.json() == workflow_template_response.model_dump(mode="json")
 
 @pytest.mark.asyncio
 async def test_create_workflow_template(
