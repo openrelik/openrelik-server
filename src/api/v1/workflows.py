@@ -625,7 +625,6 @@ async def update_workflow_template(
     template_id: int,
     template_from_request: schemas.WorkflowTemplateResponse,
     db: Session = Depends(get_db_connection),
-    current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.WorkflowTemplateResponse:
     """Update a workflow template.
 

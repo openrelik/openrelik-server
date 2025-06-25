@@ -351,6 +351,58 @@ async def test_create_workflow_template(
     created_template = kwargs[0][1]
     assert isinstance(created_template.spec_json, str)
 
+@pytest.mark.asyncio
+async def test_update_workflow_template(
+    fastapi_async_test_client, mocker, template_db_model, workflow_template_response
+):
+    """Test update workflow route."""
+    mock_get_workflow_template_from_db = mocker.patch("api.v1.workflows.get_workflow_template_from_db")
+    mock_get_workflow_template_from_db.return_value = template_db_model
+
+    mock_update_workflow_template_in_db = mocker.patch("api.v1.workflows.update_workflow_template_in_db")
+    mock_update_workflow_template_in_db.return_value = template_db_model
+
+    template_id=1
+    updated_workflow_template_data = {
+        "id": 1,
+        "created_at": "2025-06-25T14:03:51.095829Z",
+        "updated_at": "2025-06-25T14:03:51.095829Z",
+        "deleted_at": None,
+        "is_deleted": False,
+        "display_name": "strings",
+        "description": None,
+        "spec_json": json.dumps(
+            {
+                "workflow": {
+                    "type": "chain",
+                    "tasks": [
+                        {
+                            "type": "task",
+                            "task_name": "task_1",
+                            "queue_name": "default",
+                            "task_config": {"arg_1": "value_1", "arg_2": 2},
+                            "tasks": [],
+                        },
+                        {
+                            "type": "task",
+                            "task_name": "task_2",
+                            "queue_name": "default",
+                            "task_config": {},
+                            "tasks": [],
+                        },
+                    ],
+                }
+            }
+        ),
+        "user_id": 1
+    }
+
+    response = await fastapi_async_test_client.patch(
+        f"/workflows/templates/{template_id}", json=updated_workflow_template_data
+    )
+    assert response.status_code == 200
+    assert response.json() == workflow_template_response.model_dump(mode="json")
+
 
 @pytest.mark.asyncio
 async def test_create_workflow_template_invalid_workflow(

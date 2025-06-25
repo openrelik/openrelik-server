@@ -53,7 +53,7 @@ from datastores.sql.models.file import File
 from datastores.sql.models.folder import Folder
 from datastores.sql.models.group import Group
 from datastores.sql.models.user import User
-from datastores.sql.models.workflow import Workflow
+from datastores.sql.models.workflow import Workflow, WorkflowTemplate
 from healthz import router as healthz_router
 
 
@@ -414,6 +414,46 @@ def workflow_db_model(folder_db_model, user_db_model) -> Workflow:
 
     workflow_db_model = Workflow(**workflow_data)
     return workflow_db_model
+
+@pytest.fixture
+def template_db_model() -> WorkflowTemplate:
+    """Database WorkflowTemplate model for testing."""
+    workflow_template_data = {
+        "id": 1,
+        "created_at": None,
+        "updated_at": None,
+        "deleted_at": None,
+        "is_deleted": False,
+        "display_name": "test workflow",
+        "description": None,
+        "spec_json": json.dumps(
+            {
+                "workflow": {
+                    "type": "chain",
+                    "tasks": [
+                        {
+                            "type": "task",
+                            "task_name": "task_1",
+                            "queue_name": "default",
+                            "task_config": {"arg_1": "value_1", "arg_2": 2},
+                            "tasks": [],
+                        },
+                        {
+                            "type": "task",
+                            "task_name": "task_2",
+                            "queue_name": "default",
+                            "task_config": {},
+                            "tasks": [],
+                        },
+                    ],
+                }
+            }
+        ),
+        "user_id": 1
+    }
+
+    template_db_model = WorkflowTemplate(**workflow_template_data)
+    return template_db_model
 
 
 @pytest.fixture
