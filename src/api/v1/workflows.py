@@ -40,6 +40,7 @@ from datastores.sql.crud.workflow import (
     get_workflow_template_from_db,
     get_workflow_templates_from_db,
     update_workflow_in_db,
+    update_workflow_template_in_db,
 )
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.role import Role
@@ -556,6 +557,23 @@ async def get_workflow_templates(
     """
     return get_workflow_templates_from_db(db)
 
+# Get workflow template by id
+# /workflows/templates/id
+@router_root.get("/templates/{template_id}")
+async def get_workflow_template_by_id(
+    template_id: int,
+    db: Session = Depends(get_db_connection),
+) -> schemas.WorkflowTemplateResponse:
+    """Get workflow template by id.
+
+    Args:
+        template_id (int): The ID of the template.
+        db (Session): The database session.
+
+    Returns:
+        schemas.WorkflowTemplateResponse: A workflow template.
+    """
+    return get_workflow_template_from_db(db, template_id)
 
 # Create workflow template
 # /workflows/templates
@@ -570,7 +588,7 @@ async def create_workflow_template(
     WorkflowTemplateCreateRequest (request_body):
         - display_name (str): The display name of the template.
         - description (Optional[str]): The description of the template.
-        - workflow_id (int): The ID of the workflow to create the template from.
+        - workflow_id (Optional[int]): The ID of the workflow to create the template from.
 
     Args:
         request_body (schemas.WorkflowTemplateCreateRequest): The request body to create the template.
@@ -580,16 +598,18 @@ async def create_workflow_template(
     Returns:
         schemas.WorkflowTemplateResponse: The created workflow template.
     """
-    workflow_to_save = get_workflow_from_db(db, request_body.workflow_id)
-    if not workflow_to_save:
-        raise HTTPException(
-            status_code=404,
-            detail="Workflow with id {new_template_request.workflow_id} not found",
-        )
+    spec_json = None
+    if request_body.workflow_id:
+        workflow_to_save = get_workflow_from_db(db, request_body.workflow_id)
+        if not workflow_to_save:
+            raise HTTPException(
+                status_code=404,
+                detail="Workflow with id {new_template_request.workflow_id} not found",
+            )
 
-    # Replace UUIDs with placeholder value for the template
-    spec_json = json.loads(workflow_to_save.spec_json)
-    replace_uuids(spec_json, replace_with="PLACEHOLDER")
+        # Replace UUIDs with placeholder value for the template
+        spec_json = json.loads(workflow_to_save.spec_json)
+        replace_uuids(spec_json, replace_with="PLACEHOLDER")
 
     new_template_db = schemas.WorkflowTemplateCreate(
         display_name=request_body.display_name,
@@ -597,6 +617,40 @@ async def create_workflow_template(
         user_id=current_user.id,
     )
     return create_workflow_template_in_db(db, new_template_db)
+
+# Update workflow template
+# /workflows/templates/{template_id}
+@router_root.patch("/templates/{template_id}")
+async def update_workflow_template(
+    template_id: int,
+    template_from_request: schemas.WorkflowTemplateResponse,
+    db: Session = Depends(get_db_connection),
+) -> schemas.WorkflowTemplateResponse:
+    """Update a workflow template.
+
+    WorkflowTemplateReponse (template_from_request):
+        - display_name (str): The display name of the template.
+        - description (Optional[str]): The description of the template.
+        - spec_json (Optional[str]): JSON representation of the workflow specification.
+
+    Args:
+        template_id (int): The ID of the template to update.
+        template_from_request (schemas.WorkflowTemplateCreateRequest): The template data to update.
+        db (Session): The database session.
+        current_user (schemas.User): The current user.
+
+    Returns:
+        schemas.WorkflowTemplateResponse: The created workflow template.
+    """
+    # Fetch workflow to update from database
+    template_from_db = get_workflow_template_from_db(db, template_id)
+    template_model = schemas.WorkflowTemplateCreate(**template_from_db.__dict__)
+
+    # Update template data with supplied values
+    update_data = template_from_request.model_dump(exclude_unset=True)
+    updated_template_model = template_model.model_copy(update=update_data)
+
+    return update_workflow_template_in_db(db, updated_template_model)
 
 
 # Generate workflow name

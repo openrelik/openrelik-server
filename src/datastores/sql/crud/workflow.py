@@ -22,7 +22,7 @@ from api.v1 import schemas
 from datastores.sql.crud.file import get_file_from_db, get_file_by_uuid_from_db
 
 
-def get_file_workflows_from_db(db: Session, file_id: int):
+def get_file_workflows_from_db(db: Session, file_id: int) -> list[Workflow]:
     """Get all workflows for a file.
 
     Args:
@@ -36,7 +36,7 @@ def get_file_workflows_from_db(db: Session, file_id: int):
     return file.workflows
 
 
-def get_folder_workflows_from_db(db: Session, folder_id: int):
+def get_folder_workflows_from_db(db: Session, folder_id: int) -> list[Workflow]:
     """Get all workflows for a folder.
 
     Args:
@@ -52,7 +52,7 @@ def get_folder_workflows_from_db(db: Session, folder_id: int):
     return workflows
 
 
-def get_workflow_from_db(db: Session, workflow_id: int):
+def get_workflow_from_db(db: Session, workflow_id: int) -> Workflow:
     """Get a workflow by ID.
 
     Args:
@@ -65,7 +65,7 @@ def get_workflow_from_db(db: Session, workflow_id: int):
     return db.get(Workflow, workflow_id)
 
 
-def create_workflow_in_db(db: Session, workflow: schemas.Workflow, template_id: int):
+def create_workflow_in_db(db: Session, workflow: schemas.Workflow, template_id: int) -> Workflow:
     """Create a new workflow.
 
     Args:
@@ -92,7 +92,7 @@ def create_workflow_in_db(db: Session, workflow: schemas.Workflow, template_id: 
     return db_workflow
 
 
-def update_workflow_in_db(db: Session, workflow: schemas.Workflow):
+def update_workflow_in_db(db: Session, workflow: schemas.Workflow) -> Workflow:
     """Update a workflow in the database.
 
     Args:
@@ -136,7 +136,7 @@ def delete_workflow_template_from_db(db: Session, workflow_template_id: int):
     db.commit()
 
 
-def get_workflow_template_from_db(db: Session, template_id: int):
+def get_workflow_template_from_db(db: Session, template_id: int) -> WorkflowTemplate:
     """Get a workflow template by ID.
 
     Args:
@@ -149,7 +149,7 @@ def get_workflow_template_from_db(db: Session, template_id: int):
     return db.get(WorkflowTemplate, template_id)
 
 
-def get_workflow_templates_from_db(db: Session):
+def get_workflow_templates_from_db(db: Session) -> list[WorkflowTemplate]:
     """Get all workflow templates.
 
     Args:
@@ -163,7 +163,7 @@ def get_workflow_templates_from_db(db: Session):
 
 def create_workflow_template_in_db(
     db: Session, template: schemas.WorkflowTemplateResponse
-):
+) -> WorkflowTemplate:
     """Create a new workflow template.
 
     Args:
@@ -183,8 +183,28 @@ def create_workflow_template_in_db(
     db.refresh(db_template)
     return db_template
 
+def update_workflow_template_in_db(
+    db: Session,
+    template: WorkflowTemplate
+) -> WorkflowTemplate:
+    """Update a workflow template.
 
-def get_task_from_db(db: Session, task_id: str):
+    Args:
+        db (Session): SQLAlchemy session object
+        template (WorkflowTemplate): Workflow template object
+
+    Returns:
+        WorkflowTemplate object
+    """
+    template_in_db = db.get(WorkflowTemplate, template.id)
+    for key, value in template.model_dump().items():
+        setattr(template_in_db, key, value) if value else None
+    db.commit()
+    db.refresh(template_in_db)
+    return template_in_db
+
+
+def get_task_from_db(db: Session, task_id: str) -> Task:
     """Get a task by ID.
 
     Args:
@@ -197,7 +217,7 @@ def get_task_from_db(db: Session, task_id: str):
     return db.get(Task, task_id)
 
 
-def get_task_by_uuid_from_db(db: Session, uuid_string: str):
+def get_task_by_uuid_from_db(db: Session, uuid_string: str) -> Task:
     """Get a task by Celery task ID.
 
     Args:
@@ -210,7 +230,7 @@ def get_task_by_uuid_from_db(db: Session, uuid_string: str):
     return db.query(Task).filter_by(uuid=uuid.UUID(uuid_string)).first()
 
 
-def create_task_in_db(db: Session, task: schemas.Task):
+def create_task_in_db(db: Session, task: schemas.Task) -> Task:
     """Create a new task.
 
     Args:
@@ -228,7 +248,7 @@ def create_task_in_db(db: Session, task: schemas.Task):
 
 def create_task_report_in_db(
     db: Session, task_report: schemas.TaskReportCreate, task_id: int
-):
+) -> TaskReport:
     """Creates a new file report in the database.
 
     Args:
