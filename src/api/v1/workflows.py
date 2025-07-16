@@ -48,8 +48,14 @@ from datastores.sql.models.workflow import Task
 
 from . import schemas
 
+from lib import tracing
+
+from opentelemetry.instrumentation.celery import CeleryInstrumentor
+
 redis_url = os.getenv("REDIS_URL")
 celery = Celery(broker=redis_url, backend=redis_url)
+tracing.setup_telemetry(service_name='openrelik-server-workflows')
+CeleryInstrumentor().instrument(celery_app=celery)
 
 # Workflows in a folder context.
 router = APIRouter()
