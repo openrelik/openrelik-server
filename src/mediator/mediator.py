@@ -38,6 +38,9 @@ from datastores.sql.models.file import File
 from datastores.sql.models.workflow import Task
 from lib.file_hashes import generate_hashes
 
+from opentelemetry.instrumentation.celery import CeleryInstrumentor
+
+
 # Number of times to retry database lookups
 MAX_DATABASE_LOOKUP_RETRIES = 10
 DATABASE_LOOKUP_RETRY_DELAY_SECONDS = 1
@@ -265,6 +268,7 @@ def monitor_celery_tasks(celery_app: Celery, db: Session) -> None:
 if __name__ == "__main__":
     redis_url = os.getenv("REDIS_URL")
     celery_app = Celery(broker=redis_url, backend=redis_url)
+    CeleryInstrumentor().instrument(celery_app=celery_app)
     db = database.SessionLocal()
     # Start the Celery task monitoring loop
     monitor_celery_tasks(celery_app, db)
