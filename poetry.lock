@@ -185,14 +185,14 @@ test = ["astroid (>=2,<4)", "pytest", "pytest-cov", "pytest-xdist"]
 
 [[package]]
 name = "authlib"
-version = "1.6.0"
+version = "1.6.1"
 description = "The ultimate Python library in building OAuth and OpenID Connect servers and clients."
 optional = false
 python-versions = ">=3.9"
 groups = ["main"]
 files = [
-    {file = "authlib-1.6.0-py2.py3-none-any.whl", hash = "sha256:91685589498f79e8655e8a8947431ad6288831d643f11c55c2143ffcc738048d"},
-    {file = "authlib-1.6.0.tar.gz", hash = "sha256:4367d32031b7af175ad3a323d571dc7257b7099d55978087ceae4a0d88cd3210"},
+    {file = "authlib-1.6.1-py2.py3-none-any.whl", hash = "sha256:e9d2031c34c6309373ab845afc24168fe9e93dc52d252631f52642f21f5ed06e"},
+    {file = "authlib-1.6.1.tar.gz", hash = "sha256:4dffdbb1460ba6ec8c17981a4c67af7d8af131231b5a36a88a1e8c80c111cdfd"},
 ]
 
 [package.dependencies]
@@ -1686,6 +1686,28 @@ ollama = ">=0.3.3,<0.4.0"
 ratelimit = ">=2.2.1,<3.0.0"
 
 [[package]]
+name = "openrelik-common"
+version = "0.1.0"
+description = "Common utilities for OpenRelik"
+optional = false
+python-versions = "^3.11"
+groups = ["main"]
+files = []
+develop = false
+
+[package.dependencies]
+opentelemetry-exporter-otlp = "1.32.1"
+opentelemetry-instrumentation-celery = "^0.53b1"
+opentelemetry-instrumentation-fastapi = "^0.53b1"
+structlog = "^25.4.0"
+
+[package.source]
+type = "git"
+url = "https://github.com/rgayon/openrelik-common.git"
+reference = "otel-init2"
+resolved_reference = "b6845771084e60986f8a2ed20dc376725c3b95f9"
+
+[[package]]
 name = "opentelemetry-api"
 version = "1.32.1"
 description = "OpenTelemetry Python API"
@@ -2927,6 +2949,18 @@ anyio = ">=3.6.2,<5"
 full = ["httpx (>=0.27.0,<0.29.0)", "itsdangerous", "jinja2", "python-multipart (>=0.0.18)", "pyyaml"]
 
 [[package]]
+name = "structlog"
+version = "25.4.0"
+description = "Structured Logging for Python"
+optional = false
+python-versions = ">=3.8"
+groups = ["main"]
+files = [
+    {file = "structlog-25.4.0-py3-none-any.whl", hash = "sha256:fe809ff5c27e557d14e613f45ca441aabda051d119ee5a0102aaba6ce40eed2c"},
+    {file = "structlog-25.4.0.tar.gz", hash = "sha256:186cd1b0a8ae762e29417095664adf1d6a31702160a46dacb7796ea82f7409e4"},
+]
+
+[[package]]
 name = "tenacity"
 version = "9.1.2"
 description = "Retry code until it succeeds"
@@ -3313,4 +3347,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "def8d4041a8da9024f47514cd0e2cffe0ed059bf13dddf16b3ea000b0945a3e3"
+content-hash = "6c3740d036aaf7743bde29f808e8c6ddc79465bf72e0d24468545c266ed45f25"
