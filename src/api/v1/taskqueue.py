@@ -26,7 +26,7 @@ from opentelemetry.instrumentation.celery import CeleryInstrumentor
 redis_url = os.getenv("REDIS_URL")
 celery = Celery(broker=redis_url, backend=redis_url)
 telemetry.setup_telemetry(service_name='openrelik-server-task-queue')
-CeleryInstrumentor().instrument(celery_app=celery) # <-- THE CRUCIAL FIX
+CeleryInstrumentor().instrument(celery_app=celery)
 
 router = APIRouter()
 
