@@ -24,7 +24,6 @@ from celery.app import Celery
 from celery.canvas import Signature
 from fastapi import APIRouter, Depends, HTTPException, status
 from openrelik_ai_common.providers import manager
-from openrelik_common import telemetry
 from sqlalchemy.orm import Session
 
 from auth.common import get_current_active_user
@@ -49,12 +48,8 @@ from datastores.sql.models.workflow import Task
 
 from . import schemas
 
-from opentelemetry.instrumentation.celery import CeleryInstrumentor
-
 redis_url = os.getenv("REDIS_URL")
 celery = Celery(broker=redis_url, backend=redis_url)
-telemetry.setup_telemetry(service_name='openrelik-server-workflows')
-CeleryInstrumentor().instrument(celery_app=celery)
 
 # Workflows in a folder context.
 router = APIRouter()
