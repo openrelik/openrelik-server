@@ -53,7 +53,7 @@ from opentelemetry.instrumentation.celery import CeleryInstrumentor
 telemetry_enabled = os.environ.get("OTEL_MODE", '') != ''
 
 if telemetry_enabled:
-    from lib import tracing
+    from openrelik_common import telemetry
 
 # Allow Frontend origin to make API calls.
 origins = config["server"]["allowed_origins"]
@@ -96,11 +96,8 @@ async def lifespan(app: FastAPI):
     pass
 
 
-
-
-
 if telemetry_enabled:
-    tracing.setup_telemetry("openrelik-server")
+    telemetry.setup_telemetry("openrelik-server")
 
 # Create the main app
 app = FastAPI(lifespan=lifespan)
@@ -230,9 +227,7 @@ api_v1.include_router(
 # and generate the task queue config automatically.
 redis_url = os.getenv("REDIS_URL")
 celery = Celery(broker=redis_url, backend=redis_url)
-tracing.setup_telemetry(service_name='openrelik-server')
 FastAPIInstrumentor.instrument_app(api_v1)
 CeleryInstrumentor().instrument(celery_app=celery)
 
 celery_utils.update_task_queues(celery)
-
