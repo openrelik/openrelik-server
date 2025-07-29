@@ -47,9 +47,6 @@ from datastores.sql.models.user import User
 from healthz import router as healthz_router
 from lib import celery_utils
 
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.instrumentation.celery import CeleryInstrumentor
-
 
 telemetry_enabled = os.environ.get("OPENRELIK_OTEL_MODE", '') != ''
 
@@ -229,6 +226,6 @@ api_v1.include_router(
 redis_url = os.getenv("REDIS_URL")
 celery = Celery(broker=redis_url, backend=redis_url)
 if telemetry_enabled:
-    FastAPIInstrumentor.instrument_app(api_v1)
-    CeleryInstrumentor().instrument(celery_app=celery)
+    telemetry.instrument_fast_api(api_v1)
+    telemetry.instrument_celery_app(celery)
 celery_utils.update_task_queues(celery)
