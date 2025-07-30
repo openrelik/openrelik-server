@@ -310,6 +310,11 @@ class Workflow(BaseSchema):
     folder_id: Optional[int] = None
 
 
+class WorkflowStatus(BaseModel):
+    status: str
+    tasks: Optional[List["TaskResponseCompact"]] = []
+
+
 class WorkflowInputFile(BaseSchemaCompact):
     display_name: str
     data_type: str

@@ -541,6 +541,49 @@ async def run_workflow(
     return workflow
 
 
+# Get workflow status
+# /folders/{folder_id}/workflows/{workflow_id}/status
+@router.get("/{workflow_id}/status")
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
+async def get_workflow_status(
+    folder_id: int,
+    workflow_id: int,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> schemas.WorkflowStatus:
+    """Get a workflow status by ID."""
+    workflow = get_workflow_from_db(db, workflow_id)
+    workflow_status = "PENDING"
+
+    # Flags to track different task statuses
+    has_running_tasks = False
+    has_failed_tasks = False
+    has_any_tasks = False
+
+    for task in workflow.tasks:
+        has_any_tasks = True
+        if task.status_short in ["STARTED", "PROGRESS", "RECEIVED"]:
+            has_running_tasks = True
+        elif task.status_short == "FAILURE":
+            has_failed_tasks = True
+
+    # Logic for determining workflow status
+    if not has_any_tasks:
+        workflow_status = "PENDING"  # Explicitly set to PENDING if no tasks
+    elif has_running_tasks:
+        workflow_status = "RUNNING"
+    elif has_failed_tasks:
+        workflow_status = "COMPLETE_WITH_FAILURES"
+    else:
+        # If there are tasks, but none are running or failed, then it's complete
+        workflow_status = "COMPLETE"
+
+    return {
+        "status": workflow_status,
+        "tasks": workflow.tasks,
+    }
+
+
 # Get all workflow templates
 # /workflows/templates
 @router_root.get("/templates/")
@@ -556,6 +599,7 @@ async def get_workflow_templates(
         List[schemas.WorkflowTemplateResponse]: A list of workflow templates.
     """
     return get_workflow_templates_from_db(db)
+
 
 # Get workflow template by id
 # /workflows/templates/id
@@ -574,6 +618,7 @@ async def get_workflow_template_by_id(
         schemas.WorkflowTemplateResponse: A workflow template.
     """
     return get_workflow_template_from_db(db, template_id)
+
 
 # Create workflow template
 # /workflows/templates
@@ -617,6 +662,7 @@ async def create_workflow_template(
         user_id=current_user.id,
     )
     return create_workflow_template_in_db(db, new_template_db)
+
 
 # Update workflow template
 # /workflows/templates/{template_id}
