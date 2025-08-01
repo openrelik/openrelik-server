@@ -481,7 +481,7 @@ async def run_agent(
             detail="ADK server URL is not configured.",
         )
 
-    async def _create_session(session_id: str):
+    async def _create_adk_session(session_id: str):
         """Creates a new session to ADK for the given app and user.
 
         Args:
@@ -515,7 +515,7 @@ async def run_agent(
         """
         url = f"{ADK_BASE_URL}/run_sse"
 
-        session = await _create_session(session_id=str(uuid.uuid4()))
+        session = await _create_adk_session(session_id=str(uuid.uuid4()))
         session_id = session[1]
 
         headers = {
