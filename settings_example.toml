@@ -26,12 +26,12 @@ secret_jwt_key = "<REPLACE_WITH_RANDOM_JWT_STRING>"
 jwt_algorithm = "HS256"
 
 # UI token expiration in minutes.
-jwt_cookie_refresh_expire_minutes = 1440  # 24 hours
-jwt_cookie_access_expire_minutes = 720  # 12 hours
+jwt_cookie_refresh_expire_minutes = 1440 # 24 hours
+jwt_cookie_access_expire_minutes = 720   # 12 hours
 
 # API key token expiration in minutes, if not set by the user upon creation.
-jwt_header_default_refresh_expire_minutes = 10080  # 7 days
-jwt_header_default_access_expire_minutes = 5  # 5 minutes
+jwt_header_default_refresh_expire_minutes = 10080 # 7 days
+jwt_header_default_access_expire_minutes = 5      # 5 minutes
 
 [auth.google]
 # Google OAuth authentication. You need to create credentials in a Google Cloud project:
@@ -57,6 +57,12 @@ public_access = false
 [ui]
 # data_types that will be rendered using unescaped HTML in a sandboxed iframe in the
 # frontend UI.
-allowed_data_types_preview = [
-    "openrelik:hayabusa:html_report"
-]
+allowed_data_types_preview = ["openrelik:hayabusa:html_report"]
+
+[experimental]
+# Experimental features.
+
+[experimental.agents]
+# Enable the Agent Development Kit (ADK) server.
+# Optional: if not set, the server will not be able to run agents.
+adk_server_url = ""

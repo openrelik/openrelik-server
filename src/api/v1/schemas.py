@@ -459,3 +459,13 @@ class FileChatMessageCreate(BaseModel):
     request_prompt: str
     response_text: str
     runtime: float
+
+
+class AgentRequest(BaseModel):
+    question_prompt: str
+    agent_name: str
+
+
+class InvestigativeQuestionsRequest(BaseModel):
+    goal: str
+    context: str
