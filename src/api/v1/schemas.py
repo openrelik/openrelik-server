@@ -463,7 +463,8 @@ class FileChatMessageCreate(BaseModel):
 
 
 class AgentRequest(BaseModel):
-    prompt: str
+    question_prompt: str
+    agent_name: str
 
 
 class InvestigativeQuestionsRequest(BaseModel):

@@ -21,8 +21,8 @@ from openrelik_ai_common.providers import manager
 from sqlalchemy.orm import Session
 from sse_starlette import EventSourceResponse
 
+import config
 from auth.common import get_current_active_user
-from config import get_active_llms
 from datastores.sql.crud.authz import check_user_access, require_access
 from datastores.sql.crud.file import get_files_from_db
 from datastores.sql.crud.folder import (
@@ -450,6 +450,8 @@ def delete_user_role(
     delete_user_role_from_db(db, role_id)
 
 
+# TODO: Persist questions and answers in the database for later retrieval.Change the route to
+# include the question ID in the URL, e.g., /{folder_id}/investigations/questions/{question_id}/run.
 @router.post("/{folder_id}/investigations/questions/run")
 @require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
 async def run_agent(
@@ -458,13 +460,37 @@ async def run_agent(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ):
+    """Run an agent to answer investigative questions.
+
+    This starts a Server-Sent Events (SSE) stream to the Agent Development Kit (ADK) server and
+    mediates all ADK events and responses back to the client.
+
+    Args:
+        folder_id (int): The ID of the folder to limit file access.
+        request (schemas.AgentRequest): The request containing the agent name and question prompt.
+        db (Session): The database session.
+        current_user (schemas.User): The currently authenticated user.
+    """
+
+    ADK_BASE_URL = config.config.get("experimental", {}).get("agents", {}).get("adk_server_url")
+
+    # Ensure the ADK server URL is configured.
+    if not ADK_BASE_URL:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ADK server URL is not configured.",
+        )
+
     async def _create_session(session_id: str):
+        """Creates a new session to ADK for the given app and user.
+
+        Args:
+            session_id (str): The unique session ID to create.
+
+        Returns:
+            tuple: A tuple containing the response and session ID.
         """
-        Creates a new session for the given app and user, using a UUID for the session ID,
-        using httpx.
-        """
-        BASE_URL = "http://localhost:8000"
-        url = f"{BASE_URL}/apps/dfir_multi_agent/users/{current_user.id}/sessions/{session_id}"
+        url = f"{ADK_BASE_URL}/apps/{request.agent_name}/users/{current_user.id}/sessions/{session_id}"
         headers = {"Content-Type": "application/json"}
         payload = {"state": {}}
 
@@ -482,10 +508,12 @@ async def run_agent(
     async def _run_sse_stream():
         """
         Calls the /run_sse endpoint from the ADK server and streams the result back
-        in Server-Sent Events (SSE) format.
+        using Server-Sent Events (SSE).
+
+        Returns:
+            EventSourceResponse: A stream of events from the ADK server.
         """
-        BASE_URL = "http://localhost:8000"
-        url = f"{BASE_URL}/run_sse"
+        url = f"{ADK_BASE_URL}/run_sse"
 
         session = await _create_session(session_id=str(uuid.uuid4()))
         session_id = session[1]
@@ -495,23 +523,32 @@ async def run_agent(
             "Accept": "text/event-stream",
         }
 
+        # Prepend instructions to the user prompt to limit access to the specified folder.
+        # The access to the folder is guarded by the backend system using access control, but we
+        # want to ensure the agent only accesses files in the specified folder.
+        # TODO: Build a more robust solution for this.
         pre_prompt = f"ONLY access files in folder with ID: {folder_id}\n\n"
-        user_prompt = {
+
+        # Format the user prompt for the agent.
+        question_prompt = {
             "role": "user",
             "parts": [
                 {
-                    "text": pre_prompt + request.prompt,
+                    "text": pre_prompt + request.question_prompt,
                 }
             ],
         }
 
+        # Prepare the POST payload for the ADK server SSE stream.
         payload = {
-            "appName": "dfir_multi_agent",
+            "appName": request.agent_name,
             "userId": f"{current_user.id}",
             "sessionId": session_id,
-            "newMessage": user_prompt,
+            "newMessage": question_prompt,
         }
 
+        # Start the SSE stream to the ADK server. The server will handle the agent execution
+        # and return the results as a stream of events.
         try:
             async with httpx.AsyncClient(timeout=None) as client:
                 async with client.stream("POST", url, headers=headers, json=payload) as response:
@@ -549,28 +586,51 @@ def get_investigative_questions(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> List[str]:
-    def get_files():
-        import json
+    """Generate investigative questions based on the provided goal, context, and files.
 
-        files = get_files_from_db(db, folder_id)
-        f = []
-        for file in files:
-            d = {
-                "FILENAME": file.display_name,
-                "MIME_TYPE": file.magic_mime,
-                "MIME_TEXT": file.magic_text,
+    Args:
+        folder_id (int): The ID of the folder to limit file access.
+        request (schemas.InvestigativeQuestionsRequest): The request containing the goal and context.
+        db (Session): The database session.
+        current_user (schemas.User): The currently authenticated user.
+
+    Returns:
+        List[str]: A list of generated investigative questions.
+    """
+
+    def get_folder_contents_as_json():
+        """
+        Retrieves file metadata for a specific folder.
+
+        Returns:
+            A JSON-formatted string representing a list of file dictionaries.
+            Returns an empty JSON list '[]' if no files are found.
+        """
+        # Fetch file objects from the database.
+        files_from_db = get_files_from_db(db, folder_id)
+
+        # Use a list comprehension to build the list of file information.
+        file_data_list = [
+            {
+                "filename": file.display_name,
+                "mime_type": file.magic_mime,
+                "mime_description": file.magic_text,
             }
-            f.append(d)
-        return json.dumps(f)
+            for file in files_from_db
+        ]
+
+        return json.dumps(file_data_list)
 
     SYSTEM_INSTRUCTIONS = """
     You are a helpful security engineer that is an expert in digital forensics and reverse engineering.
     I'm investigating a system and need your help analyzing a digital artifact file.
     I have provided the artifacts in this system prompt together with file type, filename.
-    Your sole task is to generate a list of investigative questions based on the provided information.
-    The output MUST be a raw COMMA SEPARATED array of strings. Do NOT include any markdown formatting, code block fences, or extra text.
+    * Your sole task is to generate a list of investigative questions based on the provided information.
+    * The output MUST be a raw COMMA SEPARATED array of strings.
+    * Do NOT include any markdown formatting, code block fences, or extra text.
     """
 
+    # The prompt for the LLM to generate questions.
     PROMPT = f"""
     Based on the provided investigative goal, context, and files, generate a list of investigative questions that could help
     in understanding the system activity.
@@ -586,21 +646,25 @@ def get_investigative_questions(
     {request.context}
 
     Files:
-    {get_files()}
+    {get_folder_contents_as_json()}
     """
 
-    print(PROMPT)
-
-    active_llm = get_active_llms()[0]
+    # Get the active LLM provider and model from the configuration.
+    active_llm = config.get_active_llms()[0]
     llm_provider = active_llm["name"]
     llm_model = active_llm["config"]["model"]
-
     provider = manager.LLMManager().get_provider(llm_provider)
+
+    # Initialize the LLM with the specified model and system instructions.
     llm = provider(model_name=llm_model, system_instructions=SYSTEM_INSTRUCTIONS)
 
+    # Generate questions using the LLM.
     questions = llm.generate(prompt=PROMPT)
+
+    # Clean up the output.
+    # TODO: Make this more robust and comprehensive.
     questions = questions.replace('"', "").replace("'", "")
     questions = questions.split(",")
-    questions = [q.strip() for q in questions if q.strip()]
+    questions = [question.strip() for question in questions if question.strip()]
 
     return questions
