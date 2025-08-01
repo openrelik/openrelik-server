@@ -232,9 +232,8 @@ class FileResponse(BaseSchema):
     hash_ssdeep: Optional[str] = None
     user_id: int
     user: UserResponseCompact
-    folder: Optional[FolderResponse]
+    folder: Optional[FolderResponseCompact] = None
     source_file: Optional[FileResponseCompact]
-    workflows: List["WorkflowResponse"]
     summaries: List["FileSummaryResponse"]
     reports: List["FileReportResponse"]
 
