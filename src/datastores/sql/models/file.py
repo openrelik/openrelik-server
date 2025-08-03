@@ -30,6 +30,8 @@ from sqlalchemy import (
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from config import config
+
 from ..database import (
     AttributeMixin,
     BaseModel,
@@ -78,6 +80,8 @@ class File(BaseModel):
         hash_sha1 (str): The SHA1 hash of the file.
         hash_sha256 (str): The SHA256 hash of the file.
         hash_ssdeep (str): The SSDEEP hash of the file.
+        storage_provider (str): The name of the storage provider where the file is stored.
+        storage_key (Optional[str]): The path to the file in the storage provider.
         user_id (int): The ID of the user who uploaded the file.
         user (User): The user who uploaded the file.
         folder_id (Optional[int]): The ID of the folder containing the file.
@@ -104,6 +108,13 @@ class File(BaseModel):
     hash_sha1: Mapped[Optional[str]] = mapped_column(Unicode(40), index=True)
     hash_sha256: Mapped[Optional[str]] = mapped_column(Unicode(64), index=True)
     hash_ssdeep: Mapped[Optional[str]] = mapped_column(Unicode(255), index=True)
+
+    # Storage information.
+    # The storage provider name and key are used to identify where the file is stored. The name is
+    # used to lookup the storage provider configuration, which contains the mount point.
+    # There is always a default storage provider, which is used if no other provider is specified.
+    storage_provider: Mapped[str] = mapped_column(UnicodeText, index=True, server_default="default")
+    storage_key: Mapped[Optional[str]] = mapped_column(UnicodeText, index=True)
 
     # Relationships
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
@@ -170,11 +181,46 @@ class File(BaseModel):
 
     @hybrid_property
     def path(self):
-        """Returns the full path of the file."""
-        filename = self.uuid.hex
-        if self.extension:
-            filename = f"{filename}.{self.extension}"
-        return os.path.join(self.folder.path, filename)
+        """Returns the full path of the file.
+
+        Raises:
+            ValueError: If no storage provider is configured or no storage key is set for the file
+
+        Returns:
+            str: The full path of the file.
+        """
+        full_path = None
+        storage_provider_configs = config.get("server", {}).get("storage", {}).get("providers", {})
+        if storage_provider_configs:
+            if self.storage_provider not in storage_provider_configs:
+                raise ValueError(
+                    f"Storage provider '{self.storage_provider}' not found in configuration."
+                )
+            storage_path = storage_provider_configs[self.storage_provider].get("path")
+
+            if self.storage_key:
+                # storage_key is used to store the path to a specific location within the storage
+                # provider. If set then use it to build the full path together with the storage path.
+                full_path = os.path.join(storage_path, self.storage_key)
+            else:
+                # Default behavior if no storage_key is set is to use the UUID and extension
+                # together with the folder path.
+                filename = self.uuid.hex
+                if self.extension:
+                    filename = f"{filename}.{self.extension}"
+                full_path = os.path.join(self.folder.path, filename)
+        else:
+            # Fallback to the folder path if no storage provider is configured to support old
+            # variants of the configuration file.
+            filename = self.uuid.hex
+            if self.extension:
+                filename = f"{filename}.{self.extension}"
+            full_path = os.path.join(self.folder.path, filename)
+
+        if not full_path:
+            raise ValueError("No storage provider configured or no storage key set for the file.")
+
+        return full_path
 
 
 class FileAttribute(BaseModel, AttributeMixin):
