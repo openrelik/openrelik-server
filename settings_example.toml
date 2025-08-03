@@ -10,7 +10,21 @@ ui_server_url = "http://localhost:8711"
 allowed_origins = ["http://127.0.0.1:8711", "http://localhost:8711"]
 
 # Path to files
+# TODO: Depricate in favor of storage providers (keep for backwards compatibility).
 storage_path = "<REPLACE_WITH_STORAGE_PATH>"
+
+# Storage providers configuration
+# It is possible to have multiple storage providers with different
+# mount points (paths). The default provider is used if no specific provider is set and is
+# mandatory. Custom providers are optional and can be used for specific use cases such as when
+# there are files in external read-only storage for example.
+# NOTE: All mounted storage paths need to be accassible by server containers and worker containers.
+[server.storage.providers]
+# Default storage provider. This is mandatory and should be set to the path where files that are
+# uploaded to the server will be stored as well as results from workflows.
+default = { path = "<REPLACE_WITH_STORAGE_PATH>" }
+# Example: Custom storage provider
+# custom = { path = "/parth/to/storage" }
 
 [datastores.sqlalchemy]
 # Postgresql: postgresql://user:password@postgresserver/db
@@ -26,12 +40,12 @@ secret_jwt_key = "<REPLACE_WITH_RANDOM_JWT_STRING>"
 jwt_algorithm = "HS256"
 
 # UI token expiration in minutes.
-jwt_cookie_refresh_expire_minutes = 1440  # 24 hours
-jwt_cookie_access_expire_minutes = 720  # 12 hours
+jwt_cookie_refresh_expire_minutes = 1440 # 24 hours
+jwt_cookie_access_expire_minutes = 720   # 12 hours
 
 # API key token expiration in minutes, if not set by the user upon creation.
-jwt_header_default_refresh_expire_minutes = 10080  # 7 days
-jwt_header_default_access_expire_minutes = 5  # 5 minutes
+jwt_header_default_refresh_expire_minutes = 10080 # 7 days
+jwt_header_default_access_expire_minutes = 5      # 5 minutes
 
 [auth.google]
 # Google OAuth authentication. You need to create credentials in a Google Cloud project:
@@ -57,6 +71,4 @@ public_access = false
 [ui]
 # data_types that will be rendered using unescaped HTML in a sandboxed iframe in the
 # frontend UI.
-allowed_data_types_preview = [
-    "openrelik:hayabusa:html_report"
-]
+allowed_data_types_preview = ["openrelik:hayabusa:html_report"]
