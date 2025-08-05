@@ -232,9 +232,8 @@ class FileResponse(BaseSchema):
     hash_ssdeep: Optional[str] = None
     user_id: int
     user: UserResponseCompact
-    folder: Optional[FolderResponse]
+    folder: Optional[FolderResponseCompact] = None
     source_file: Optional[FileResponseCompact]
-    workflows: List["WorkflowResponse"]
     summaries: List["FileSummaryResponse"]
     reports: List["FileReportResponse"]
 
@@ -308,6 +307,11 @@ class Workflow(BaseSchema):
     user_id: int | None = None
     file_ids: List[int] = []
     folder_id: Optional[int] = None
+
+
+class WorkflowStatus(BaseModel):
+    status: str
+    tasks: Optional[List["TaskResponseCompact"]] = []
 
 
 class WorkflowInputFile(BaseSchemaCompact):
@@ -455,3 +459,13 @@ class FileChatMessageCreate(BaseModel):
     request_prompt: str
     response_text: str
     runtime: float
+
+
+class AgentRequest(BaseModel):
+    question_prompt: str
+    agent_name: str
+
+
+class InvestigativeQuestionsRequest(BaseModel):
+    goal: str
+    context: str
