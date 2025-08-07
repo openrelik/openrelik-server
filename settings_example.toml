@@ -59,10 +59,7 @@ public_access = false
 # frontend UI.
 allowed_data_types_preview = ["openrelik:hayabusa:html_report"]
 
-[experimental]
-# Experimental features.
-
-[experimental.agents]
+[experiments.agents]
 # Enable the Agent Development Kit (ADK) server.
 # Optional: if not set, the server will not be able to run agents.
 adk_server_url = ""

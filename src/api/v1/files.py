@@ -116,7 +116,9 @@ def get_file_content(
 
     html_content = f"""
     <html style="background:{background_color}; scrollbar-color: {scrollbar_thumb_color} {scrollbar_track_color};">
-        <pre style="color:{font_color};padding:10px;white-space: pre-wrap;">{html_source_content}</pre>
+        <body style="margin: 0;">
+            <pre style="color:{font_color};padding:10px;white-space: pre-wrap; margin: 0; padding: 0;">{html_source_content}</pre>
+        </body>
     </html>
     """
     # return content
