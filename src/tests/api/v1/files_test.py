@@ -48,7 +48,7 @@ def test_get_file_content(
         in response.text
     )
     assert (
-        f'<pre style="color:{expected_color};padding:10px;white-space: pre-wrap;">{file_content}</pre>'
+        f'<pre style="color:{expected_color};padding:10px;white-space: pre-wrap; margin: 0; padding: 0;">{file_content}</pre>'
         in response.text
     )
     mock_open.assert_called_with(file_db_model.path, "r", encoding="utf-8")
@@ -63,7 +63,7 @@ def test_get_file_content_file_not_found(fastapi_test_client, mocker, file_db_mo
     response = fastapi_test_client.get(f"/files/{file_db_model.id}/content")
     assert response.status_code == 200
     assert (
-        '<pre style="color:#000;padding:10px;white-space: pre-wrap;">File not found</pre>'
+        '<pre style="color:#000;padding:10px;white-space: pre-wrap; margin: 0; padding: 0;">File not found</pre>'
         in response.text
     )
 

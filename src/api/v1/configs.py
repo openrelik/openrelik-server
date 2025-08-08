@@ -30,4 +30,7 @@ def get_system_config():
     return {
         "active_llms": active_llms,
         "allowed_data_types_preview": allowed_data_types_preview,
+        "agents_enabled": bool(
+            config.get("experiments", {}).get("agents", {}).get("adk_server_url")
+        ),
     }

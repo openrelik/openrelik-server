@@ -232,7 +232,7 @@ class FileResponse(BaseSchema):
     hash_ssdeep: Optional[str] = None
     user_id: int
     user: UserResponseCompact
-    folder: Optional[FolderResponseCompact] = None
+    folder: Optional[FolderResponse] = None
     source_file: Optional[FileResponseCompact]
     summaries: List["FileSummaryResponse"]
     reports: List["FileReportResponse"]
@@ -247,6 +247,7 @@ class FileResponseCompactList(BaseModel):
     magic_mime: Optional[str] = None
     user: UserResponseCompact
     created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     is_deleted: Optional[bool] = False
 
 

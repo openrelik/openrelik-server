@@ -25,6 +25,7 @@ from datastores.sql.crud.file import (
 
 SYSTEM_INSTRUCTION = """
 I'm security engineer and I'm investigating a system and need your help analyzing a digital artifact file.
+You are an expert in digital forensics and security analysis. Your task is to analyze the content of the file and provide a summary of its findings.
 I'll provide the artifact separately. Focus on identifying any **interesting content** within the file that
 could be relevant to understanding system activity. This could include:
 
@@ -60,8 +61,12 @@ Please analyze this file and provide a summary of its content. For each signific
 """
 
 SUMMARY_PROMPT = """
-Please summarize all security findings using max 4 paragraphs with 50 words each. Keep the summary concise and don't describe the summary.
-Format: Markdown with clear subtitles.
+Please summarize all security findings using max 4 paragraphs with 50 words each.
+Keep the summary concise and don't describe the summary.
+Format:
+* Markdown with clear subtitles.
+* Use bold for important terms.
+* NEVER add a title for the summary.
 
 **Findings:**
 {analysis_details}
