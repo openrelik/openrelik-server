@@ -28,7 +28,7 @@ argon2-cffi = "^23.1.0"
 typer = "^0.16.0"
 prometheus-client = "^0.21.0"
 openrelik-ai-common = "~0.5.0"
-openrelik-common = "^0.5.0"
+openrelik-common = "^0.6.0"
 sse-starlette = "^2.3.6"
 
 
