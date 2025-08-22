@@ -47,11 +47,7 @@ from datastores.sql.models.user import User
 from healthz import router as healthz_router
 from lib import celery_utils
 
-
-telemetry_enabled = os.environ.get("OPENRELIK_OTEL_MODE", '') != ''
-
-if telemetry_enabled:
-    from openrelik_common import telemetry
+from openrelik_common import telemetry
 
 # Allow Frontend origin to make API calls.
 origins = config["server"]["allowed_origins"]
@@ -94,8 +90,7 @@ async def lifespan(app: FastAPI):
     pass
 
 
-if telemetry_enabled:
-    telemetry.setup_telemetry("openrelik-server")
+telemetry.setup_telemetry("openrelik-server")
 
 # Create the main app
 app = FastAPI(lifespan=lifespan)
@@ -225,7 +220,6 @@ api_v1.include_router(
 # and generate the task queue config automatically.
 redis_url = os.getenv("REDIS_URL")
 celery = Celery(broker=redis_url, backend=redis_url)
-if telemetry_enabled:
-    telemetry.instrument_fast_api(api_v1)
-    telemetry.instrument_celery_app(celery)
+telemetry.instrument_fast_api(api_v1)
+telemetry.instrument_celery_app(celery)
 celery_utils.update_task_queues(celery)
