@@ -53,7 +53,11 @@ def get_tables_schemas(file: object) -> dict:
     if not is_sql_file(file.magic_text):
         return {}
 
+    # Set read_only to True to prevent any modifications to the database.
     db_conn = duckdb.connect(file.path, read_only=True)
+
+    # Disable external access to prevent that the query accesses files outside the database.
+    db_conn.execute("SET enable_external_access = false;")
 
     # Query to get all tables and their schemas using DuckDB's information schema.
     tables_schemas_query = """
@@ -95,7 +99,12 @@ def run_query(file: object, sql_query: str) -> list[dict]:
     if not is_sql_file(file.magic_text):
         raise RuntimeError("File is not a supported SQL format.")
 
+    # Set read_only to True to prevent any modifications to the database.
     db_conn = duckdb.connect(file.path, read_only=True)
+
+    # Disable external access to prevent that the query accesses files outside the database.
+    db_conn.execute("SET enable_external_access = false;")
+
     try:
         # Execute the query and get both the data and column names
         cursor = db_conn.execute(sql_query)
