@@ -71,7 +71,6 @@ def get_tables_schemas(file: object) -> dict:
     """
 
     try:
-        # Use .fetchall() to get all rows as a list of tuples
         results = db_conn.execute(tables_schemas_query).fetchall()
         tables_schemas = {}
         for table_name, column_name, data_type in results:
@@ -110,6 +109,11 @@ def run_query(file: object, sql_query: str) -> list[dict]:
         cursor = db_conn.execute(sql_query)
         columns = [desc[0] for desc in cursor.description]
         results = cursor.fetchall()
+
+        # Convert bytes to string in results more efficiently
+        results = [
+            tuple(str(item) if isinstance(item, bytes) else item for item in row) for row in results
+        ]
 
         # Manually create a list of dictionaries
         list_of_dicts = [dict(zip(columns, row)) for row in results]
