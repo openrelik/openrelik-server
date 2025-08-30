@@ -470,3 +470,25 @@ class AgentRequest(BaseModel):
 class InvestigativeQuestionsRequest(BaseModel):
     goal: str
     context: str
+
+
+class SQLQueryRequest(BaseModel):
+    query: str
+
+
+class SQLQueryResponse(BaseModel):
+    query: str
+    result: List[dict]
+
+
+class SQLGenerateQueryRequest(BaseModel):
+    user_request: str
+
+
+class SQLGenerateQueryResponse(BaseModel):
+    user_request: str
+    generated_query: str
+
+
+class SQLSchemasResponse(BaseModel):
+    schemas: dict
