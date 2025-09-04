@@ -180,6 +180,14 @@ def before_compile(query):
 
     for desc in query.column_descriptions:
         entity = desc["entity"]
+
+        # Skip if entity is None (happens with UNION queries, subqueries, or count queries)
+        if entity is None:
+            continue
+        # Skip if entity doesn't have is_deleted attribute (for non-model entities)
+        if not hasattr(entity, "is_deleted"):
+            continue
+
         query = query.enable_assertions(False).filter(
             (entity.is_deleted == False) | (entity.is_deleted == None)
         )

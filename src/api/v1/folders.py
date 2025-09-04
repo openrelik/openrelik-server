@@ -99,8 +99,10 @@ def get_shared_folders(
 def get_all_folders(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
+    page: int = 1,
+    page_size: int = 40,
     q: str | None = None,
-) -> List[schemas.FolderResponseCompact]:
+) -> schemas.FolderListPaginatedResponse:
     """Get all shared folders for a user.
 
     Args:
@@ -111,7 +113,16 @@ def get_all_folders(
     Returns:
         list: list of folders
     """
-    return get_all_folders_from_db(db, current_user, search_term=q)
+    result, total_count = get_all_folders_from_db(
+        db, current_user, search_term=q, page=page, page_size=page_size
+    )
+    response = schemas.FolderListPaginatedResponse(
+        folders=result,
+        total_count=total_count,
+        page=page,
+        page_size=page_size,
+    )
+    return response
 
 
 # Get all sub-folders for a parent folder
