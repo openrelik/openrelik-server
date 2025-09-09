@@ -98,7 +98,13 @@ def get_shared_folders_from_db(db: Session, current_user: User):
     )
 
 
-def get_all_folders_from_db(db: Session, current_user: User, search_term: str | None = None):
+def get_all_folders_from_db(
+    db: Session,
+    current_user: User,
+    search_term: str | None = None,
+    page: int = 1,
+    page_size: int = 100,
+) -> tuple[list[Folder], int]:
     """
     Retrieves accessible folders with conditional logic based on search term.
 
@@ -113,6 +119,8 @@ def get_all_folders_from_db(db: Session, current_user: User, search_term: str | 
         db (Session): database session
         current_user (User): current user
         search_term (str | None, optional): Term to filter folder names by
+        page (int, optional): Page number. Defaults to 1.
+        page_size (int, optional): Number of records per page.
 
     Returns:
         list[Folder]: List of folders based on the mode, ordered by creation date desc.
@@ -164,9 +172,12 @@ def get_all_folders_from_db(db: Session, current_user: User, search_term: str | 
             accessible_folders_cte, Folder.id == accessible_folders_cte.c.id
         )
 
-        # Apply Search Filter (mandatory in this branch)
+        # Apply Search Filter
         search_pattern = f"%{search_term}%"
         final_query = final_query.filter(Folder.display_name.ilike(search_pattern))
+
+        subquery = final_query.subquery()
+        total_count = db.query(func.count()).select_from(subquery).scalar()
 
     else:
         # --- Default View: Non-Recursive - Owned Roots + Direct Shares ---
@@ -214,8 +225,21 @@ def get_all_folders_from_db(db: Session, current_user: User, search_term: str | 
         # Combine owned roots and direct shares using UNION for the default view
         final_query = owned_root_folders_query.union(shared_folders_query)
 
-    # --- Execute the selected query ---
-    return final_query.order_by(Folder.created_at.desc()).all()
+    # --- Execute the selected query with pagination ---
+    final_query = final_query.order_by(Folder.created_at.desc())
+
+    # Use distinct() to ensure unique folder objects are returned
+    final_query = final_query.distinct()
+
+    # Get total count before applying pagination
+    total_count = final_query.count()
+
+    # Apply pagination
+    if page_size is not None:
+        offset = (page - 1) * page_size
+        final_query = final_query.offset(offset).limit(page_size)
+
+    return final_query.all(), total_count
 
 
 def get_subfolders_from_db(db: Session, parent_folder_id: str):

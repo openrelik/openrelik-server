@@ -86,8 +86,6 @@ class UserResponse(BaseSchema):
 class UserResponseCompact(BaseSchemaCompact):
     display_name: str
     username: str
-    email: Optional[str]
-    auth_method: str
     profile_picture_url: Optional[str]
     uuid: UUID
 
@@ -169,10 +167,19 @@ class FolderResponse(BaseSchema):
 
 
 class FolderResponseCompact(BaseSchema):
+    model_config = ConfigDict(from_attributes=True)
+
     display_name: str
     user: UserResponseCompact
-    workflows: List["WorkflowResponseCompact"]
+    workflows: Optional[List["WorkflowResponseCompact"]]
     selectable: Optional[bool] = False
+
+
+class FolderListPaginatedResponse(BaseModel):
+    folders: List[FolderResponseCompact]
+    page: int
+    page_size: int
+    total_count: int
 
 
 class UserRoleResponse(BaseSchema):
@@ -336,6 +343,8 @@ class WorkflowResponse(BaseSchema):
 
 
 class WorkflowResponseCompact(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
 
 
