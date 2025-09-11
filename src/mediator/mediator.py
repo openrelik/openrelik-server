@@ -17,16 +17,17 @@ import json
 import os
 import time
 import uuid
-
-from celery import Celery, states as celery_states
-from celery.result import AsyncResult
-from celery.events.state import State as CeleryEventState, Task as CeleryEventTask
-from sqlalchemy.orm import Session
 from typing import Any, Dict, Optional
 
-from api.v1 import schemas
-
+from celery import Celery
+from celery import states as celery_states
+from celery.events.state import State as CeleryEventState
+from celery.events.state import Task as CeleryEventTask
+from celery.result import AsyncResult
 from openrelik_common import telemetry
+from sqlalchemy.orm import Session
+
+from api.v1 import schemas
 
 # Import models to make the ORM register correctly.
 from datastores.sql import database
@@ -39,7 +40,6 @@ from datastores.sql.crud.workflow import (
 from datastores.sql.models.file import File
 from datastores.sql.models.workflow import Task
 from lib.file_hashes import generate_hashes
-
 
 # Number of times to retry database lookups
 MAX_DATABASE_LOOKUP_RETRIES = 10
@@ -61,9 +61,7 @@ def get_task_from_db(db: Session, task_uuid: str) -> Optional[Task]:
         task = get_task_by_uuid_from_db(db, task_uuid)
         if task:
             break
-        print(
-            f"Database lookup for task {task_uuid} failed, retrying..{retry_count + 1}"
-        )
+        print(f"Database lookup for task {task_uuid} failed, retrying..{retry_count + 1}")
         time.sleep(DATABASE_LOOKUP_RETRY_DELAY_SECONDS)
     return task
 
@@ -149,9 +147,7 @@ def process_successful_task(
         celery_app: The Celery application.
     """
     celery_task_result = AsyncResult(celery_task.uuid, app=celery_app).get()
-    result_dict = json.loads(
-        base64.b64decode(celery_task_result.encode("utf-8")).decode("utf-8")
-    )
+    result_dict = json.loads(base64.b64decode(celery_task_result.encode("utf-8")).decode("utf-8"))
     db_task.result = json.dumps(result_dict)
 
     output_files = result_dict.get("output_files", [])
@@ -189,9 +185,7 @@ def process_successful_task(
         create_task_report_in_db(db, new_task_report, task_id=db_task.id)
 
 
-def process_failed_task(
-    db: Session, celery_task: CeleryEventTask, db_task: Task
-) -> None:
+def process_failed_task(db: Session, celery_task: CeleryEventTask, db_task: Task) -> None:
     """Processes a failed Celery task and updates the database.
 
     Args:
@@ -256,9 +250,7 @@ def monitor_celery_tasks(celery_app: Celery, db: Session) -> None:
                 "worker-heartbeat": on_worker_event,
                 "worker-online": on_worker_event,
                 "worker-offline": on_worker_event,
-                "task-progress": lambda event: process_task_progress_event(
-                    db, state, event
-                ),
+                "task-progress": lambda event: process_task_progress_event(db, state, event),
                 "*": lambda event: process_task_event(db, state, event, celery_app),
             },
         )
