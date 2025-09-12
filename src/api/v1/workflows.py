@@ -45,6 +45,7 @@ from datastores.sql.crud.workflow import (
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.role import Role
 from datastores.sql.models.workflow import Task
+from lib.reporting_utils import create_workflow_report
 
 from . import schemas
 
@@ -778,3 +779,19 @@ async def generate_workflow_name(
     # Limit the generated name to a maximum number of MAX_WORDS
     generated_name = " ".join(generated_name.split()[:MAX_WORDS])
     return {"generated_name": generated_name.strip()}
+
+
+@router_root.get("/{workflow_id}/report/")
+@require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
+async def generate_workflow_report(
+    workflow_id: int,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> schemas.WorkflowReportResponse:
+    workflow = get_workflow_from_db(db, workflow_id)
+    markdown = create_workflow_report(workflow)
+    response = schemas.WorkflowReportResponse(
+        workflow=workflow,
+        markdown=markdown,
+    )
+    return response
