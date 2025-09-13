@@ -346,6 +346,7 @@ class WorkflowResponseCompact(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    display_name: str
 
 
 class WorkflowStatusResponse(BaseSchema):
@@ -384,6 +385,11 @@ class WorkflowTemplateResponse(BaseSchema):
 
 class WorkflowGeneratedNameResponse(BaseModel):
     generated_name: str
+
+
+class WorkflowReportResponse(BaseModel):
+    workflow: WorkflowResponseCompact
+    markdown: str
 
 
 class Task(BaseSchema):
