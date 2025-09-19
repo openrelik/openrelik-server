@@ -11,17 +11,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from typing import List, Any, Annotated
 import uuid
+from typing import Annotated, Any, List
 
 from authlib.integrations.starlette_client import OAuth, OAuthError
-from fastapi import APIRouter, Depends, HTTPException, Header
+from fastapi import APIRouter, Depends, Header, HTTPException
+from google.auth import exceptions as google_exceptions
+from google.auth.transport import requests
+from google.oauth2 import id_token
 from sqlalchemy.orm import Session
 from starlette.requests import Request
 from starlette.responses import RedirectResponse
-from google.auth.transport import requests
-from google.oauth2 import id_token
-from google.auth import exceptions as google_exceptions
 
 from api.v1 import schemas
 from config import config
@@ -39,6 +39,7 @@ GOOGLE_ALLOW_LIST = config["auth"]["google"]["allowlist"]
 GOOGLE_PUBLIC_ACCESS = config["auth"]["google"].get("public_access", False)
 GOOGLE_WORKSPACE_DOMAIN = config["auth"]["google"].get("workspace_domain", False)
 GOOGLE_EXTRA_AUDIENCES = config["auth"]["google"].get("extra_audiences", [])
+GOOGLE_ALLOWED_ROBOT_ACCOUNTS = config["auth"]["google"].get("allowed_robot_accounts", [])
 REFRESH_TOKEN_EXPIRE_MINUTES = config["auth"]["jwt_cookie_refresh_expire_minutes"]
 ACCESS_TOKEN_EXPIRE_MINUTES = config["auth"]["jwt_cookie_access_expire_minutes"]
 
@@ -64,24 +65,22 @@ def _validate_google_token(token: str, expected_audiences: List[str]) -> dict[st
     try:
         idinfo = id_token.verify_oauth2_token(token, requests.Request())
         if idinfo["aud"] not in expected_audiences:
-            raise HTTPException(
-                status_code=401, detail="Unauthorized. Could not verify audience."
-            )
+            raise HTTPException(status_code=401, detail="Unauthorized. Could not verify audience.")
         return idinfo
-    except ValueError as e:
+    except ValueError:
         raise HTTPException(status_code=401, detail="Unauthorized. Invalid token.")
-    except google_exceptions.GoogleAuthError as e:
-        raise HTTPException(
-            status_code=401, detail="Unauthorized. Could not verify token."
-        )
+    except google_exceptions.GoogleAuthError:
+        raise HTTPException(status_code=401, detail="Unauthorized. Could not verify token.")
 
 
 def _validate_user_info(user_info: dict[str, Any]) -> None:
+    # Allow robot accounts to login regardless of domain.
+    if user_info.get("email", "") in GOOGLE_ALLOWED_ROBOT_ACCOUNTS:
+        return
+
     # Restrict logins to Google Workspace Domain if configured.
     if GOOGLE_WORKSPACE_DOMAIN and user_info.get("hd") != GOOGLE_WORKSPACE_DOMAIN:
-        raise HTTPException(
-            status_code=401, detail="Unauthorized. Invalid workspace domain."
-        )
+        raise HTTPException(status_code=401, detail="Unauthorized. Invalid workspace domain.")
 
     # Check if the user is allowed to login.
     if GOOGLE_PUBLIC_ACCESS:
@@ -168,9 +167,7 @@ async def login(request: Request) -> Any:
     if GOOGLE_WORKSPACE_DOMAIN:
         workspace_domain = GOOGLE_WORKSPACE_DOMAIN
 
-    return await oauth.google.authorize_redirect(
-        request, redirect_uri, hd=workspace_domain
-    )
+    return await oauth.google.authorize_redirect(request, redirect_uri, hd=workspace_domain)
 
 
 @router.get("/auth/google")
