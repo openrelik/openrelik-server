@@ -45,6 +45,7 @@ from datastores.sql.crud.workflow import (
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.role import Role
 from datastores.sql.models.workflow import Task
+from lib import workflow_utils
 from lib.reporting_utils import create_workflow_report
 
 from . import schemas
@@ -259,6 +260,8 @@ async def create_workflow(
         - file_ids (List[int]): A list of file IDs associated with the workflow.
         - template_id (Optional[int]): The ID of a workflow template to use. If provided,
         the workflow will be created based on the template.
+        - template_params (Optional[dict]): A dictionary of parameters to customize the paramters
+            of the workflow template.
 
     Args:
         folder_id (int): The ID of the folder to create the workflow in.
@@ -278,6 +281,10 @@ async def create_workflow(
         spec_json = json.loads(template.spec_json)
         # Replace UUIDs with placeholder value for the template
         replace_uuids(spec_json)
+        # Add parameter values to task_config items
+        if request_body.template_params:
+            workflow_utils.update_task_config_values(spec_json, request_body.template_params)
+
         default_spec_json = json.dumps(spec_json)
 
     # Create new folder for workflow results
@@ -294,7 +301,7 @@ async def create_workflow(
         file_ids=request_body.file_ids,
         folder_id=new_workflow_folder.id,
     )
-    new_workflow = create_workflow_in_db(db, new_workflow_db, template_id=request_body.template_id)
+    new_workflow = create_workflow_in_db(db, new_workflow_db)
     return new_workflow
 
 
@@ -452,7 +459,7 @@ async def copy_workflow(
         folder_id=new_workflow_folder.id,
         user_id=current_user.id,
     )
-    return create_workflow_in_db(db, new_workflow_db, template_id=None)
+    return create_workflow_in_db(db, new_workflow_db)
 
 
 # Delete workflow
@@ -781,6 +788,8 @@ async def generate_workflow_name(
     return {"generated_name": generated_name.strip()}
 
 
+# Generate workflow report
+# /workflows/{workflow_id}/report
 @router_root.get("/{workflow_id}/report/")
 @require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
 async def generate_workflow_report(

@@ -357,6 +357,7 @@ class WorkflowCreateRequest(BaseModel):
     folder_id: int
     file_ids: List[int]
     template_id: Optional[int] = None
+    template_params: Optional[dict] = None
 
 
 class WorkflowRunRequest(BaseModel):
