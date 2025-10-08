@@ -315,6 +315,7 @@ class Workflow(BaseSchema):
     user_id: int | None = None
     file_ids: List[int] = []
     folder_id: Optional[int] = None
+    template_id: Optional[int] = None
 
 
 class WorkflowStatus(BaseModel):
@@ -340,6 +341,7 @@ class WorkflowResponse(BaseSchema):
     files: Optional[List["WorkflowInputFile"]]
     tasks: Optional[List["TaskResponse"]]
     folder: Optional["WorkflowFolder"]
+    template: Optional["WorkflowTemplateResponseCompact"]
 
 
 class WorkflowResponseCompact(BaseModel):
@@ -382,6 +384,11 @@ class WorkflowTemplateResponse(BaseSchema):
     description: Optional[str] = None
     spec_json: str
     user_id: int
+
+
+class WorkflowTemplateResponseCompact(BaseModel):
+    id: int
+    display_name: str
 
 
 class WorkflowGeneratedNameResponse(BaseModel):

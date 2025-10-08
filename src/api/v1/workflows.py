@@ -275,10 +275,12 @@ async def create_workflow(
     default_workflow_display_name = "Untitled workflow"
     default_spec_json = None
 
+    from_template = None
+
     if request_body.template_id:
-        template = get_workflow_template_from_db(db, request_body.template_id)
-        default_workflow_display_name = template.display_name
-        spec_json = json.loads(template.spec_json)
+        from_template = get_workflow_template_from_db(db, request_body.template_id)
+        default_workflow_display_name = from_template.display_name
+        spec_json = json.loads(from_template.spec_json)
         # Replace UUIDs with placeholder value for the template
         replace_uuids(spec_json)
         # Add parameter values to task_config items
@@ -300,6 +302,7 @@ async def create_workflow(
         spec_json=default_spec_json,
         file_ids=request_body.file_ids,
         folder_id=new_workflow_folder.id,
+        template_id=from_template.id if from_template else None,
     )
     new_workflow = create_workflow_in_db(db, new_workflow_db)
     return new_workflow
