@@ -83,6 +83,7 @@ def create_workflow_in_db(db: Session, workflow: schemas.Workflow) -> Workflow:
         uuid=uuid.uuid4(),
         files=[get_file_from_db(db, file_id) for file_id in workflow.file_ids],
         folder_id=workflow.folder_id,
+        template_id=workflow.template_id,
         user_id=workflow.user_id,
     )
 

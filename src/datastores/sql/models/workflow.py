@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2024-2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,14 +13,13 @@
 # limitations under the License.
 
 import uuid as uuid_module
-
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import ForeignKey, UnicodeText, UUID, Integer
+from sqlalchemy import UUID, ForeignKey, Integer, UnicodeText
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import BaseModel
-from .file import file_workflow_association_table, file_task_input_association_table
+from .file import file_task_input_association_table, file_workflow_association_table
 
 if TYPE_CHECKING:
     from .file import File, FileReport
@@ -38,6 +37,8 @@ class Workflow(BaseModel):
     user: Mapped["User"] = relationship(back_populates="workflows")
     folder_id: Mapped[Optional[int]] = mapped_column(ForeignKey("folder.id"))
     folder: Mapped[Optional["Folder"]] = relationship(back_populates="workflows")
+    template_id: Mapped[Optional[int]] = mapped_column(ForeignKey("workflowtemplate.id"))
+    template: Mapped[Optional["WorkflowTemplate"]] = relationship(back_populates="workflows")
     files: Mapped[List["File"]] = relationship(
         secondary=file_workflow_association_table, back_populates="workflows"
     )
@@ -55,6 +56,7 @@ class WorkflowTemplate(BaseModel):
     # Relationships
     user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("user.id"))
     user: Mapped[Optional["User"]] = relationship(back_populates="workflow_templates")
+    workflows: Mapped[List["Workflow"]] = relationship(back_populates="template")
 
 
 class Task(BaseModel):
