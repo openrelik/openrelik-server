@@ -33,8 +33,8 @@ from datastores.sql.crud.group import (
     create_group_in_db,
     get_group_by_name_from_db,
     get_groups_from_db,
-    remove_users_from_group as remove_users_from_group_db,  # Alias to avoid conflict
 )
+from datastores.sql.crud.group import remove_users_from_group as remove_users_from_group_db
 from datastores.sql.crud.user import (
     create_user_api_key_in_db,
     create_user_in_db,
@@ -54,7 +54,7 @@ from datastores.sql.models.user import UserRole
 
 password_hasher = PasswordHasher()
 
-app = typer.Typer()
+app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]}, add_completion=False)
 
 
 def get_username_and_password(
@@ -86,6 +86,47 @@ def get_username_and_password(
         print("[bold red]Error: Both username and password are required.[/bold red]")
         raise typer.Exit(code=1)
     return username, password
+
+
+def parse_retention_time(retention: str) -> timedelta:
+    """
+    Parses a retention time string into a timedelta object.
+
+    The retention string format is <number><unit>, where unit can be:
+    - m: minutes
+    - h: hours
+    - D: days
+    - W: weeks
+    - M: months (approximated as 30 days)
+    - Y: years (approximated as 365 days)
+
+    Args:
+        retention: The retention time string (e.g., '10D', '2W', '1M').
+
+    Returns:
+        A timedelta object representing the retention period.
+
+    Raises:
+        typer.BadParameter: If the retention time format or unit is invalid.
+    """
+    match = re.match(r"(\d+)([mhDWMY])", retention)
+    if not match:
+        raise typer.BadParameter("Invalid retention time format. Use <number>[m|h|D|W|M|Y].")
+    value = int(match.group(1))
+    unit = match.group(2)
+    if unit == "m":
+        return timedelta(minutes=value)
+    if unit == "h":
+        return timedelta(hours=value)
+    elif unit == "D":
+        return timedelta(days=value)
+    elif unit == "W":
+        return timedelta(weeks=value)
+    elif unit == "M":
+        return timedelta(days=value * 30)  # Approx
+    elif unit == "Y":
+        return timedelta(days=value * 365)  # Approx
+    raise typer.BadParameter(f"Invalid retention time unit: {unit}")
 
 
 @app.command()
@@ -164,9 +205,7 @@ def change_password(
                 print("[bold red]Error: User does not exist.[/bold red]")
                 raise typer.Exit(code=1)
             if existing_user.auth_method != "local":
-                print(
-                    "[bold red]Error: You can only change password for local users.[/bold red]"
-                )
+                print("[bold red]Error: You can only change password for local users.[/bold red]")
                 raise typer.Exit(code=1)
 
         # Get username and password, prompting if necessary
@@ -210,15 +249,11 @@ def create_api_key(
 
         user = get_user_by_username_from_db(db, username)
         if not user:
-            print(
-                f"[bold red]Error: User with username '{username}' not found.[/bold red]"
-            )
+            print(f"[bold red]Error: User with username '{username}' not found.[/bold red]")
             raise typer.Exit(code=1)
 
         current_config = get_config()
-        TOKEN_EXPIRE_MINUTES = current_config["auth"][
-            "jwt_header_default_refresh_expire_minutes"
-        ]
+        TOKEN_EXPIRE_MINUTES = current_config["auth"]["jwt_header_default_refresh_expire_minutes"]
         refresh_token = create_jwt_token(
             audience="api-client",
             expire_minutes=TOKEN_EXPIRE_MINUTES,
@@ -267,9 +302,7 @@ def set_admin(
     with database.SessionLocal() as db:
         existing_user = get_user_by_username_from_db(db, username)
         if not existing_user:
-            print(
-                f"[bold red]Error: User with username '{username}' not found.[/bold red]"
-            )
+            print(f"[bold red]Error: User with username '{username}' not found.[/bold red]")
             raise typer.Exit(code=1)
 
         existing_user.is_admin = admin
@@ -298,9 +331,7 @@ def user_details(
     with database.SessionLocal() as db:
         existing_user = get_user_by_username_from_db(db, username)
         if not existing_user:
-            print(
-                f"[bold red]Error: User with username '{username}' not found.[/bold red]"
-            )
+            print(f"[bold red]Error: User with username '{username}' not found.[/bold red]")
             raise typer.Exit(code=1)
 
         table = Table(title=f"User Details: {username}")
@@ -419,9 +450,7 @@ def list_workflow_templates() -> None:
 
 @app.command()
 def purge_deleted_files(
-    force: bool = typer.Option(
-        False, "--force", "-f", help="Purge files without asking."
-    ),
+    force: bool = typer.Option(False, "--force", "-f", help="Purge files without asking."),
     retention: Optional[str] = typer.Option(
         None,
         "--older-than",
@@ -445,48 +474,6 @@ def purge_deleted_files(
         batch_size: Number of files to process in each batch during deletion.
     """
     db = database.SessionLocal()
-
-    def _parse_retention_time(retention: str) -> timedelta:
-        """
-        Parses a retention time string into a timedelta object.
-
-        The retention string format is <number><unit>, where unit can be:
-        - m: minutes
-        - h: hours
-        - D: days
-        - W: weeks
-        - M: months (approximated as 30 days)
-        - Y: years (approximated as 365 days)
-
-        Args:
-            retention: The retention time string (e.g., '10D', '2W', '1M').
-
-        Returns:
-            A timedelta object representing the retention period.
-
-        Raises:
-            typer.BadParameter: If the retention time format or unit is invalid.
-        """
-        match = re.match(r"(\d+)([mhDWMY])", retention)
-        if not match:
-            raise typer.BadParameter(
-                "Invalid retention time format. Use <number>[m|h|D|W|M|Y]."
-            )
-        value = int(match.group(1))
-        unit = match.group(2)
-        if unit == "m":
-            return timedelta(minutes=value)
-        if unit == "h":
-            return timedelta(hours=value)
-        elif unit == "D":
-            return timedelta(days=value)
-        elif unit == "W":
-            return timedelta(weeks=value)
-        elif unit == "M":
-            return timedelta(days=value * 30)  # Approx
-        elif unit == "Y":
-            return timedelta(days=value * 365)  # Approx
-        raise typer.BadParameter(f"Invalid retention time unit: {unit}")
 
     def _format_size(size_bytes):
         """
@@ -527,7 +514,7 @@ def purge_deleted_files(
         filters = [File.is_deleted == True, File.is_purged == False]
         if retention:
             try:
-                retention_delta = _parse_retention_time(retention)
+                retention_delta = parse_retention_time(retention)
                 cutoff_time = datetime.now(timezone.utc) - retention_delta
                 filters.append(File.deleted_at <= cutoff_time)
                 print(
@@ -538,16 +525,12 @@ def purge_deleted_files(
                 return
 
         # 2. Get Summary
-        summary_query = select(func.count(File.id), func.sum(File.filesize)).where(
-            and_(*filters)
-        )
+        summary_query = select(func.count(File.id), func.sum(File.filesize)).where(and_(*filters))
         num_files, total_size = db.execute(summary_query).first()
         total_size = total_size or 0
 
         if not num_files or num_files == 0:
-            print(
-                "[bold green]No files matching criteria are waiting for purging.[/bold green]"
-            )
+            print("[bold green]No files matching criteria are waiting for purging.[/bold green]")
             return
 
         print("[bold blue]Purge request summary:[/bold blue]")
@@ -562,9 +545,7 @@ def purge_deleted_files(
             return
 
         # 4. Process in Batches
-        print(
-            f"[bold yellow]Starting purge process in batches of {batch_size}...[/bold yellow]"
-        )
+        print(f"[bold yellow]Starting purge process in batches of {batch_size}...[/bold yellow]")
         processed_count = 0
         all_successfully_purged_ids = []
 
@@ -589,22 +570,16 @@ def purge_deleted_files(
                 new_folder_ids = folder_ids_in_batch - folder_paths_cache.keys()
                 if new_folder_ids:
                     folder_components_results = db.execute(
-                        select(Folder.id, Folder.uuid).where(
-                            Folder.id.in_(new_folder_ids)
-                        )
+                        select(Folder.id, Folder.uuid).where(Folder.id.in_(new_folder_ids))
                     ).all()
 
                     # Reconstruct path using config and cache it
                     for f_id, f_uuid in folder_components_results:
                         if f_uuid:
-                            reconstructed_path = os.path.join(
-                                base_storage_path, f_uuid.hex
-                            )
+                            reconstructed_path = os.path.join(base_storage_path, f_uuid.hex)
                             folder_paths_cache[f_id] = reconstructed_path
                         else:
-                            print(
-                                f"Warning: Folder ID {f_id} has no UUID. Cannot determine path."
-                            )
+                            print(f"Warning: Folder ID {f_id} has no UUID. Cannot determine path.")
                             folder_paths_cache[f_id] = None
 
                 # Delete files from the filesystem in the batch
@@ -647,9 +622,7 @@ def purge_deleted_files(
 
                 # Add successfully deleted IDs from this batch to the main list
                 all_successfully_purged_ids.extend(batch_ids_processed_in_fs)
-                print(
-                    f"  Batch processed: {processed_count}/{num_files} files deleted."
-                )
+                print(f"  Batch processed: {processed_count}/{num_files} files deleted.")
 
         except Exception as loop_e:
             # Catch errors during the cursor iteration or FS processing
@@ -673,9 +646,7 @@ def purge_deleted_files(
 
                 # Commit the single transaction
                 db.commit()
-                print(
-                    "Database updates committed [bold green]successfully[/bold green]."
-                )
+                print("Database updates committed [bold green]successfully[/bold green].")
 
             except Exception as final_commit_e:
                 print(
@@ -691,9 +662,7 @@ def purge_deleted_files(
 
         # Final Summary
         total_successfully_purged = len(all_successfully_purged_ids)
-        print(
-            f"[bold green]Successfully[/bold green] purged {total_successfully_purged} files"
-        )
+        print(f"[bold green]Successfully[/bold green] purged {total_successfully_purged} files")
         if processed_count != total_successfully_purged:
             print(
                 f"[bold yellow]Note: {processed_count - total_successfully_purged} files encountered errors during filesystem removal or had missing info.[/bold yellow]"
@@ -755,9 +724,7 @@ def list_groups():
 @app.command()
 def create_group(
     group_name: str = typer.Argument(..., help="Name of the group to create."),
-    description: str = typer.Option(
-        "", "--description", "-d", help="Description of the group."
-    ),
+    description: str = typer.Option("", "--description", "-d", help="Description of the group."),
 ):
     """
     Creates a new user group.
@@ -879,9 +846,7 @@ def remove_users_from_group(
                 continue
 
             if user not in group.users:
-                print(
-                    f"Info: User '{username}' is not in group '{group_name}'. Skipping."
-                )
+                print(f"Info: User '{username}' is not in group '{group_name}'. Skipping.")
                 continue
             actual_usernames_removed.append(username)
 
@@ -921,6 +886,126 @@ def list_group_members(
                 str(user.uuid),
             )
         print(table)
+
+
+@app.command()
+def soft_delete_empty_folders(
+    force: bool = typer.Option(False, "--force", "-f", help="Soft delete folders without asking."),
+    retention: Optional[str] = typer.Option(
+        None,
+        "--older-than",
+        help="Soft delete folders older than this duration (e.g., '10D', '2W', '1M').",
+    ),
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Show which folders would be removed without actually removing them.",
+    ),
+) -> None:
+    """
+    Soft deletes (mark deleted) empty folders from the database that are older than a
+    specified retention time.
+
+    An empty folder is defined as a Folder record that has no associated File
+    records and no subfolders.
+
+    Args:
+        force: If True, soft deletes folders without asking for confirmation.
+        retention: Soft delete folders older than this duration (e.g., '10D', '2W', '1M').
+                   Format is <number>[m|h|D|W|M|Y] for minutes, hours, days,
+                   weeks, months, years respectively.
+        dry_run: If True, lists the folders that would be deleted without performing
+                 any changes to the database or filesystem.
+    """
+    with database.SessionLocal() as db:
+        try:
+            current_config = get_config()
+            base_storage_path = current_config.get("server", {}).get("storage_path")
+            if not base_storage_path:
+                print(
+                    "[bold red]Error: Could not retrieve 'storage_path' from server configuration.[/bold red]"
+                )
+                return
+
+            if retention:
+                try:
+                    retention_delta = parse_retention_time(retention)
+                    cutoff_time = datetime.now(timezone.utc) - retention_delta
+                    print(
+                        f"Applying retention filter: Marking empty folders as deleted created before {cutoff_time.strftime('%Y-%m-%d %H:%M:%S %Z')}"
+                    )
+                except typer.BadParameter as e:
+                    print(f"[bold red]Error:[/bold red] {e}")
+                    return
+
+            # Query for empty folders older than the cutoff time.
+            # Note: If the folder has any deleted files or subfolders, it won't be considered empty.
+            query = select(Folder).where(
+                Folder.is_deleted.is_(False),  # the folder itself must be active
+                ~Folder.files.any(),  # no files
+                ~Folder.workflows.any(),  # no workflows
+                ~Folder.children.any(),  # no subfolders at all (including deleted)
+            )
+
+            # Apply retention filter if specified
+            if retention:
+                query = query.where(Folder.created_at <= cutoff_time)
+
+            # Execute the query
+            folders_to_delete = db.execute(query).scalars().all()
+
+            if not folders_to_delete:
+                print(
+                    "[bold green]No empty folders older than the specified time found.[/bold green]"
+                )
+                return
+
+            num_folders = len(folders_to_delete)
+            print(
+                f"[bold blue]Empty folders to soft delete:[/bold blue] [bold]{num_folders}[/bold]"
+            )
+
+            if dry_run:
+                print(
+                    "[bold yellow]Dry run mode enabled. The following folders would be removed:[/bold yellow]"
+                )
+                table = Table(title="Folders to be marked as deleted (Dry Run)")
+                table.add_column("Folder ID", style="cyan")
+                table.add_column("Folder Name", style="green")
+                table.add_column("Created At", style="green")
+                for folder in folders_to_delete:
+                    table.add_row(
+                        str(folder.id),
+                        str(folder.display_name),
+                        str(folder.created_at),
+                    )
+                print(table)
+                return
+
+            if not force and not typer.confirm(
+                f"Are you sure you want to soft delete {num_folders} empty folders?"
+            ):
+                print("[bold red]Deletion cancelled.[/bold red]")
+                return
+
+            for folder in folders_to_delete:
+                folder.soft_delete()
+
+            # Commit the changes to the database
+            db.commit()
+
+            print(
+                f"[bold green]Successfully marked {num_folders} empty folders as deleted.[/bold green]"
+            )
+
+        except Exception as e:
+            print(f"[bold red]An unexpected error occurred during folder deletion: {e}[/bold red]")
+            db.rollback()
+
+        # Always close the DB Session
+        finally:
+            if db:
+                db.close()
 
 
 if __name__ == "__main__":
