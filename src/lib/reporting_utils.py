@@ -13,6 +13,7 @@
 # limitations under the License.
 """Utility functions for generating formatted reports."""
 
+import hashlib
 import string
 import textwrap
 from enum import IntEnum
@@ -90,6 +91,9 @@ def create_workflow_report(
 
     has_reports = False
 
+    # Set to track unique file reports to avoid duplicates
+    seen_file_reports = set()
+
     # Handle the header section
     if include_header:
         workflow_url = f"{base_url}/folder/{workflow.folder.id}/"
@@ -124,6 +128,24 @@ def create_workflow_report(
             )
 
         for file_report in task.file_reports:
+            # Create a hash of the attributes to identify unique file reports
+            report_data = (
+                f"{file_report.file.original_path or ''}"
+                f"{file_report.file.hash_sha1 or ''}"
+                f"{file_report.file.source_file.id if file_report.file.source_file else ''}"
+                f"{file_report.summary or ''}"
+                f"{file_report.markdown or ''}"
+                f"{file_report.priority or ''}"
+            )
+            report_hash = hashlib.sha256(report_data.encode()).hexdigest()
+
+            # If we've already seen this exact report, skip it
+            if report_hash in seen_file_reports:
+                continue
+
+            # Mark this report as seen to filter out duplicates
+            seen_file_reports.add(report_hash)
+
             if min_priority <= file_report.priority <= max_priority:
                 has_reports = True
                 file_url = f"{base_url}/folder/{workflow.folder.id}/file/{file_report.file.id}"
@@ -156,7 +178,7 @@ def create_workflow_report(
                 # Create the template object
                 file_report_template = string.Template(final_template_str)
 
-                task_markdown_content += file_report_template.substitute(
+                task_markdown_content += "\n\n" + file_report_template.substitute(
                     summary=summary,
                     task_name=task.display_name,
                     runtime=f"{round(task.runtime, 2)}s",
