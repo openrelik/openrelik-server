@@ -17,6 +17,7 @@ import json
 import os
 import time
 import uuid
+from threading import Lock
 from typing import Any, Dict, Optional
 
 from celery import Celery
@@ -31,7 +32,11 @@ from api.v1 import schemas
 
 # Import models to make the ORM register correctly.
 from datastores.sql import database
-from datastores.sql.crud.file import create_file_in_db, create_file_report_in_db
+from datastores.sql.crud.file import (
+    create_file_in_db,
+    create_file_report_in_db,
+    get_file_by_uuid_from_db,
+)
 from datastores.sql.crud.workflow import (
     create_task_report_in_db,
     get_task_by_uuid_from_db,
@@ -44,6 +49,12 @@ from lib.file_hashes import generate_hashes
 # Number of times to retry database lookups
 MAX_DATABASE_LOOKUP_RETRIES = 10
 DATABASE_LOOKUP_RETRY_DELAY_SECONDS = 1
+
+# A dictionary where the key is the UUID of any MISSING file needed for a file report.
+PENDING_FILE_REPORTS = {}
+# Lock is important because the mediator runs sequentially, but a background
+# thread might be modifying this structure.
+PENDING_FILE_REPORTS_LOCK = Lock()
 
 
 def get_task_from_db(db: Session, task_uuid: str) -> Optional[Task]:
@@ -117,6 +128,64 @@ def create_file_in_database(
     return create_file_in_db(db, new_file, workflow.user)
 
 
+def create_or_defer_file_report(db: Session, file_report: Dict[str, Any], task_id: int):
+    """
+    Creates a file report in the database or defer it if the input file is missing.
+    This is to handle cases where the file report depends on a file that has not yet been created
+    due to Celery message ordering.
+
+    Args:
+        db: The database session.
+        file_report: A dictionary containing file report data.
+        task_id: The ID of the task associated with the file report.
+    """
+    input_file_uuid = file_report.get("input_file_uuid")
+    input_file = get_file_by_uuid_from_db(db, input_file_uuid)
+
+    content_file_uuid = file_report.get("content_file_uuid")
+    content_file = get_file_by_uuid_from_db(db, content_file_uuid)
+
+    missing_dependencies = set()
+    if not input_file:
+        missing_dependencies.add(input_file_uuid)
+    if not content_file:
+        missing_dependencies.add(content_file_uuid)
+
+    # If any dependencies are missing, defer the report creation and return early.
+    if missing_dependencies:
+        print("Deferring file report creation, missing dependencies:", missing_dependencies)
+        report_data = (file_report, task_id)
+        with PENDING_FILE_REPORTS_LOCK:
+            for missing_uuid in missing_dependencies:
+                PENDING_FILE_REPORTS.setdefault(missing_uuid, []).append(report_data)
+        return
+
+    # If all dependencies are available, create the file report in the database.
+    new_file_report = schemas.FileReportCreate(
+        summary=file_report.get("summary"),
+        priority=file_report.get("priority"),
+        input_file_uuid=file_report.get("input_file_uuid"),
+        content_file_uuid=file_report.get("content_file_uuid"),
+    )
+    create_file_report_in_db(db, new_file_report, task_id)
+
+
+def process_pending_file_reports(db: Session, created_file_uuid: str):
+    """Processes any pending file reports.
+
+    Args:
+        db: The database session.
+        created_file_uuid: The UUID of the file that was just created.
+    """
+    reports_to_process = []
+
+    with PENDING_FILE_REPORTS_LOCK:
+        reports_to_process = PENDING_FILE_REPORTS.pop(created_file_uuid, [])
+
+    for file_report, task_id in reports_to_process:
+        create_or_defer_file_report(db, file_report, task_id)
+
+
 def process_task_progress_event(
     db: Session, state: CeleryEventState, event: Dict[str, Any]
 ) -> None:
@@ -158,6 +227,10 @@ def process_successful_task(
     # Create files from the resulting output files
     for file_data in output_files:
         new_file = create_file_in_database(db, file_data, result_dict, db_task)
+
+        # Process any pending reports that are waiting for this file
+        process_pending_file_reports(db, file_data.get("uuid"))
+
         # TODO: Move this to a celery task to run in the background
         generate_hashes(new_file.id)
 
@@ -168,13 +241,7 @@ def process_successful_task(
         generate_hashes(new_log_file.id)
 
     for file_report in file_reports:
-        new_file_report = schemas.FileReportCreate(
-            summary=file_report.get("summary"),
-            priority=file_report.get("priority"),
-            input_file_uuid=file_report.get("input_file_uuid"),
-            content_file_uuid=file_report.get("content_file_uuid"),
-        )
-        create_file_report_in_db(db, new_file_report, task_id=db_task.id)
+        create_or_defer_file_report(db, file_report, db_task.id)
 
     if task_report:
         new_task_report = schemas.TaskReportCreate(
