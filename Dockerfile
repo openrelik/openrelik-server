@@ -35,5 +35,8 @@ COPY --from=builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
 # Copy needed files
 COPY src ./openrelik
 
+# Copy over DuckDB extension
+COPY extras ./openrelik
+
 # Set workdir for Uvicorn to function
 WORKDIR /app/openrelik
