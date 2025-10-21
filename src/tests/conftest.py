@@ -25,7 +25,6 @@ if "REDIS_URL" not in os.environ:
 import json
 import uuid
 from typing import Sequence
-from unittest.mock import MagicMock
 
 import pytest
 from fastapi import FastAPI
@@ -47,7 +46,7 @@ from api.v1.workflows import (
 from api.v1.workflows import (
     router_root as workflows_root_router,
 )
-from auth.common import get_current_active_user, authenticated_as_admin
+from auth.common import authenticated_as_admin, get_current_active_user
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.file import File
 from datastores.sql.models.folder import Folder
@@ -82,16 +81,18 @@ def db(mocker):
 @pytest.fixture
 def example_user_1(regular_user: schemas.User) -> User:
     user_data = regular_user.model_dump()
-    user_data.update({
-        "id": 1,
-        "username": "user1_uname",
-        "display_name": "User 1",
-        "email": "user1@example.com",
-        "profile_picture_url": "http://localhost/profile/pic1",
-        "uuid": uuid.uuid4(), # Keep as UUID object, Pydantic handles it
-        "auth_method": "test_auth",
-        "is_admin": False,
-    })
+    user_data.update(
+        {
+            "id": 1,
+            "username": "user1_uname",
+            "display_name": "User 1",
+            "email": "user1@example.com",
+            "profile_picture_url": "http://localhost/profile/pic1",
+            "uuid": uuid.uuid4(),  # Keep as UUID object, Pydantic handles it
+            "auth_method": "test_auth",
+            "is_admin": False,
+        }
+    )
     # Ensure all fields for User model are present if not covered by user_db_model
     user_instance = User(**user_data)
     return user_instance
@@ -100,16 +101,18 @@ def example_user_1(regular_user: schemas.User) -> User:
 @pytest.fixture
 def example_user_2(regular_user: schemas.User) -> User:
     user_data = regular_user.model_dump()
-    user_data.update({
-        "id": 2,
-        "username": "user2_uname",
-        "display_name": "User 2",
-        "email": "user2@example.com",
-        "profile_picture_url": "http://localhost/profile/pic2",
-        "uuid": uuid.uuid4(), # Keep as UUID object
-        "auth_method": "test_auth",
-        "is_admin": False,
-    })
+    user_data.update(
+        {
+            "id": 2,
+            "username": "user2_uname",
+            "display_name": "User 2",
+            "email": "user2@example.com",
+            "profile_picture_url": "http://localhost/profile/pic2",
+            "uuid": uuid.uuid4(),  # Keep as UUID object
+            "auth_method": "test_auth",
+            "is_admin": False,
+        }
+    )
     user_instance = User(**user_data)
     return user_instance
 
@@ -120,10 +123,10 @@ def example_groups(example_user_1: User, example_user_2: User) -> Sequence[Group
         {"name": "Group 1", "description": "Description 1", "id": 1, "uuid": uuid.uuid4().hex},
         {"name": "Group 2", "description": "Description 2", "id": 2, "uuid": uuid.uuid4().hex},
     ]
-    
+
     group1 = Group(**groups_data[0])
     # SQLAlchemy relationships are typically appendable lists
-    group1.users = [example_user_1, example_user_2] 
+    group1.users = [example_user_1, example_user_2]
 
     group2 = Group(**groups_data[1])
     return [group1, group2]
@@ -355,6 +358,7 @@ def workflow_response(user_db_model) -> schemas.WorkflowResponse:
                 }
             }
         ),
+        "template": None,
         "created_at": None,
         "updated_at": None,
         "deleted_at": None,
@@ -415,6 +419,7 @@ def workflow_db_model(folder_db_model, user_db_model) -> Workflow:
     workflow_db_model = Workflow(**workflow_data)
     return workflow_db_model
 
+
 @pytest.fixture
 def template_db_model() -> WorkflowTemplate:
     """Database WorkflowTemplate model for testing."""
@@ -449,7 +454,7 @@ def template_db_model() -> WorkflowTemplate:
                 }
             }
         ),
-        "user_id": 1
+        "user_id": 1,
     }
 
     template_db_model = WorkflowTemplate(**workflow_template_data)

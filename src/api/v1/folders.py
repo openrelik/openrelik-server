@@ -11,11 +11,17 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import json
+import uuid
 from typing import List
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
+from openrelik_ai_common.providers import manager
 from sqlalchemy.orm import Session
+from sse_starlette import EventSourceResponse
 
+import config
 from auth.common import get_current_active_user
 from datastores.sql.crud.authz import check_user_access, require_access
 from datastores.sql.crud.file import get_files_from_db
@@ -93,8 +99,10 @@ def get_shared_folders(
 def get_all_folders(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
+    page: int = 1,
+    page_size: int = 40,
     q: str | None = None,
-) -> List[schemas.FolderResponseCompact]:
+) -> schemas.FolderListPaginatedResponse:
     """Get all shared folders for a user.
 
     Args:
@@ -105,7 +113,16 @@ def get_all_folders(
     Returns:
         list: list of folders
     """
-    return get_all_folders_from_db(db, current_user, search_term=q)
+    result, total_count = get_all_folders_from_db(
+        db, current_user, search_term=q, page=page, page_size=page_size
+    )
+    response = schemas.FolderListPaginatedResponse(
+        folders=result,
+        total_count=total_count,
+        page=page,
+        page_size=page_size,
+    )
+    return response
 
 
 # Get all sub-folders for a parent folder
@@ -304,9 +321,7 @@ def share_folder(
     folder_to_share = get_folder_from_db(db, folder_id)
     # @require_access handles folder not found, but this is an explicit check.
     if not folder_to_share:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found."
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found.")
     if folder_to_share.is_deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -336,9 +351,7 @@ def share_folder(
                     detail=f"User with ID {user_id_to_share} not found.",
                 )
             # Use enum member's name (e.g., "OWNER") instead of value (e.g., "Owner")
-            if user_role_exists(
-                db, user_id_to_share, folder_id, user_permission_role.name
-            ):
+            if user_role_exists(db, user_id_to_share, folder_id, user_permission_role.name):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=f"User ID {user_id_to_share} already has the role '{user_permission_role.name}' on folder {folder_id}.",
@@ -364,9 +377,7 @@ def share_folder(
                     detail=f"User '{user_name_to_share}' (ID: {user.id}) already has the role '{user_permission_role.name}' on folder {folder_id}.",
                 )
             # Pass enum member's name for creation
-            create_user_role_in_db(
-                db, user_permission_role.name, user.id, folder_id=folder_id
-            )
+            create_user_role_in_db(db, user_permission_role.name, user.id, folder_id=folder_id)
 
     # Process Group IDs
     if request.group_ids:
@@ -378,9 +389,7 @@ def share_folder(
                     detail=f"Group with ID {group_id_to_share} not found.",
                 )
             # Use enum member's name (e.g., "OWNER") instead of value (e.g., "Owner")
-            if group_role_exists(
-                db, group_id_to_share, folder_id, group_permission_role.name
-            ):
+            if group_role_exists(db, group_id_to_share, folder_id, group_permission_role.name):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=f"Group ID {group_id_to_share} already has the role '{group_permission_role.name}' on folder {folder_id}.",
@@ -406,9 +415,7 @@ def share_folder(
                     detail=f"Group '{group_name_to_share}' (ID: {group.id}) already has the role '{group_permission_role.name}' on folder {folder_id}.",
                 )
             # Pass enum member's name for creation
-            create_group_role_in_db(
-                db, group_permission_role.name, group.id, folder_id=folder_id
-            )
+            create_group_role_in_db(db, group_permission_role.name, group.id, folder_id=folder_id)
 
     return get_folder_from_db(db, folder_id)
 
@@ -452,3 +459,223 @@ def delete_user_role(
     current_user: schemas.User = Depends(get_current_active_user),
 ):
     delete_user_role_from_db(db, role_id)
+
+
+# TODO: Persist questions and answers in the database for later retrieval.Change the route to
+# include the question ID in the URL, e.g., /{folder_id}/investigations/questions/{question_id}/run.
+@router.post("/{folder_id}/investigations/questions/run")
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
+async def run_agent(
+    folder_id: int,
+    request: schemas.AgentRequest,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+):
+    """Run an agent to answer investigative questions.
+
+    This starts a Server-Sent Events (SSE) stream to the Agent Development Kit (ADK) server and
+    mediates all ADK events and responses back to the client.
+
+    Args:
+        folder_id (int): The ID of the folder to limit file access.
+        request (schemas.AgentRequest): The request containing the agent name and question prompt.
+        db (Session): The database session.
+        current_user (schemas.User): The currently authenticated user.
+    """
+
+    ADK_BASE_URL = config.config.get("experimental", {}).get("agents", {}).get("adk_server_url")
+
+    # Ensure the ADK server URL is configured.
+    if not ADK_BASE_URL:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ADK server URL is not configured.",
+        )
+
+    async def _create_adk_session(session_id: str):
+        """Creates a new session to ADK for the given app and user.
+
+        Args:
+            session_id (str): The unique session ID to create.
+
+        Returns:
+            tuple: A tuple containing the response and session ID.
+        """
+        url = f"{ADK_BASE_URL}/apps/{request.agent_name}/users/{current_user.id}/sessions/{session_id}"
+        headers = {"Content-Type": "application/json"}
+        payload = {"state": {}}
+
+        try:
+            response = httpx.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            return response, session_id
+        except httpx.HTTPStatusError as e:
+            print(f"HTTP error creating session: {e.response.status_code} - {e.response.text}")
+            return None, session_id
+        except httpx.RequestError as e:
+            print(f"Request error creating session: {e}")
+            return None, session_id
+
+    async def _run_sse_stream():
+        """
+        Calls the /run_sse endpoint from the ADK server and streams the result back
+        using Server-Sent Events (SSE).
+
+        Returns:
+            EventSourceResponse: A stream of events from the ADK server.
+        """
+        url = f"{ADK_BASE_URL}/run_sse"
+
+        session = await _create_adk_session(session_id=str(uuid.uuid4()))
+        session_id = session[1]
+
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+        }
+
+        # Prepend instructions to the user prompt to limit access to the specified folder.
+        # The access to the folder is guarded by the backend system using access control, but we
+        # want to ensure the agent only accesses files in the specified folder.
+        # TODO: Build a more robust solution for this.
+        pre_prompt = f"ONLY access files in folder with ID: {folder_id}\n\n"
+
+        # Format the user prompt for the agent.
+        question_prompt = {
+            "role": "user",
+            "parts": [
+                {
+                    "text": pre_prompt + request.question_prompt,
+                }
+            ],
+        }
+
+        # Prepare the POST payload for the ADK server SSE stream.
+        payload = {
+            "appName": request.agent_name,
+            "userId": f"{current_user.id}",
+            "sessionId": session_id,
+            "newMessage": question_prompt,
+        }
+
+        # Start the SSE stream to the ADK server. The server will handle the agent execution
+        # and return the results as a stream of events.
+        try:
+            async with httpx.AsyncClient(timeout=None) as client:
+                async with client.stream("POST", url, headers=headers, json=payload) as response:
+                    response.raise_for_status()
+                    async for chunk in response.aiter_bytes():
+                        decoded_chunk = chunk.decode("utf-8")
+                        for line in decoded_chunk.splitlines():
+                            if line.startswith("data: "):
+                                try:
+                                    json_data = json.loads(line[len("data: ") :])
+                                    yield json.dumps(json_data)
+                                except json.JSONDecodeError:
+                                    pass
+                    yield json.dumps({"type": "complete", "message": "All agents finished."})
+        except httpx.HTTPStatusError as e:
+            error_message = (
+                f"HTTP error during SSE stream: {e.response.status_code} - {e.response.text}"
+            )
+            yield json.dumps({"type": "error", "message": error_message})
+        except httpx.RequestError as e:
+            error_message = f"Request error during SSE stream: {e}"
+            yield json.dumps({"type": "error", "message": error_message})
+        except Exception as e:
+            error_message = f"Unexpected error during SSE stream: {e}"
+            yield json.dumps({"type": "error", "message": error_message})
+
+    return EventSourceResponse(_run_sse_stream())
+
+
+@router.post("/{folder_id}/investigations/questions")
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
+def get_investigative_questions(
+    folder_id: int,
+    request: schemas.InvestigativeQuestionsRequest,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> List[str]:
+    """Generate investigative questions based on the provided goal, context, and files.
+
+    Args:
+        folder_id (int): The ID of the folder to limit file access.
+        request (schemas.InvestigativeQuestionsRequest): The request containing the goal and context.
+        db (Session): The database session.
+        current_user (schemas.User): The currently authenticated user.
+
+    Returns:
+        List[str]: A list of generated investigative questions.
+    """
+
+    def get_folder_contents_as_json():
+        """
+        Retrieves file metadata for a specific folder.
+
+        Returns:
+            A JSON-formatted string representing a list of file dictionaries.
+            Returns an empty JSON list '[]' if no files are found.
+        """
+        # Fetch file objects from the database.
+        files_from_db = get_files_from_db(db, folder_id)
+
+        # Use a list comprehension to build the list of file information.
+        file_data_list = [
+            {
+                "filename": file.display_name,
+                "mime_type": file.magic_mime,
+                "mime_description": file.magic_text,
+            }
+            for file in files_from_db
+        ]
+
+        return json.dumps(file_data_list)
+
+    SYSTEM_INSTRUCTIONS = """
+    You are a helpful security engineer that is an expert in digital forensics and reverse engineering.
+    I'm investigating a system and need your help analyzing a digital artifact file.
+    I have provided the artifacts in this system prompt together with file type, filename.
+    * Your sole task is to generate a list of investigative questions based on the provided information.
+    * The output MUST be a raw COMMA SEPARATED array of strings.
+    * Do NOT include any markdown formatting, code block fences, or extra text.
+    """
+
+    # The prompt for the LLM to generate questions.
+    PROMPT = f"""
+    Based on the provided investigative goal, context, and files, generate a list of investigative questions that could help
+    in understanding the system activity.
+
+    The questions must be relevant to the investigation goal and file types/filenames.
+    * Generate EXACTLY 5 questions.
+    * Each question should be a maximum of 15 words.
+
+    Investigative Goal:
+    {request.goal}
+
+    Context:
+    {request.context}
+
+    Files:
+    {get_folder_contents_as_json()}
+    """
+
+    # Get the active LLM provider and model from the configuration.
+    active_llm = config.get_active_llms()[0]
+    llm_provider = active_llm["name"]
+    llm_model = active_llm["config"]["model"]
+    provider = manager.LLMManager().get_provider(llm_provider)
+
+    # Initialize the LLM with the specified model and system instructions.
+    llm = provider(model_name=llm_model, system_instructions=SYSTEM_INSTRUCTIONS)
+
+    # Generate questions using the LLM.
+    questions = llm.generate(prompt=PROMPT)
+
+    # Clean up the output.
+    # TODO: Make this more robust and comprehensive.
+    questions = questions.replace('"', "").replace("'", "")
+    questions = questions.split(",")
+    questions = [question.strip() for question in questions if question.strip()]
+
+    return questions

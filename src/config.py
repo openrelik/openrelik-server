@@ -23,13 +23,11 @@ from openrelik_ai_common.providers import manager
 
 def get_config() -> dict:
     """Load the settings from the settings.toml file."""
-    project_dir = os.path.normpath(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    )
+    project_dir = os.path.normpath(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     settings_from_env = os.getenv("OPENRELIK_SERVER_SETTINGS")
     # To ensure tests can be loaded even if we don't have a settings.toml file
     # or we didn't set the environment variable (e.g. vanilla VScode devcontainer)
-    if 'pytest' in sys.modules:
+    if "pytest" in sys.modules:
         settings_file = os.path.join(project_dir, "settings_example.toml")
     else:
         settings_file = os.path.join(project_dir, "settings.toml")
@@ -41,12 +39,21 @@ def get_config() -> dict:
         config = tomllib.load(fh)
     return config
 
+
 def get_active_llms() -> dict:
     """Get active LLM providers from the LLM manager."""
     llm_manager = manager.LLMManager()
     llm_providers = list(llm_manager.get_providers())
     active_llms = [provider_class().to_dict() for _, provider_class in llm_providers]
     return active_llms
+
+
+def get_ui_server_url() -> str:
+    """Get the UI server URL from the config."""
+    ui_server_url = config.get("server", {}).get("ui_server_url")
+    if not ui_server_url:
+        raise HTTPException(status_code=500, detail="UI server URL is not configured.")
+    return ui_server_url
 
 
 config = get_config()

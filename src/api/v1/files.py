@@ -15,6 +15,7 @@ import glob
 import html
 import json
 import os
+import re
 from typing import List
 from uuid import uuid4
 
@@ -49,8 +50,9 @@ from datastores.sql.crud.workflow import get_file_workflows_from_db, get_task_fr
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.role import Role
 from datastores.sql.models.workflow import Task
+from lib import duckdb_utils
 from lib.file_hashes import generate_hashes
-from lib.llm_summary import generate_summary
+from lib.llm_summary import generate_sql_summary, generate_summary
 
 from . import schemas
 
@@ -116,7 +118,9 @@ def get_file_content(
 
     html_content = f"""
     <html style="background:{background_color}; scrollbar-color: {scrollbar_thumb_color} {scrollbar_track_color};">
-        <pre style="color:{font_color};padding:10px;white-space: pre-wrap;">{html_source_content}</pre>
+        <body style="margin: 0;">
+            <pre style="color:{font_color};padding:10px;white-space: pre-wrap; margin: 0; padding: 0;">{html_source_content}</pre>
+        </body>
     </html>
     """
     # return content
@@ -378,6 +382,7 @@ def generate_file_summary(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ):
+    file = get_file_from_db(db, file_id)
     new_file_summary = schemas.FileSummaryCreate(
         status_short="in_progress",
         file_id=file_id,
@@ -385,8 +390,12 @@ def generate_file_summary(
     file_summary_db = create_file_summary_in_db(db, new_file_summary)
     active_llm = get_active_llms()[0]
 
+    summary_func = generate_summary
+    if duckdb_utils.is_sql_file(file.magic_text):
+        summary_func = generate_sql_summary
+
     background_tasks.add_task(
-        generate_summary,
+        summary_func,
         llm_provider=active_llm["name"],
         llm_model=active_llm["config"]["model"],
         file_id=file_id,
@@ -411,3 +420,96 @@ def get_latest_file_chat(
         title=chat.title if chat else None,
         history=chat.get_chat_history() if chat else [],
     )
+
+
+@router.post("/{file_id}/sql/query")
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
+def run_sql_query(
+    file_id: int,
+    request: schemas.SQLQueryRequest,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> schemas.SQLQueryResponse:
+    file = get_file_from_db(db, file_id)
+    MAX_RESULT_LIMIT = 10000
+
+    if not duckdb_utils.is_sql_file(file.magic_text):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File is not a supported SQL format.",
+        )
+
+    # Check if the query contains a LIMIT clause
+    if "limit" not in request.query.lower() and "sample" not in request.query.lower():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Query must contain a LIMIT or SAMPLE clause to prevent excessive resource usage.",
+        )
+
+    # Extract the LIMIT and SAMPLE values and check if it's higher than MAX_RESULT_LIMIT
+    limit_match = re.search(r"limit\s+(\d+)", request.query.lower())
+    sample_match = re.search(r"sample\s+(\d+)", request.query.lower())
+    if limit_match and int(limit_match.group(1)) > MAX_RESULT_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"LIMIT value cannot exceed {MAX_RESULT_LIMIT} to prevent excessive resource usage.",
+        )
+
+    if sample_match and int(sample_match.group(1)) > MAX_RESULT_LIMIT:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"SAMPLE value cannot exceed {MAX_RESULT_LIMIT} to prevent excessive resource usage.",
+        )
+
+    try:
+        result = duckdb_utils.run_query(file=file, sql_query=request.query)
+        return {"query": request.query, "result": result}
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{str(e)}",
+        )
+
+
+@router.post("/{file_id}/sql/query/generate")
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
+def generate_query(
+    file_id: int,
+    request: schemas.SQLGenerateQueryRequest,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> schemas.SQLGenerateQueryResponse:
+    file = get_file_from_db(db, file_id)
+    if not duckdb_utils.is_sql_file(file.magic_text):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File is not a supported SQL format.",
+        )
+
+    tables_schemas = duckdb_utils.get_tables_schemas(file)
+    active_llm = get_active_llms()[0]
+    generated_query = duckdb_utils.generate_sql_query(
+        llm_provider=active_llm["name"],
+        llm_model=active_llm["config"]["model"],
+        tables_schemas=json.dumps(tables_schemas),
+        user_request=request.user_request,
+    )
+    return {"user_request": request.user_request, "generated_query": generated_query}
+
+
+@router.get("/{file_id}/sql/schemas")
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
+def get_all_tables_schemas(
+    file_id: int,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> schemas.SQLSchemasResponse:
+    file = get_file_from_db(db, file_id)
+    if not duckdb_utils.is_sql_file(file.magic_text):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="File is not a supported SQL format.",
+        )
+
+    result = duckdb_utils.get_tables_schemas(file)
+    return {"schemas": result}

@@ -45,6 +45,8 @@ from datastores.sql.crud.workflow import (
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.role import Role
 from datastores.sql.models.workflow import Task
+from lib import workflow_utils
+from lib.reporting_utils import create_workflow_report
 
 from . import schemas
 
@@ -258,6 +260,8 @@ async def create_workflow(
         - file_ids (List[int]): A list of file IDs associated with the workflow.
         - template_id (Optional[int]): The ID of a workflow template to use. If provided,
         the workflow will be created based on the template.
+        - template_params (Optional[dict]): A dictionary of parameters to customize the paramters
+            of the workflow template.
 
     Args:
         folder_id (int): The ID of the folder to create the workflow in.
@@ -271,12 +275,18 @@ async def create_workflow(
     default_workflow_display_name = "Untitled workflow"
     default_spec_json = None
 
+    from_template = None
+
     if request_body.template_id:
-        template = get_workflow_template_from_db(db, request_body.template_id)
-        default_workflow_display_name = template.display_name
-        spec_json = json.loads(template.spec_json)
+        from_template = get_workflow_template_from_db(db, request_body.template_id)
+        default_workflow_display_name = from_template.display_name
+        spec_json = json.loads(from_template.spec_json)
         # Replace UUIDs with placeholder value for the template
         replace_uuids(spec_json)
+        # Add parameter values to task_config items
+        if request_body.template_params:
+            workflow_utils.update_task_config_values(spec_json, request_body.template_params)
+
         default_spec_json = json.dumps(spec_json)
 
     # Create new folder for workflow results
@@ -292,8 +302,9 @@ async def create_workflow(
         spec_json=default_spec_json,
         file_ids=request_body.file_ids,
         folder_id=new_workflow_folder.id,
+        template_id=from_template.id if from_template else None,
     )
-    new_workflow = create_workflow_in_db(db, new_workflow_db, template_id=request_body.template_id)
+    new_workflow = create_workflow_in_db(db, new_workflow_db)
     return new_workflow
 
 
@@ -451,7 +462,7 @@ async def copy_workflow(
         folder_id=new_workflow_folder.id,
         user_id=current_user.id,
     )
-    return create_workflow_in_db(db, new_workflow_db, template_id=None)
+    return create_workflow_in_db(db, new_workflow_db)
 
 
 # Delete workflow
@@ -778,3 +789,21 @@ async def generate_workflow_name(
     # Limit the generated name to a maximum number of MAX_WORDS
     generated_name = " ".join(generated_name.split()[:MAX_WORDS])
     return {"generated_name": generated_name.strip()}
+
+
+# Generate workflow report
+# /workflows/{workflow_id}/report
+@router_root.get("/{workflow_id}/report/")
+@require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
+async def generate_workflow_report(
+    workflow_id: int,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> schemas.WorkflowReportResponse:
+    workflow = get_workflow_from_db(db, workflow_id)
+    markdown = create_workflow_report(workflow)
+    response = schemas.WorkflowReportResponse(
+        workflow=workflow,
+        markdown=markdown,
+    )
+    return response

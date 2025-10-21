@@ -48,7 +48,7 @@ def test_get_file_content(
         in response.text
     )
     assert (
-        f'<pre style="color:{expected_color};padding:10px;white-space: pre-wrap;">{file_content}</pre>'
+        f'<pre style="color:{expected_color};padding:10px;white-space: pre-wrap; margin: 0; padding: 0;">{file_content}</pre>'
         in response.text
     )
     mock_open.assert_called_with(file_db_model.path, "r", encoding="utf-8")
@@ -63,7 +63,7 @@ def test_get_file_content_file_not_found(fastapi_test_client, mocker, file_db_mo
     response = fastapi_test_client.get(f"/files/{file_db_model.id}/content")
     assert response.status_code == 200
     assert (
-        '<pre style="color:#000;padding:10px;white-space: pre-wrap;">File not found</pre>'
+        '<pre style="color:#000;padding:10px;white-space: pre-wrap; margin: 0; padding: 0;">File not found</pre>'
         in response.text
     )
 
@@ -251,3 +251,85 @@ def test_download_task_result(fastapi_test_client, mocker, db, tmp_path):
     assert response.status_code == 200
     assert response.headers["content-disposition"] == 'attachment; filename="test_result.txt"'
     assert response.content == b"Test result content"
+
+
+def test_get_sql_schemas(fastapi_test_client, mocker, file_db_model):
+    """Test the get_sql_schemas endpoint."""
+    mock_get_file_from_db = mocker.patch("api.v1.files.get_file_from_db")
+    mock_get_file_from_db.return_value = file_db_model
+    mock_is_sql_file = mocker.patch("lib.duckdb_utils.is_sql_file")
+    mock_is_sql_file.return_value = True
+    mock_get_tables_schemas = mocker.patch("lib.duckdb_utils.get_tables_schemas")
+    mock_get_tables_schemas.return_value = {
+        "table1": {"column1": "INTEGER", "column2": "TEXT"},
+        "table2": {"columnA": "REAL", "columnB": "BLOB"},
+    }
+
+    response = fastapi_test_client.get(f"/files/{file_db_model.id}/sql/schemas")
+    assert response.status_code == 200
+    assert response.json() == {
+        "schemas": {
+            "table1": {"column1": "INTEGER", "column2": "TEXT"},
+            "table2": {"columnA": "REAL", "columnB": "BLOB"},
+        }
+    }
+
+    # Test non-SQL file
+    mock_is_sql_file.return_value = False
+    response = fastapi_test_client.get(f"/files/{file_db_model.id}/sql/schemas")
+    assert response.status_code == 400
+
+
+def test_run_sql_query(fastapi_test_client, mocker, file_db_model):
+    """Test the run_sql_query endpoint."""
+    mock_get_file_from_db = mocker.patch("api.v1.files.get_file_from_db")
+    mock_get_file_from_db.return_value = file_db_model
+    mock_is_sql_file = mocker.patch("lib.duckdb_utils.is_sql_file")
+    mock_is_sql_file.return_value = True
+    mock_run_query = mocker.patch("lib.duckdb_utils.run_query")
+    mock_run_query.return_value = [{"column1": 1, "column2": "test"}]
+
+    sql_query_with_limit = "SELECT * FROM table1 LIMIT 10;"
+    response = fastapi_test_client.post(
+        f"/files/{file_db_model.id}/sql/query", json={"query": sql_query_with_limit}
+    )
+    # Test with LIMIT clause
+    assert response.status_code == 200
+    assert response.json() == {
+        "query": sql_query_with_limit,
+        "result": [{"column1": 1, "column2": "test"}],
+    }
+
+    # Test without LIMIT clause
+    sql_query_without_limit = "SELECT * FROM table1"
+    response = fastapi_test_client.post(
+        f"/files/{file_db_model.id}/sql/query", json={"query": sql_query_without_limit}
+    )
+    assert response.status_code == 400
+
+
+def test_generate_query(fastapi_test_client, mocker, file_db_model):
+    """Test the generate_sql_query endpoint."""
+    mock_get_file_from_db = mocker.patch("api.v1.files.get_file_from_db")
+    mock_get_file_from_db.return_value = file_db_model
+    mock_is_sql_file = mocker.patch("lib.duckdb_utils.is_sql_file")
+    mock_is_sql_file.return_value = True
+    mock_get_tables_schemas = mocker.patch("lib.duckdb_utils.get_tables_schemas")
+    mock_get_tables_schemas.return_value = {
+        "table1": {"column1": "INTEGER", "column2": "TEXT"},
+        "table2": {"columnA": "REAL", "columnB": "BLOB"},
+    }
+    mock_get_active_llms = mocker.patch("api.v1.files.get_active_llms")
+    mock_get_active_llms.return_value = [{"name": "test_llm", "config": {"model": "test_model"}}]
+    mock_generate_sql_query = mocker.patch("lib.duckdb_utils.generate_sql_query")
+    mock_generate_sql_query.return_value = "SELECT * FROM table1 LIMIT 10;"
+
+    user_request = "Get all records from table1"
+    response = fastapi_test_client.post(
+        f"/files/{file_db_model.id}/sql/query/generate", json={"user_request": user_request}
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "user_request": user_request,
+        "generated_query": "SELECT * FROM table1 LIMIT 10;",
+    }

@@ -12,14 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import uuid
 
 from sqlalchemy.orm import Session
 
-from datastores.sql.models.workflow import Workflow, Task, TaskReport, WorkflowTemplate
 from api.v1 import schemas
-
-from datastores.sql.crud.file import get_file_from_db, get_file_by_uuid_from_db
+from datastores.sql.crud.file import get_file_from_db
+from datastores.sql.models.workflow import Task, TaskReport, Workflow, WorkflowTemplate
+from lib import workflow_utils
 
 
 def get_file_workflows_from_db(db: Session, file_id: int) -> list[Workflow]:
@@ -65,13 +66,12 @@ def get_workflow_from_db(db: Session, workflow_id: int) -> Workflow:
     return db.get(Workflow, workflow_id)
 
 
-def create_workflow_in_db(db: Session, workflow: schemas.Workflow, template_id: int) -> Workflow:
+def create_workflow_in_db(db: Session, workflow: schemas.Workflow) -> Workflow:
     """Create a new workflow.
 
     Args:
         db (Session): SQLAlchemy session object
         workflow (Workflow): Workflow object
-        template_id (int): ID of the workflow template
 
     Returns:
         Workflow object
@@ -83,6 +83,7 @@ def create_workflow_in_db(db: Session, workflow: schemas.Workflow, template_id: 
         uuid=uuid.uuid4(),
         files=[get_file_from_db(db, file_id) for file_id in workflow.file_ids],
         folder_id=workflow.folder_id,
+        template_id=workflow.template_id,
         user_id=workflow.user_id,
     )
 
@@ -124,14 +125,14 @@ def delete_workflow_from_db(db: Session, workflow_id: int):
 
 def delete_workflow_template_from_db(db: Session, workflow_template_id: int):
     """Deles a workflow template in the database.
-    
+
     Args:
         db (Session): SQLAlchemy session object
         workflow_template_id (int): ID of the workflow template
     """
     workflow_template = db.get(WorkflowTemplate, workflow_template_id)
     if not workflow_template:
-        raise ValueError(f"Workflow template with id {workflow_template_id} not found") 
+        raise ValueError(f"Workflow template with id {workflow_template_id} not found")
     db.delete(workflow_template)
     db.commit()
 
@@ -158,7 +159,49 @@ def get_workflow_templates_from_db(db: Session) -> list[WorkflowTemplate]:
     Returns:
         List of WorkflowTemplate objects
     """
-    return db.query(WorkflowTemplate).order_by(WorkflowTemplate.id.desc()).all()
+
+    def _get_and_update_templates():
+        """
+        Retrieve all workflow templates and update them to include unique param names if they
+        don't already have them.
+
+        Temporary function to ensure all templates have unique param names.
+        Remove this function in the future once all templates have been updated.
+
+        Returns:
+            List of WorkflowTemplate objects
+        """
+        templates_to_return = []
+        all_templates = db.query(WorkflowTemplate).order_by(WorkflowTemplate.id.desc()).all()
+
+        for template in all_templates:
+            # If the template does not have task_config, skip processing early
+            if '"task_config"' not in template.spec_json:
+                templates_to_return.append(template)
+                continue
+
+            # Check if the template already has param_name and skip if it does
+            if '"param_name"' not in template.spec_json:
+                try:
+                    # Parse the JSON and add the param_name
+                    spec_json_dict = json.loads(template.spec_json)
+                    workflow_utils.add_unique_parameter_names(spec_json_dict)
+
+                    # Update the database record
+                    template.spec_json = json.dumps(spec_json_dict)
+                    db.add(template)
+                    db.commit()
+                except (json.JSONDecodeError, KeyError):
+                    pass
+
+            templates_to_return.append(template)
+        return templates_to_return
+
+    # Temporary fix to update all templates to have unique param names. This ensures that
+    # users can use the template parameters feature without manually updating the templates.
+    # TODO: This should be removed in the future once all templates have been updated. Replace with
+    # db.query(WorkflowTemplate).order_by(WorkflowTemplate.id.desc()).all()
+    return _get_and_update_templates()
 
 
 def create_workflow_template_in_db(
@@ -183,10 +226,8 @@ def create_workflow_template_in_db(
     db.refresh(db_template)
     return db_template
 
-def update_workflow_template_in_db(
-    db: Session,
-    template: WorkflowTemplate
-) -> WorkflowTemplate:
+
+def update_workflow_template_in_db(db: Session, template: WorkflowTemplate) -> WorkflowTemplate:
     """Update a workflow template.
 
     Args:

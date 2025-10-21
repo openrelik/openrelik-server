@@ -86,8 +86,6 @@ class UserResponse(BaseSchema):
 class UserResponseCompact(BaseSchemaCompact):
     display_name: str
     username: str
-    email: Optional[str]
-    auth_method: str
     profile_picture_url: Optional[str]
     uuid: UUID
 
@@ -169,10 +167,19 @@ class FolderResponse(BaseSchema):
 
 
 class FolderResponseCompact(BaseSchema):
+    model_config = ConfigDict(from_attributes=True)
+
     display_name: str
     user: UserResponseCompact
-    workflows: List["WorkflowResponseCompact"]
+    workflows: Optional[List["WorkflowResponseCompact"]]
     selectable: Optional[bool] = False
+
+
+class FolderListPaginatedResponse(BaseModel):
+    folders: List[FolderResponseCompact]
+    page: int
+    page_size: int
+    total_count: int
 
 
 class UserRoleResponse(BaseSchema):
@@ -232,7 +239,7 @@ class FileResponse(BaseSchema):
     hash_ssdeep: Optional[str] = None
     user_id: int
     user: UserResponseCompact
-    folder: Optional[FolderResponseCompact] = None
+    folder: Optional[FolderResponse] = None
     source_file: Optional[FileResponseCompact]
     summaries: List["FileSummaryResponse"]
     reports: List["FileReportResponse"]
@@ -247,6 +254,7 @@ class FileResponseCompactList(BaseModel):
     magic_mime: Optional[str] = None
     user: UserResponseCompact
     created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
     is_deleted: Optional[bool] = False
 
 
@@ -307,6 +315,7 @@ class Workflow(BaseSchema):
     user_id: int | None = None
     file_ids: List[int] = []
     folder_id: Optional[int] = None
+    template_id: Optional[int] = None
 
 
 class WorkflowStatus(BaseModel):
@@ -332,10 +341,14 @@ class WorkflowResponse(BaseSchema):
     files: Optional[List["WorkflowInputFile"]]
     tasks: Optional[List["TaskResponse"]]
     folder: Optional["WorkflowFolder"]
+    template: Optional["WorkflowTemplateResponseCompact"]
 
 
 class WorkflowResponseCompact(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
+    display_name: str
 
 
 class WorkflowStatusResponse(BaseSchema):
@@ -346,6 +359,7 @@ class WorkflowCreateRequest(BaseModel):
     folder_id: int
     file_ids: List[int]
     template_id: Optional[int] = None
+    template_params: Optional[dict] = None
 
 
 class WorkflowRunRequest(BaseModel):
@@ -372,8 +386,18 @@ class WorkflowTemplateResponse(BaseSchema):
     user_id: int
 
 
+class WorkflowTemplateResponseCompact(BaseModel):
+    id: int
+    display_name: str
+
+
 class WorkflowGeneratedNameResponse(BaseModel):
     generated_name: str
+
+
+class WorkflowReportResponse(BaseModel):
+    workflow: WorkflowResponseCompact
+    markdown: str
 
 
 class Task(BaseSchema):
@@ -459,3 +483,35 @@ class FileChatMessageCreate(BaseModel):
     request_prompt: str
     response_text: str
     runtime: float
+
+
+class AgentRequest(BaseModel):
+    question_prompt: str
+    agent_name: str
+
+
+class InvestigativeQuestionsRequest(BaseModel):
+    goal: str
+    context: str
+
+
+class SQLQueryRequest(BaseModel):
+    query: str
+
+
+class SQLQueryResponse(BaseModel):
+    query: str
+    result: List[dict]
+
+
+class SQLGenerateQueryRequest(BaseModel):
+    user_request: str
+
+
+class SQLGenerateQueryResponse(BaseModel):
+    user_request: str
+    generated_query: str
+
+
+class SQLSchemasResponse(BaseModel):
+    schemas: dict
