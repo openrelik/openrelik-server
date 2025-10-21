@@ -26,8 +26,8 @@ from ..database import AttributeMixin, BaseModel
 
 if TYPE_CHECKING:
     from datastores.sql.models.file import File
-    from datastores.sql.models.user import User, UserRole
     from datastores.sql.models.group import GroupRole
+    from datastores.sql.models.user import User, UserRole
 
 
 class Folder(BaseModel):
@@ -81,7 +81,18 @@ class Folder(BaseModel):
     def path(self):
         """Returns the full path of the folder."""
         current_config = get_config()
-        base_storage_path = current_config.get("server").get("storage_path")
+        # base_storage_path = current_config.get("server").get("storage_path")
+        storage_provider_configs = (
+            current_config.get("server", {}).get("storage", {}).get("providers", {})
+        )
+        if storage_provider_configs:
+            # Use the default storage provider to determine the base path.
+            default_provider = storage_provider_configs.get("default", {})
+            base_storage_path = default_provider.get("path")
+        else:
+            # Fallback to the storage_path if no storage provider is configured to support old
+            # variants of the configuration file.
+            base_storage_path = current_config.get("server").get("storage_path")
         return os.path.join(base_storage_path, self.uuid.hex)
 
 
