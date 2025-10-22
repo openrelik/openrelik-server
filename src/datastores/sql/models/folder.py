@@ -30,6 +30,26 @@ if TYPE_CHECKING:
     from datastores.sql.models.user import User, UserRole
 
 
+def _get_storage_base_path():
+    """Helper to get the base storage path from the config.
+
+    Returns:
+        str: The base storage path.
+    """
+    current_config = get_config()
+    storage_provider_configs = (
+        current_config.get("server", {}).get("storage", {}).get("providers", {})
+    )
+    if storage_provider_configs:
+        default_provider = storage_provider_configs.get("default", {})
+        base_path = default_provider.get("path")
+    else:
+        # Fallback path for old config format.
+        base_path = current_config.get("server").get("storage_path")
+
+    return base_path
+
+
 class Folder(BaseModel):
     """Represents a folder in the database.
 
@@ -79,21 +99,24 @@ class Folder(BaseModel):
 
     @hybrid_property
     def path(self):
-        """Returns the full path of the folder."""
-        current_config = get_config()
-        # base_storage_path = current_config.get("server").get("storage_path")
-        storage_provider_configs = (
-            current_config.get("server", {}).get("storage", {}).get("providers", {})
-        )
-        if storage_provider_configs:
-            # Use the default storage provider to determine the base path.
-            default_provider = storage_provider_configs.get("default", {})
-            base_storage_path = default_provider.get("path")
-        else:
-            # Fallback to the storage_path if no storage provider is configured to support old
-            # variants of the configuration file.
-            base_storage_path = current_config.get("server").get("storage_path")
-        return os.path.join(base_storage_path, self.uuid.hex)
+        """Returns the full path of the folder, accounting for old root-level folders.
+
+        Returns:
+            str: The full path of the folder.
+        """
+        base_storage_path = _get_storage_base_path()
+        legacy_flat_path = os.path.join(base_storage_path, self.uuid.hex)
+
+        # If no parent, it's a root-level folder.
+        if not self.parent:
+            return legacy_flat_path
+
+        # Check if the legacy flat path exists; if so, return it to maintain compatibility.
+        if os.path.exists(legacy_flat_path):
+            return legacy_flat_path
+
+        # Recursively build the path via parent folders.
+        return os.path.join(self.parent.path, self.uuid.hex)
 
 
 class FolderAttribute(BaseModel, AttributeMixin):
