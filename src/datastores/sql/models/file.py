@@ -109,10 +109,10 @@ class File(BaseModel):
     hash_sha256: Mapped[Optional[str]] = mapped_column(Unicode(64), index=True)
     hash_ssdeep: Mapped[Optional[str]] = mapped_column(Unicode(255), index=True)
 
-    # Storage information.
-    # The storage provider name and key are used to identify where the file is stored. The name is
-    # used to lookup the storage provider configuration, which contains the mount point.
-    # There is always a default storage provider, which is used if no other provider is specified.
+    # Storage information: The storage provider name and key are used to identify where the file is
+    # stored. The name is used to lookup the storage provider configuration, which contains the
+    # mount point. There is always a default storage provider, which is used if no other provider
+    # is specified.
     storage_provider: Mapped[str] = mapped_column(UnicodeText, index=True, server_default="default")
     storage_key: Mapped[Optional[str]] = mapped_column(UnicodeText, index=True)
 
