@@ -20,6 +20,8 @@ from google.cloud import pubsub_v1, storage
 
 from datastores.sql import database
 from datastores.sql.crud.folder import get_folder_from_db
+from openrelik_common import telemetry
+
 from importers.gcp.file_utils import create_file_record, extract_file_info
 from lib.file_hashes import generate_hashes
 
@@ -27,6 +29,9 @@ PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
 SUBSCRIPTION_ID = os.environ.get("GOOGLE_CLOUD_SUBSCRIPTION_ID")
 ROBOT_ACCOUNT_USER_ID = os.environ.get("ROBOT_ACCOUNT_USER_ID")
 HASH_SIZE_LIMIT = 10485760  # 10MB
+
+# Initialize telemetry
+telemetry.setup_telemetry('openrelik-gcp-importer')
 
 # Initialize logger
 logging.basicConfig(level=logging.INFO)
@@ -150,8 +155,13 @@ def main() -> None:
         # Initialize database session
         db = database.SessionLocal()
 
+        # Setup telemetry, if enabled
+        subscriber_options = ()
+        if telemetry.is_enabled():
+            subscriber_options = pubsub_v1.types.SubscriberOptions(enable_open_telemetry_tracing=True)
+
         # Create a Pub/Sub subscriber client
-        subscriber = pubsub_v1.SubscriberClient()
+        subscriber = pubsub_v1.SubscriberClient( subscriber_options=subscriber_options)
         subscription_path = subscriber.subscription_path(PROJECT_ID, SUBSCRIPTION_ID)
 
         logger.info(f"Starting to listen for messages on {subscription_path}...")
