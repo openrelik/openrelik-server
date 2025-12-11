@@ -9,10 +9,7 @@ ui_server_url = "http://localhost:8711"
 # This should be set to the URL of your frontend server.
 allowed_origins = ["http://127.0.0.1:8711", "http://localhost:8711"]
 
-# Path to files
-# TODO: Depricate in favor of storage providers (keep for backwards compatibility).
-storage_path = "<REPLACE_WITH_STORAGE_PATH>"
-
+# Storage Providers
 [server.storage.providers]
 # Configure storage providers here.
 # You must have at least one storage provider configured and set as the default.
@@ -24,7 +21,7 @@ storage_path = "<REPLACE_WITH_STORAGE_PATH>"
 # Any new files and folders without a specific storage provider set will use this provider.
 default = "server_default"
 
-# Default storage provider from installation (mandatory)
+# Default storage provider (mandatory)
 # Do not change or remove this provider.
 [server.storage.providers.server_default]
 display_name = "Default Storage"
