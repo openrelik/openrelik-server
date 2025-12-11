@@ -193,6 +193,7 @@ async def test_run_workflow(
     setup_file_path_mock,
 ):
     """Test run workflow route."""
+    mocker.patch("datastores.sql.models.folder.get_config", return_value={"server": {"storage_path": "/tmp/test"}})
     mock_get_workflow_from_db = mocker.patch("api.v1.workflows.get_workflow_from_db")
     mock_get_workflow_from_db.return_value = workflow_db_model
     mock_create_workflow = mocker.patch("api.v1.workflows.create_workflow_signature")
@@ -246,6 +247,7 @@ async def test_run_workflow_nested_tasks(
     setup_file_path_mock,
 ):
     """Test run workflow route with group tasks."""
+    mocker.patch("datastores.sql.models.folder.get_config", return_value={"server": {"storage_path": "/tmp/test"}})
     mock_get_workflow_from_db = mocker.patch("api.v1.workflows.get_workflow_from_db")
     mock_get_workflow_from_db.return_value = workflow_db_model
     mock_create_workflow = mocker.patch("api.v1.workflows.create_workflow_signature")

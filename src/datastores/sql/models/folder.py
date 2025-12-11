@@ -131,12 +131,18 @@ class Folder(BaseModel):
         # This allows any folder (root or subfolder) to be a "mount point" for a storage provider.
         if self.storage_provider:
              base_storage_path = _get_root_base_path(self.storage_provider)
+             if not base_storage_path:
+                 raise ValueError(
+                     f"Storage provider '{self.storage_provider}' path not found in config."
+                 )
              return os.path.join(base_storage_path, self.uuid.hex)
 
         # If the folder is a root folder (no parent) and has no storage provider set,
         # use the default base storage path from the config.
         if is_root_folder:
             base_storage_path = _get_root_base_path()
+            if not base_storage_path:
+                raise ValueError("Storage path not configured for root folder.")
             return os.path.join(base_storage_path, self.uuid.hex)
 
         parent_path = self.parent.path
