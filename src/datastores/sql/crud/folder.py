@@ -290,7 +290,7 @@ def create_root_folder_in_db(
     # Set storage provider name from user request. If missing, use default provider.
     if new_folder.storage_provider:
         if new_folder.storage_provider not in storage_provider_configs:
-            raise ValueError(f"Invalid storage provider: {new_folder.storage_provider}")    
+            raise ValueError(f"Invalid storage provider: {new_folder.storage_provider}")
         storage_provider_name = new_folder.storage_provider
     else:
         storage_provider_name = default_provider_name
@@ -300,7 +300,7 @@ def create_root_folder_in_db(
         uuid=uuid.uuid4(),
         user=current_user,
         parent_id=None,
-        storage_provider=storage_provider_name
+        storage_provider=storage_provider_name,
     )
     db.add(new_db_folder)
     db.commit()
@@ -340,8 +340,9 @@ def create_subfolder_in_db(
     # If the user request a specific storage provider, use it instead. This will make the subfolder use a different
     # storage provider than its parent folder.
     if new_folder.storage_provider:
+        storage_provider_configs = config.get("server", {}).get("storage", {}).get("providers", {})
         if new_folder.storage_provider not in storage_provider_configs:
-            raise ValueError(f"Invalid storage provider: {new_folder.storage_provider}")    
+            raise ValueError(f"Invalid storage provider: {new_folder.storage_provider}")
         storage_provider_name = new_folder.storage_provider
 
     new_db_folder = Folder(
@@ -349,7 +350,7 @@ def create_subfolder_in_db(
         uuid=uuid.uuid4(),
         user=current_user,
         parent_id=folder_id,
-        storage_provider=storage_provider_name
+        storage_provider=storage_provider_name,
     )
     db.add(new_db_folder)
     db.commit()
@@ -442,6 +443,6 @@ def delete_folder_from_db(db: Session, folder_id: int) -> None:
     # 4. Commit the transaction
     try:
         db.commit()
-    except Exception as e:
+    except Exception:
         db.rollback()
         raise  # Re-raise the exception after rollback
