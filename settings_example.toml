@@ -13,18 +13,41 @@ allowed_origins = ["http://127.0.0.1:8711", "http://localhost:8711"]
 # TODO: Depricate in favor of storage providers (keep for backwards compatibility).
 storage_path = "<REPLACE_WITH_STORAGE_PATH>"
 
-# Storage providers configuration
-# It is possible to have multiple storage providers with different
-# mount points (paths). The default provider is used if no specific provider is set and is
-# mandatory. Custom providers are optional and can be used for specific use cases such as when
-# there are files in external read-only storage for example.
-# NOTE: All mounted storage paths need to be accassible by server containers and worker containers.
 [server.storage.providers]
-# Default storage provider. This is mandatory and should be set to the path where files that are
-# uploaded to the server will be stored as well as results from workflows.
-default = { path = "<REPLACE_WITH_STORAGE_PATH>" }
-# Example: Custom storage provider
-# custom = { path = "/path/to/storage" }
+# Configure storage providers here.
+# You must have at least one storage provider configured and set as the default.
+# The default storage provider is used for files that do not have a specific storage provider set.
+# You can have multiple storage providers with different mount points (paths).
+# All storage paths must be accessible by both server and worker containers.
+
+# Default storage provider, can be changed without affecting existing files.
+# Any new files and folders without a specific storage provider set will use this provider.
+default = "server_default"
+
+# Default storage provider from installation (mandatory)
+# Do not change or remove this provider.
+[server.storage.providers.server_default]
+display_name = "Default Storage"
+description = "Default storage provider from installation"
+path = "<REPLACE_WITH_STORAGE_PATH>"
+mode = "rw"
+
+# Extra Read-write storage provider example
+# [server.storage.providers.extra_storage]
+# display_name = "Extra Storage"
+# description = "Extra read-write storage provider"
+# path = "/path/to/extra_storage"
+# mode = "rw"
+
+# Read-only storage provider example.
+# This can be used to mount data that should not be modified by OpenRelik but that has
+# files that can be mapped to OpenRelik files and read by the server and workers.
+# Example: A directory with disk images on a read-only remote filesystem.
+# [server.storage.providers.read_only_storage]
+# display_name = "Read Only Storage"
+# description = "Read Only storage provider example"
+# path = "/path/to/read_only_storage"
+# mode = "ro"
 
 [datastores.sqlalchemy]
 # Postgresql: postgresql://user:password@postgresserver/db
