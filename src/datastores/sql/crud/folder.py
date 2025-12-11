@@ -19,6 +19,7 @@ from sqlalchemy import and_, func, select, union, update
 from sqlalchemy.orm import Session, aliased
 
 from api.v1 import schemas
+from config import config
 from datastores.sql.models.file import File
 from datastores.sql.models.folder import Folder
 from datastores.sql.models.group import Group, GroupRole
@@ -283,11 +284,23 @@ def create_root_folder_in_db(
     Returns:
         Folder: folder
     """
+    storage_provider_configs = config.get("server", {}).get("storage", {}).get("providers", {})
+    default_provider_name = storage_provider_configs.get("default")
+
+    # Set storage provider name from user request. If missing, use default provider.
+    if new_folder.storage_provider:
+        if new_folder.storage_provider not in storage_provider_configs:
+            raise ValueError(f"Invalid storage provider: {new_folder.storage_provider}")    
+        storage_provider_name = new_folder.storage_provider
+    else:
+        storage_provider_name = default_provider_name
+
     new_db_folder = Folder(
         display_name=new_folder.display_name,
         uuid=uuid.uuid4(),
         user=current_user,
         parent_id=None,
+        storage_provider=storage_provider_name
     )
     db.add(new_db_folder)
     db.commit()
@@ -320,11 +333,23 @@ def create_subfolder_in_db(
     Returns:
         Folder: folder
     """
+    # By default, the storage provider is set to None, this will have the affect that the subfolder inherit
+    # the storage provider from its parent folder.
+    storage_provider_name = None
+
+    # If the user request a specific storage provider, use it instead. This will make the subfolder use a different
+    # storage provider than its parent folder.
+    if new_folder.storage_provider:
+        if new_folder.storage_provider not in storage_provider_configs:
+            raise ValueError(f"Invalid storage provider: {new_folder.storage_provider}")    
+        storage_provider_name = new_folder.storage_provider
+
     new_db_folder = Folder(
         display_name=new_folder.display_name,
         uuid=uuid.uuid4(),
         user=current_user,
         parent_id=folder_id,
+        storage_provider=storage_provider_name
     )
     db.add(new_db_folder)
     db.commit()
@@ -389,7 +414,6 @@ def delete_folder_from_db(db: Session, folder_id: int) -> None:
     folder_ids_result = db.execute(folder_ids_to_delete_stmt).scalars().all()
 
     if not folder_ids_result:
-        print(f"Folder with ID {folder_id} not found or has no descendants.")
         return
 
     # 2. Bulk update files in these folders
@@ -418,8 +442,6 @@ def delete_folder_from_db(db: Session, folder_id: int) -> None:
     # 4. Commit the transaction
     try:
         db.commit()
-        print(f"Soft deleted folder {folder_id} and its contents successfully.")
     except Exception as e:
         db.rollback()
-        print(f"Error during bulk delete commit for folder {folder_id}: {e}")
         raise  # Re-raise the exception after rollback

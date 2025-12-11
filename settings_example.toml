@@ -24,7 +24,7 @@ storage_path = "<REPLACE_WITH_STORAGE_PATH>"
 # uploaded to the server will be stored as well as results from workflows.
 default = { path = "<REPLACE_WITH_STORAGE_PATH>" }
 # Example: Custom storage provider
-# custom = { path = "/parth/to/storage" }
+# custom = { path = "/path/to/storage" }
 
 [datastores.sqlalchemy]
 # Postgresql: postgresql://user:password@postgresserver/db

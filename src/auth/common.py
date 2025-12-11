@@ -86,7 +86,9 @@ def create_jwt_token(
     """
     jwt_data = extra_data.copy()
     issued_at = datetime.now(timezone.utc)
-    not_before = issued_at  # Option to change this later if support for future valid tokens is needed.
+    not_before = (
+        issued_at  # Option to change this later if support for future valid tokens is needed.
+    )
     expire_at = issued_at + timedelta(minutes=expire_minutes)
     issued_by = API_SERVER_URL if API_SERVER_URL else UI_SERVER_URL
     jwt_data.update({"sub": subject})
@@ -159,9 +161,7 @@ def validate_jwt_token(
     # Note: This only check api-client API keys and not Browser tokens.
     # TODO: Consider supporting revoking Browser based tokens as well.
     if check_denylist and expected_audience == "api-client":
-        api_key_db = (
-            db.query(UserApiKey).filter(UserApiKey.token_jti == payload["jti"]).first()
-        )
+        api_key_db = db.query(UserApiKey).filter(UserApiKey.token_jti == payload["jti"]).first()
         if not api_key_db:
             raise_credentials_exception(detail="Invalid API key")
 

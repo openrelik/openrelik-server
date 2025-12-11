@@ -113,7 +113,7 @@ class File(BaseModel):
     # stored. The name is used to lookup the storage provider configuration, which contains the
     # mount point. There is always a default storage provider, which is used if no other provider
     # is specified.
-    storage_provider: Mapped[str] = mapped_column(UnicodeText, index=True, server_default="default")
+    storage_provider: Mapped[str] = mapped_column(UnicodeText, index=True, nullable=True)
     storage_key: Mapped[Optional[str]] = mapped_column(UnicodeText, index=True)
 
     # Relationships
@@ -183,42 +183,37 @@ class File(BaseModel):
     def path(self):
         """Returns the full path of the file.
 
-        Raises:
-            ValueError: If no storage provider is configured or no storage key is set for the file
-
         Returns:
             str: The full path of the file.
+
+        Raises:
+            ValueError: If no storage provider is configured or no storage key is set for the file.
         """
         full_path = None
         storage_provider_configs = config.get("server", {}).get("storage", {}).get("providers", {})
-        if storage_provider_configs:
+
+        # If the file is stored in a different storage provider than the current folder, use that
+        # provider to get the path. The storage_key must be set in this case. This allows files to
+        # be stored in different locations than their parent folder, e.g., in a read-only storage.
+        if self.storage_provider and storage_provider_configs:
             if self.storage_provider not in storage_provider_configs:
                 raise ValueError(
                     f"Storage provider '{self.storage_provider}' not found in configuration."
                 )
-            storage_path = storage_provider_configs[self.storage_provider].get("path")
+            if not self.storage_key:
+                raise ValueError("No storage key set for the file.")
 
-            if self.storage_key:
-                # storage_key is used to store the path to a specific location within the storage
-                # provider. If set then use it to build the full path together with the storage path.
-                full_path = os.path.join(storage_path, self.storage_key)
-            else:
-                # Default behavior if no storage_key is set is to use the UUID and extension
-                # together with the folder path.
-                filename = self.uuid.hex
-                if self.extension:
-                    filename = f"{filename}.{self.extension}"
-                full_path = os.path.join(self.folder.path, filename)
+            base_path = storage_provider_configs[self.storage_provider].get("path")
+            full_path = os.path.join(base_path, self.storage_key.lstrip("/"))
+
+        # The file is stored in the same storage provider as the folder. Use the folder path as the
+        # base. This is the most common case. The folder.path will recursively determine the correct
+        # base path from the immediate parent folder.
         else:
-            # Fallback to the folder path if no storage provider is configured to support old
-            # variants of the configuration file.
             filename = self.uuid.hex
             if self.extension:
                 filename = f"{filename}.{self.extension}"
             full_path = os.path.join(self.folder.path, filename)
-
-        if not full_path:
-            raise ValueError("No storage provider configured or no storage key set for the file.")
 
         return full_path
 
