@@ -483,7 +483,7 @@ async def run_agent(
         current_user (schemas.User): The currently authenticated user.
     """
 
-    ADK_BASE_URL = config.config.get("experimental", {}).get("agents", {}).get("adk_server_url")
+    ADK_BASE_URL = config.config.get("experiments", {}).get("agents", {}).get("adk_server_url")
 
     # Ensure the ADK server URL is configured.
     if not ADK_BASE_URL:

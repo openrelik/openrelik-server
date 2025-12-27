@@ -68,7 +68,6 @@ def create_workflow_report(
     * Priority: $priority_name
     ##### Details
     $markdown
-    ---
     """
 
     FILE_REPORT_TEMPLATE_STR = """
@@ -80,7 +79,6 @@ def create_workflow_report(
     {original_path_bullet}
     ##### Details
     $markdown
-    ---
     """
 
     # Base URL for links
