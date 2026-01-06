@@ -35,6 +35,7 @@ from datastores.sql.crud.workflow import (
     create_workflow_in_db,
     create_workflow_template_in_db,
     delete_workflow_from_db,
+    delete_workflow_template_from_db,
     get_folder_workflows_from_db,
     get_workflow_from_db,
     get_workflow_template_from_db,
@@ -674,6 +675,20 @@ async def create_workflow_template(
     )
     return create_workflow_template_in_db(db, new_template_db)
 
+# Delete workflow template
+# /workflows/templates/{template_id}
+@router.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_template(
+    template_id: int,
+    db: Session = Depends(get_db_connection),
+):
+    """Delete a workflow template by ID.
+
+    Args:
+        template_id (int): The ID of the template to delete.
+        db (Session): The database session.
+    """
+    delete_workflow_template_from_db(db, template_id)
 
 # Update workflow template
 # /workflows/templates/{template_id}
