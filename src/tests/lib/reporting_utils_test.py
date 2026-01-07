@@ -87,8 +87,7 @@ def test_create_workflow_report(mock_workflow, mock_config):
         "* Task: Test Task (10.51s)\n"
         "* Priority: HIGH\n"
         "##### Details\n"
-        "This is a test report.\n"
-        "---\n\n"
+        "This is a test report.\n\n"
         "## **Critical File Report**\n"
         "* Task: Test Task (10.51s)\n"
         "* Priority: CRITICAL\n"
@@ -97,7 +96,6 @@ def test_create_workflow_report(mock_workflow, mock_config):
         "* Original path: path/to/original/file.txt\n"
         "##### Details\n"
         "This is a critical file report.\n"
-        "---"
     )
 
     # Assert that the generated report matches the expected output
