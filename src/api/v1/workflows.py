@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2024-2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,6 +18,7 @@ from typing import List
 from uuid import uuid4
 
 from celery import chain as celery_chain
+from celery import chord as celery_chord
 from celery import group as celery_group
 from celery import signature
 from celery.app import Celery
@@ -176,6 +177,23 @@ def create_workflow_signature(
                     workflow,
                 )
             )
+
+    elif task_data["type"] == "chord":
+        header_tasks = [
+            create_workflow_signature(db, current_user, t, input_files, output_path, workflow)
+            for t in task_data.get("tasks", [])
+        ]
+
+        callback_task_data = task_data.get("callback")
+        if not callback_task_data:
+            raise ValueError("Chord definition requires a 'callback' task.")
+
+        callback_signature = create_workflow_signature(
+            db, current_user, callback_task_data, input_files, output_path, workflow
+        )
+
+        return celery_chord(header_tasks, callback_signature)
+
     elif task_data["type"] == "task":
         task_signature = get_task_signature(
             db, current_user, task_data, input_files, output_path, workflow
