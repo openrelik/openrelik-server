@@ -13,8 +13,9 @@
 # limitations under the License.
 """Utility functions for working with DuckDB databases."""
 
-import duckdb
 import os
+
+import duckdb
 from openrelik_ai_common.providers import manager
 
 
@@ -54,17 +55,21 @@ def get_tables_schemas(file: object) -> dict:
     if not is_sql_file(file.magic_text):
         return {}
 
-    # Install the DuckDB sqlite scanner locally, required to query sqlite files through DuckDB.
-    try:
-        duckdb_extension_path = "/app/openrelik/sqlite_scanner.duckdb_extension"
-        if os.path.exists(duckdb_extension_path):
-            db_conn = duckdb.connect()
-            db_extensions_query = "INSTALL '{0:s}'; LOAD '{0:s}';".format(duckdb_extension_path)
-            db_conn.execute(db_extensions_query)
-    except Exception as e:
-        raise RuntimeError(e)
-    finally:
-        db_conn.close()
+    # Path to the local DuckDB sqlite scanner extension
+    duckdb_extension_path = "/app/openrelik/sqlite_scanner.duckdb_extension"
+
+    # Try to install the DuckDB sqlite scanner locally, required to query sqlite files through DuckDB.
+    # If the extension is not found, the extension is downloaded automatically from the DuckDB repository.
+    if os.path.exists(duckdb_extension_path):
+        try:
+            if os.path.exists(duckdb_extension_path):
+                db_conn = duckdb.connect()
+                db_extensions_query = "INSTALL '{0:s}'; LOAD '{0:s}';".format(duckdb_extension_path)
+                db_conn.execute(db_extensions_query)
+        except Exception as e:
+            raise RuntimeError(e)
+        finally:
+            db_conn.close()
 
     # Set read_only to True to prevent any modifications to the database.
     db_conn = duckdb.connect(file.path, read_only=True)
