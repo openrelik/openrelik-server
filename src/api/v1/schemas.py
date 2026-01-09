@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2024-2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -486,8 +486,20 @@ class FileChatMessageCreate(BaseModel):
 
 
 class AgentRequest(BaseModel):
-    question_prompt: str
+    session_id: str
     agent_name: str
+    user_message: Optional[str] = None
+    function_name: Optional[str] = None
+    long_running_tool_id: Optional[str] = None
+    invocation_id: Optional[str] = None
+
+
+class AgentSessionRequest(BaseModel):
+    context: str
+
+
+class AgentSessionResponse(BaseModel):
+    session_id: str
 
 
 class InvestigativeQuestionsRequest(BaseModel):

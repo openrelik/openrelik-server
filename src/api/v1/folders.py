@@ -11,13 +11,14 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+
+import asyncio
 import json
 import uuid
 from typing import List
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
-from openrelik_ai_common.providers import manager
 from sqlalchemy.orm import Session
 from sse_starlette import EventSourceResponse
 
@@ -52,6 +53,8 @@ from datastores.sql.crud.user import (
 )
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.role import Role
+from lib.investigation_utils import generate_initial_state
+from lib.stream_manager import stream_manager
 
 from . import schemas
 
@@ -461,29 +464,16 @@ def delete_user_role(
     delete_user_role_from_db(db, role_id)
 
 
-# TODO: Persist questions and answers in the database for later retrieval.Change the route to
-# include the question ID in the URL, e.g., /{folder_id}/investigations/questions/{question_id}/run.
-@router.post("/{folder_id}/investigations/questions/run")
+# Create a new session in ADK
+@router.post("/{folder_id}/investigations/init")
 @require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
-async def run_agent(
+async def create_adk_session(
     folder_id: int,
-    request: schemas.AgentRequest,
+    request: schemas.AgentSessionRequest,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
-):
-    """Run an agent to answer investigative questions.
-
-    This starts a Server-Sent Events (SSE) stream to the Agent Development Kit (ADK) server and
-    mediates all ADK events and responses back to the client.
-
-    Args:
-        folder_id (int): The ID of the folder to limit file access.
-        request (schemas.AgentRequest): The request containing the agent name and question prompt.
-        db (Session): The database session.
-        current_user (schemas.User): The currently authenticated user.
-    """
-
-    ADK_BASE_URL = config.config.get("experimental", {}).get("agents", {}).get("adk_server_url")
+) -> schemas.AgentSessionResponse:
+    ADK_BASE_URL = config.config.get("experiments", {}).get("agents", {}).get("adk_server_url")
 
     # Ensure the ADK server URL is configured.
     if not ADK_BASE_URL:
@@ -492,130 +482,13 @@ async def run_agent(
             detail="ADK server URL is not configured.",
         )
 
-    async def _create_adk_session(session_id: str):
-        """Creates a new session to ADK for the given app and user.
-
-        Args:
-            session_id (str): The unique session ID to create.
-
-        Returns:
-            tuple: A tuple containing the response and session ID.
-        """
-        url = f"{ADK_BASE_URL}/apps/{request.agent_name}/users/{current_user.id}/sessions/{session_id}"
-        headers = {"Content-Type": "application/json"}
-        payload = {"state": {}}
-
-        try:
-            response = httpx.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            return response, session_id
-        except httpx.HTTPStatusError as e:
-            print(f"HTTP error creating session: {e.response.status_code} - {e.response.text}")
-            return None, session_id
-        except httpx.RequestError as e:
-            print(f"Request error creating session: {e}")
-            return None, session_id
-
-    async def _run_sse_stream():
-        """
-        Calls the /run_sse endpoint from the ADK server and streams the result back
-        using Server-Sent Events (SSE).
-
-        Returns:
-            EventSourceResponse: A stream of events from the ADK server.
-        """
-        url = f"{ADK_BASE_URL}/run_sse"
-
-        session = await _create_adk_session(session_id=str(uuid.uuid4()))
-        session_id = session[1]
-
-        headers = {
-            "Content-Type": "application/json",
-            "Accept": "text/event-stream",
-        }
-
-        # Prepend instructions to the user prompt to limit access to the specified folder.
-        # The access to the folder is guarded by the backend system using access control, but we
-        # want to ensure the agent only accesses files in the specified folder.
-        # TODO: Build a more robust solution for this.
-        pre_prompt = f"ONLY access files in folder with ID: {folder_id}\n\n"
-
-        # Format the user prompt for the agent.
-        question_prompt = {
-            "role": "user",
-            "parts": [
-                {
-                    "text": pre_prompt + request.question_prompt,
-                }
-            ],
-        }
-
-        # Prepare the POST payload for the ADK server SSE stream.
-        payload = {
-            "appName": request.agent_name,
-            "userId": f"{current_user.id}",
-            "sessionId": session_id,
-            "newMessage": question_prompt,
-        }
-
-        # Start the SSE stream to the ADK server. The server will handle the agent execution
-        # and return the results as a stream of events.
-        try:
-            async with httpx.AsyncClient(timeout=None) as client:
-                async with client.stream("POST", url, headers=headers, json=payload) as response:
-                    response.raise_for_status()
-                    async for chunk in response.aiter_bytes():
-                        decoded_chunk = chunk.decode("utf-8")
-                        for line in decoded_chunk.splitlines():
-                            if line.startswith("data: "):
-                                try:
-                                    json_data = json.loads(line[len("data: ") :])
-                                    yield json.dumps(json_data)
-                                except json.JSONDecodeError:
-                                    pass
-                    yield json.dumps({"type": "complete", "message": "All agents finished."})
-        except httpx.HTTPStatusError as e:
-            error_message = (
-                f"HTTP error during SSE stream: {e.response.status_code} - {e.response.text}"
-            )
-            yield json.dumps({"type": "error", "message": error_message})
-        except httpx.RequestError as e:
-            error_message = f"Request error during SSE stream: {e}"
-            yield json.dumps({"type": "error", "message": error_message})
-        except Exception as e:
-            error_message = f"Unexpected error during SSE stream: {e}"
-            yield json.dumps({"type": "error", "message": error_message})
-
-    return EventSourceResponse(_run_sse_stream())
-
-
-@router.post("/{folder_id}/investigations/questions")
-@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
-def get_investigative_questions(
-    folder_id: int,
-    request: schemas.InvestigativeQuestionsRequest,
-    db: Session = Depends(get_db_connection),
-    current_user: schemas.User = Depends(get_current_active_user),
-) -> List[str]:
-    """Generate investigative questions based on the provided goal, context, and files.
-
-    Args:
-        folder_id (int): The ID of the folder to limit file access.
-        request (schemas.InvestigativeQuestionsRequest): The request containing the goal and context.
-        db (Session): The database session.
-        current_user (schemas.User): The currently authenticated user.
-
-    Returns:
-        List[str]: A list of generated investigative questions.
-    """
-
-    def get_folder_contents_as_json():
+    async def _get_folder_contents():
         """
         Retrieves file metadata for a specific folder.
 
         Returns:
-            A JSON-formatted string representing a list of file dictionaries.
-            Returns an empty JSON list '[]' if no files are found.
+            A list of file dictionaries.
+            Returns an empty list '[]' if no files are found.
         """
         # Fetch file objects from the database.
         files_from_db = get_files_from_db(db, folder_id)
@@ -630,57 +503,251 @@ def get_investigative_questions(
             for file in files_from_db
         ]
 
-        return json.dumps(file_data_list)
+        return file_data_list
 
-    SYSTEM_INSTRUCTIONS = """
-    You are a helpful security engineer that is an expert in digital forensics and reverse engineering.
-    I'm investigating a system and need your help analyzing a digital artifact file.
-    I have provided the artifacts in this system prompt together with file type, filename.
-    * Your sole task is to generate a list of investigative questions based on the provided information.
-    * The output MUST be a raw COMMA SEPARATED array of strings.
-    * Do NOT include any markdown formatting, code block fences, or extra text.
+    async def _create_adk_session(session_id: str):
+        """Creates a new session to ADK for the given app and user.
+
+        Args:
+            session_id (str): The unique session ID to create.
+
+        Returns:
+            tuple: A tuple containing the response and session ID.
+        """
+        url = f"{ADK_BASE_URL}/apps/dfir_multi_agent/users/{current_user.id}/sessions/{session_id}"
+        headers = {"Content-Type": "application/json"}
+        files_list = await _get_folder_contents()
+        payload = generate_initial_state(context=request.context, files=files_list)
+
+        try:
+            response = httpx.post(url, headers=headers, json=payload.dict())
+            response.raise_for_status()
+            return response, session_id
+        except httpx.HTTPStatusError as e:
+            print(f"HTTP error creating session: {e.response.status_code} - {e.response.text}")
+            return None, session_id
+        except httpx.RequestError as e:
+            print(f"Request error creating session: {e}")
+            return None, session_id
+
+    session = await _create_adk_session(session_id=str(uuid.uuid4()))
+    session_id = session[1]
+
+    return schemas.AgentSessionResponse(session_id=session_id)
+
+
+# Run the ADK agent
+@router.post("/{folder_id}/investigations/run")
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
+async def start_investigation(
+    folder_id: int,
+    request: schemas.AgentRequest,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> EventSourceResponse:
+    """Run an agent to answer investigative questions.
+
+    This starts a Server-Sent Events (SSE) stream to the Agent Development Kit (ADK) server and
+    mediates all ADK events and responses back to the client.
+
+    Args:
+        folder_id (int): The ID of the folder to limit file access.
+        request (schemas.AgentRequest): The request containing the agent name and question prompt.
+        db (Session): The database session.
+        current_user (schemas.User): The currently authenticated user.
     """
 
-    # The prompt for the LLM to generate questions.
-    PROMPT = f"""
-    Based on the provided investigative goal, context, and files, generate a list of investigative questions that could help
-    in understanding the system activity.
+    ADK_BASE_URL = config.config.get("experiments", {}).get("agents", {}).get("adk_server_url")
 
-    The questions must be relevant to the investigation goal and file types/filenames.
-    * Generate EXACTLY 5 questions.
-    * Each question should be a maximum of 15 words.
-
-    Investigative Goal:
-    {request.goal}
-
-    Context:
-    {request.context}
-
-    Files:
-    {get_folder_contents_as_json()}
-    """
-
-    # Get the active LLM provider and model from the configuration.
-    active_llm = config.get_active_llm()
-    if not active_llm:
+    # Ensure the ADK server URL is configured.
+    if not ADK_BASE_URL:
         raise HTTPException(
-            status_code=503,
-            detail="No active LLM available.",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ADK server URL is not configured.",
         )
-    llm_provider = active_llm["name"]
-    llm_model = active_llm["config"]["model"]
-    provider = manager.LLMManager().get_provider(llm_provider)
 
-    # Initialize the LLM with the specified model and system instructions.
-    llm = provider(model_name=llm_model, system_instructions=SYSTEM_INSTRUCTIONS)
+    session_id = request.session_id
 
-    # Generate questions using the LLM.
-    questions = llm.generate(prompt=PROMPT)
+    async def _background_producer(
+        session_id: str, adk_url: str, payload: dict, current_user_id: int
+    ):
+        """
+        Background task to stream data from ADK to the session queue.
+        """
+        session = stream_manager.get_session(session_id)
+        if not session:
+            # Should not happen if created correctly
+            return
 
-    # Clean up the output.
-    # TODO: Make this more robust and comprehensive.
-    questions = questions.replace('"', "").replace("'", "")
-    questions = questions.split(",")
-    questions = [question.strip() for question in questions if question.strip()]
+        url = f"{adk_url}/run_sse"
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+        }
 
-    return questions
+        try:
+            async with httpx.AsyncClient(timeout=None) as client:
+                async with client.stream("POST", url, headers=headers, json=payload) as response:
+                    response.raise_for_status()
+                    async for chunk in response.aiter_bytes():
+                        decoded_chunk = chunk.decode("utf-8")
+                        for line in decoded_chunk.splitlines():
+                            if line.startswith("data: "):
+                                try:
+                                    json_data = json.loads(line[len("data: ") :])
+                                    await session.broadcast(json.dumps(json_data))
+                                except json.JSONDecodeError:
+                                    pass
+                    await session.broadcast(
+                        json.dumps({"type": "complete", "message": "All agents finished."})
+                    )
+
+        except httpx.HTTPStatusError as e:
+            error_message = (
+                f"HTTP error during SSE stream: {e.response.status_code} - {e.response.text}"
+            )
+            await session.broadcast(json.dumps({"type": "error", "message": error_message}))
+        except httpx.RequestError as e:
+            error_message = f"Request error during SSE stream: {e}"
+            await session.broadcast(json.dumps({"type": "error", "message": error_message}))
+        except Exception as e:
+            error_message = f"Unexpected error during SSE stream: {e}"
+            await session.broadcast(json.dumps({"type": "error", "message": error_message}))
+
+        stream_manager.remove_session(session_id)
+
+    async def _stream_generator(session_id: str):
+        """
+        Consumes events from the session queue and yields them to the client.
+        """
+        session = stream_manager.get_session(session_id)
+        if not session:
+            yield json.dumps({"type": "error", "message": "Session not found or expired."})
+            return
+
+        # Register as listener (get a personal queue with history)
+        queue = await session.add_listener()
+
+        try:
+            while True:
+                # Check for cancellation?
+                # The queue.get() will block.
+                # If the session is closed, or completed, we need to know.
+
+                try:
+                    data = await queue.get()
+                    yield data
+                    queue.task_done()
+
+                    try:
+                        js = json.loads(data)
+                        if js.get("type") == "complete" or js.get("type") == "error":
+                            break
+                    except:
+                        pass
+                except asyncio.CancelledError:
+                    break
+        finally:
+            session.remove_listener(queue)
+
+    # Check if session exists
+    session = stream_manager.get_session(session_id)
+
+    if not session:
+        if not request.user_message:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No active investigation session found.",
+            )
+
+        # Create new session and background task
+        return_prompt = {
+            "role": "user",
+            "parts": [
+                {
+                    "text": request.user_message,
+                }
+            ],
+        }
+
+        payload = {
+            "appName": request.agent_name,
+            "userId": f"{current_user.id}",
+            "sessionId": session_id,
+            "newMessage": return_prompt,
+        }
+
+        task = asyncio.create_task(
+            _background_producer(session_id, ADK_BASE_URL, payload, current_user.id)
+        )
+        # Create session first so we can add listener immediately
+        # Important: pass the task so the session can track it
+        session = stream_manager.create_session(session_id, task)
+
+    elif request.user_message and session.task.done():
+        # Session exists but previous task is finished.
+        # User is sending a new message, so we start a new background task.
+
+        return_prompt = {
+            "role": "user",
+            "parts": [
+                {
+                    "text": request.user_message,
+                }
+            ],
+        }
+
+        payload = {
+            "appName": request.agent_name,
+            "userId": f"{current_user.id}",
+            "sessionId": session_id,
+            "newMessage": return_prompt,
+        }
+
+        task = asyncio.create_task(
+            _background_producer(session_id, ADK_BASE_URL, payload, current_user.id)
+        )
+        # Update the existing session with the new task
+        session.task = task
+        session.touch()
+
+    return EventSourceResponse(_stream_generator(session_id))
+
+
+# Fetch an existing ADK session
+# We are using POST here because the client side SSE connection is created
+# using POST and not GET.
+@router.post("/{folder_id}/investigations/{session_id}")
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
+async def get_adk_sse_session(
+    folder_id: int,
+    session_id: str,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> EventSourceResponse:
+    WAIT_TIME = 5
+
+    async def _get_session(session_id: str):
+        ADK_BASE_URL = config.config.get("experiments", {}).get("agents", {}).get("adk_server_url")
+
+        url = f"{ADK_BASE_URL}/apps/dfir_multi_agent/users/{current_user.id}/sessions/{session_id}"
+        headers = {"Content-Type": "application/json"}
+
+        async with httpx.AsyncClient(timeout=None) as client:
+            while True:
+                try:
+                    response = await client.get(url, headers=headers)
+                    response.raise_for_status()
+                    yield json.dumps(response.json())
+                except httpx.HTTPStatusError as e:
+                    print(f"HTTP fetching session: {e.response.status_code} - {e.response.text}")
+                    yield json.dumps({"type": "error", "message": str(e)})
+                    break
+                except httpx.RequestError as e:
+                    print(f"Request error while fetching session: {e}")
+                    yield json.dumps({"type": "error", "message": str(e)})
+                    break
+
+                await asyncio.sleep(WAIT_TIME)
+
+    return EventSourceResponse(_get_session(session_id))
