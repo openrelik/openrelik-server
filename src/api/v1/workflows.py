@@ -28,7 +28,7 @@ from openrelik_ai_common.providers import manager
 from sqlalchemy.orm import Session
 
 from auth.common import get_current_active_user
-from config import get_active_llms
+from config import get_active_llm
 from datastores.sql.crud.authz import require_access
 from datastores.sql.crud.folder import create_subfolder_in_db
 from datastores.sql.crud.workflow import (
@@ -795,7 +795,7 @@ async def generate_workflow_name(
     Input FILENAMES_WITH_FILETYPES:
     {", ".join([f"({file.display_name}, {file.magic_mime})" for file in workflow.files])}
     """
-    active_llm = get_active_llms()[0]
+    active_llm = get_active_llm()
     if not active_llm:
         raise HTTPException(
             status_code=503,

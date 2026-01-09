@@ -661,7 +661,12 @@ def get_investigative_questions(
     """
 
     # Get the active LLM provider and model from the configuration.
-    active_llm = config.get_active_llms()[0]
+    active_llm = config.get_active_llm()
+    if not active_llm:
+        raise HTTPException(
+            status_code=503,
+            detail="No active LLM available.",
+        )
     llm_provider = active_llm["name"]
     llm_model = active_llm["config"]["model"]
     provider = manager.LLMManager().get_provider(llm_provider)
