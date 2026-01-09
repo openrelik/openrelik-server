@@ -62,10 +62,9 @@ def get_tables_schemas(file: object) -> dict:
     # If the extension is not found, the extension is downloaded automatically from the DuckDB repository.
     if os.path.exists(duckdb_extension_path):
         try:
-            if os.path.exists(duckdb_extension_path):
-                db_conn = duckdb.connect()
-                db_extensions_query = "INSTALL '{0:s}'; LOAD '{0:s}';".format(duckdb_extension_path)
-                db_conn.execute(db_extensions_query)
+            db_conn = duckdb.connect()
+            db_extensions_query = "INSTALL '{0:s}'; LOAD '{0:s}';".format(duckdb_extension_path)
+            db_conn.execute(db_extensions_query)
         except Exception as e:
             raise RuntimeError(e)
         finally:
