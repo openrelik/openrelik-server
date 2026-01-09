@@ -35,7 +35,7 @@ from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from sqlalchemy.orm import Session
 
 from auth.common import get_current_active_user
-from config import config, get_active_llms
+from config import config, get_active_llm
 from datastores.sql.crud.authz import require_access
 from datastores.sql.crud.file import (
     create_file_in_db,
@@ -383,13 +383,18 @@ def generate_file_summary(
     current_user: schemas.User = Depends(get_current_active_user),
 ):
     file = get_file_from_db(db, file_id)
+    active_llm = get_active_llm()
+    if not active_llm:
+        raise HTTPException(
+            status_code=503,
+            detail="No active LLM available.",
+        )
+
     new_file_summary = schemas.FileSummaryCreate(
         status_short="in_progress",
         file_id=file_id,
     )
     file_summary_db = create_file_summary_in_db(db, new_file_summary)
-    active_llm = get_active_llms()[0]
-
     summary_func = generate_summary
     if duckdb_utils.is_sql_file(file.magic_text):
         summary_func = generate_sql_summary
@@ -485,9 +490,14 @@ def generate_query(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File is not a supported SQL format.",
         )
+    active_llm = get_active_llm()
+    if not active_llm:
+        raise HTTPException(
+            status_code=503,
+            detail="No active LLM available.",
+        )
 
     tables_schemas = duckdb_utils.get_tables_schemas(file)
-    active_llm = get_active_llms()[0]
     generated_query = duckdb_utils.generate_sql_query(
         llm_provider=active_llm["name"],
         llm_model=active_llm["config"]["model"],

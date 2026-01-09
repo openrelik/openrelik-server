@@ -13,11 +13,10 @@
 # limitations under the License.
 
 import os
-import tomllib
 import sys
 
+import tomllib
 from fastapi import HTTPException
-
 from openrelik_ai_common.providers import manager
 
 
@@ -46,6 +45,18 @@ def get_active_llms() -> dict:
     llm_providers = list(llm_manager.get_providers())
     active_llms = [provider_class().to_dict() for _, provider_class in llm_providers]
     return active_llms
+
+
+def get_active_llm() -> dict:
+    """Get the first active LLM provider from the LLM manager.
+    TODO: Make this selection more user configurable.
+    """
+    llm_manager = manager.LLMManager()
+    llm_providers = list(llm_manager.get_providers())
+    if not llm_providers:
+        return None
+    provider_class = llm_providers[0][1]
+    return provider_class().to_dict()
 
 
 def get_ui_server_url() -> str:
