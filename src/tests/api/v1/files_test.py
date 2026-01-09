@@ -111,8 +111,8 @@ def test_generate_file_summary(
     file_db_model,
 ):
     """Test generate_file_summary endpoint."""
-    mock_get_active_llms = mocker.patch("api.v1.files.get_active_llms")
-    mock_get_active_llms.return_value = [{"name": "test_llm", "config": {"model": "test_model"}}]
+    mock_get_active_llm = mocker.patch("api.v1.files.get_active_llm")
+    mock_get_active_llm.return_value = [{"name": "test_llm", "config": {"model": "test_model"}}]
     mock_create_file_summary_in_db = mocker.patch("api.v1.files.create_file_summary_in_db")
     mock_background_tasks_add_task = mocker.patch("api.v1.files.BackgroundTasks.add_task")
 
@@ -319,8 +319,8 @@ def test_generate_query(fastapi_test_client, mocker, file_db_model):
         "table1": {"column1": "INTEGER", "column2": "TEXT"},
         "table2": {"columnA": "REAL", "columnB": "BLOB"},
     }
-    mock_get_active_llms = mocker.patch("api.v1.files.get_active_llms")
-    mock_get_active_llms.return_value = [{"name": "test_llm", "config": {"model": "test_model"}}]
+    mock_get_active_llm = mocker.patch("api.v1.files.get_active_llm")
+    mock_get_active_llm.return_value = [{"name": "test_llm", "config": {"model": "test_model"}}]
     mock_generate_sql_query = mocker.patch("lib.duckdb_utils.generate_sql_query")
     mock_generate_sql_query.return_value = "SELECT * FROM table1 LIMIT 10;"
 
