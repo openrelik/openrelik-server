@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2024-2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,17 +15,14 @@
 """Tests for workflows endpoints."""
 
 import json
-import os
-import pytest
 from unittest.mock import ANY
-from celery.canvas import Signature
 
+import pytest
+from celery.canvas import Signature
 from fastapi import status
 from sqlalchemy.orm import Session
-from uuid import uuid4
 
 from api.v1 import schemas
-from datastores.sql.models.role import Role
 from datastores.sql.models.workflow import Workflow
 
 
@@ -43,9 +40,7 @@ async def test_create_workflow(
         "api.v1.workflows.get_workflow_template_from_db"
     )
     mock_get_workflow_template_from_db.return_value = workflow_schema_mock
-    mock_create_subfolder_in_db = mocker.patch(
-        "api.v1.workflows.create_subfolder_in_db"
-    )
+    mock_create_subfolder_in_db = mocker.patch("api.v1.workflows.create_subfolder_in_db")
     mock_create_subfolder_in_db.return_value = folder_db_model
 
     mock_create_workflow_in_db = mocker.patch("api.v1.workflows.create_workflow_in_db")
@@ -65,9 +60,7 @@ async def test_create_workflow_no_template(
 ):
     """Test create workflow route with no template."""
 
-    mock_create_subfolder_in_db = mocker.patch(
-        "api.v1.workflows.create_subfolder_in_db"
-    )
+    mock_create_subfolder_in_db = mocker.patch("api.v1.workflows.create_subfolder_in_db")
     mock_create_subfolder_in_db.return_value = folder_db_model
     mock_create_workflow_in_db = mocker.patch("api.v1.workflows.create_workflow_in_db")
     mock_create_workflow_in_db.return_value = workflow_response
@@ -93,9 +86,7 @@ async def test_create_workflow_no_template_no_files(
         "api.v1.workflows.get_workflow_template_from_db"
     )
     mock_get_workflow_template_from_db.return_value = workflow_schema_mock
-    mock_create_subfolder_in_db = mocker.patch(
-        "api.v1.workflows.create_subfolder_in_db"
-    )
+    mock_create_subfolder_in_db = mocker.patch("api.v1.workflows.create_subfolder_in_db")
     mock_create_subfolder_in_db.return_value = folder_db_model
 
     mock_create_workflow_in_db = mocker.patch("api.v1.workflows.create_workflow_in_db")
@@ -106,7 +97,7 @@ async def test_create_workflow_no_template_no_files(
     response = await fastapi_async_test_client.post(
         f"/folders/{folder_id}/workflows/", json=request
     )
-    assert response.status_code == 422 # invalid request, missing file_ids
+    assert response.status_code == 422  # invalid request, missing file_ids
 
 
 def test_get_workflow(fastapi_test_client, mocker, workflow_response):
@@ -165,9 +156,7 @@ async def test_copy_workflow(
     mock_get_workflow_from_db = mocker.patch("api.v1.workflows.get_workflow_from_db")
     mock_get_workflow_from_db.return_value = workflow_db_model
 
-    mock_create_subfolder_in_db = mocker.patch(
-        "api.v1.workflows.create_subfolder_in_db"
-    )
+    mock_create_subfolder_in_db = mocker.patch("api.v1.workflows.create_subfolder_in_db")
     mock_create_subfolder_in_db.return_value = workflow_db_model.folder
 
     mock_create_workflow_in_db = mocker.patch("api.v1.workflows.create_workflow_in_db")
@@ -183,15 +172,11 @@ async def test_copy_workflow(
 
 
 def test_delete_workflow(fastapi_test_client, mocker, db):
-    mock_delete_workflow_from_db = mocker.patch(
-        "api.v1.workflows.delete_workflow_from_db"
-    )
+    mock_delete_workflow_from_db = mocker.patch("api.v1.workflows.delete_workflow_from_db")
     folder_id = 1
     workflow_id = 1
 
-    response = fastapi_test_client.delete(
-        f"/folders/{folder_id}/workflows/{workflow_id}"
-    )
+    response = fastapi_test_client.delete(f"/folders/{folder_id}/workflows/{workflow_id}")
 
     assert response.status_code == status.HTTP_204_NO_CONTENT
     mock_delete_workflow_from_db.assert_called_once_with(db, workflow_id)
@@ -205,8 +190,10 @@ async def test_run_workflow(
     workflow_db_model: Workflow,
     workflow_response: schemas.WorkflowResponse,
     file_db_model,
+    setup_file_path_mock,
 ):
     """Test run workflow route."""
+    mocker.patch("datastores.sql.models.folder.get_config", return_value={"server": {"storage_path": "/tmp/test"}})
     mock_get_workflow_from_db = mocker.patch("api.v1.workflows.get_workflow_from_db")
     mock_get_workflow_from_db.return_value = workflow_db_model
     mock_create_workflow = mocker.patch("api.v1.workflows.create_workflow_signature")
@@ -257,8 +244,10 @@ async def test_run_workflow_nested_tasks(
     workflow_db_model: Workflow,
     workflow_response: schemas.WorkflowResponse,
     file_db_model,
+    setup_file_path_mock,
 ):
     """Test run workflow route with group tasks."""
+    mocker.patch("datastores.sql.models.folder.get_config", return_value={"server": {"storage_path": "/tmp/test"}})
     mock_get_workflow_from_db = mocker.patch("api.v1.workflows.get_workflow_from_db")
     mock_get_workflow_from_db.return_value = workflow_db_model
     mock_create_workflow = mocker.patch("api.v1.workflows.create_workflow_signature")
@@ -324,6 +313,7 @@ async def test_get_workflow_templates(
     assert response.status_code == 200
     assert response.json() == [workflow_template_response.model_dump(mode="json")]
 
+
 @pytest.mark.asyncio
 async def test_get_workflow_template_by_id(
     fastapi_async_test_client, mocker, workflow_template_response
@@ -333,11 +323,12 @@ async def test_get_workflow_template_by_id(
         "api.v1.workflows.get_workflow_template_from_db"
     )
     mock_get_workflow_template_by_id.return_value = workflow_template_response
-    
-    workflow_template_id=1
+
+    workflow_template_id = 1
     response = await fastapi_async_test_client.get(f"/workflows/templates/{workflow_template_id}")
     assert response.status_code == 200
     assert response.json() == workflow_template_response.model_dump(mode="json")
+
 
 @pytest.mark.asyncio
 async def test_create_workflow_template(
@@ -355,9 +346,7 @@ async def test_create_workflow_template(
     mock_create_workflow_template_in_db.return_value = workflow_template_response
 
     request = {"display_name": "test template", "workflow_id": 1}
-    response = await fastapi_async_test_client.post(
-        "/workflows/templates/", json=request
-    )
+    response = await fastapi_async_test_client.post("/workflows/templates/", json=request)
     assert response.status_code == 200
 
     # Verify that the spec_json is stringified before being passed to the database function
@@ -365,18 +354,23 @@ async def test_create_workflow_template(
     created_template = kwargs[0][1]
     assert isinstance(created_template.spec_json, str)
 
+
 @pytest.mark.asyncio
 async def test_update_workflow_template(
     fastapi_async_test_client, mocker, template_db_model, workflow_template_response
 ):
     """Test update workflow route."""
-    mock_get_workflow_template_from_db = mocker.patch("api.v1.workflows.get_workflow_template_from_db")
+    mock_get_workflow_template_from_db = mocker.patch(
+        "api.v1.workflows.get_workflow_template_from_db"
+    )
     mock_get_workflow_template_from_db.return_value = template_db_model
 
-    mock_update_workflow_template_in_db = mocker.patch("api.v1.workflows.update_workflow_template_in_db")
+    mock_update_workflow_template_in_db = mocker.patch(
+        "api.v1.workflows.update_workflow_template_in_db"
+    )
     mock_update_workflow_template_in_db.return_value = template_db_model
 
-    template_id=1
+    template_id = 1
     updated_workflow_template_data = {
         "id": 1,
         "created_at": "2025-06-25T14:03:51.095829Z",
@@ -408,7 +402,7 @@ async def test_update_workflow_template(
                 }
             }
         ),
-        "user_id": 1
+        "user_id": 1,
     }
 
     response = await fastapi_async_test_client.patch(
@@ -419,9 +413,7 @@ async def test_update_workflow_template(
 
 
 @pytest.mark.asyncio
-async def test_create_workflow_template_invalid_workflow(
-    fastapi_async_test_client, mocker, db
-):
+async def test_create_workflow_template_invalid_workflow(fastapi_async_test_client, mocker, db):
     """Test create workflow template route with invalid workflow ID."""
 
     mock_get_workflow_from_db = mocker.patch("api.v1.workflows.get_workflow_from_db")
@@ -429,9 +421,7 @@ async def test_create_workflow_template_invalid_workflow(
 
     request = {"display_name": "test template", "workflow_id": 1}
 
-    response = await fastapi_async_test_client.post(
-        "/workflows/templates/", json=request
-    )
+    response = await fastapi_async_test_client.post("/workflows/templates/", json=request)
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
@@ -511,4 +501,3 @@ def test_get_task_signature(mocker, db, user_db_model, task_response, workflow_d
     assert created_task.description is None
     assert created_task.uuid == "test_uuid"
     assert json.loads(created_task.config) == {"param1": "value1"}
-

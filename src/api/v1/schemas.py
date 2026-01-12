@@ -134,6 +134,7 @@ class GroupResponse(BaseSchema):
 class FolderCreateRequest(BaseModel):
     display_name: str
     parent_id: Optional[int] = None
+    storage_provider: Optional[str] = None
 
 
 class FolderUpdateRequest(BaseModel):
@@ -164,6 +165,7 @@ class FolderResponse(BaseSchema):
     workflows: Optional[List["WorkflowResponse"]]
     user_roles: Optional[List["UserRoleResponse"]]
     group_roles: Optional[List["GroupRoleResponse"]]
+    storage_provider: Optional[str] = None
 
 
 class FolderResponseCompact(BaseSchema):
@@ -237,6 +239,8 @@ class FileResponse(BaseSchema):
     hash_sha1: Optional[str] = None
     hash_sha256: Optional[str] = None
     hash_ssdeep: Optional[str] = None
+    storage_provider: Optional[str] = None
+    storage_key: Optional[str] = None
     user_id: int
     user: UserResponseCompact
     folder: Optional[FolderResponse] = None
