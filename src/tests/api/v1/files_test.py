@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2024-2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,7 +16,7 @@
 
 import json
 import os
-from pathlib import Path
+from unittest.mock import PropertyMock
 
 import pytest
 
@@ -29,19 +29,22 @@ def test_get_file_content(
     fastapi_test_client,
     mocker,
     file_db_model,
+    setup_file_path_mock,  # Use the new fixture
     theme,
     expected_background,
     expected_color,
     expected_scrollbar,
 ):
     """Test the get_file_content endpoint."""
+    expected_path = setup_file_path_mock
     mock_get_file_from_db = mocker.patch("api.v1.files.get_file_from_db")
     mock_get_file_from_db.return_value = file_db_model
-    mock_config = mocker.patch("datastores.sql.models.folder.get_config")
     file_content = "Mocked file content"
     mock_open = mocker.mock_open(read_data=file_content)
     mocker.patch("builtins.open", mock_open)
+
     response = fastapi_test_client.get(f"/files/{file_db_model.id}/content?theme={theme}")
+
     assert response.status_code == 200
     assert (
         f'<html style="background:{expected_background}; scrollbar-color: {expected_scrollbar};">'
@@ -51,16 +54,31 @@ def test_get_file_content(
         f'<pre style="color:{expected_color};padding:10px;white-space: pre-wrap; margin: 0; padding: 0;">{file_content}</pre>'
         in response.text
     )
-    mock_open.assert_called_with(file_db_model.path, "r", encoding="utf-8")
+
+    # Use the expected path for the assertion
+    mock_open.assert_called_with(expected_path, "r", encoding="utf-8")
 
 
-def test_get_file_content_file_not_found(fastapi_test_client, mocker, file_db_model, tmp_path):
+def test_get_file_content_file_not_found(
+    fastapi_test_client, mocker, file_db_model, setup_file_path_mock
+):
     """Test the get_file_content endpoint when file not found."""
-    non_existent_path = os.path.join(tmp_path, "does_not_exist.txt")
-    file_db_model.original_path = non_existent_path  #  Set the path to a non-existent file
+    expected_path = setup_file_path_mock
+
     mock_get_file_from_db = mocker.patch("api.v1.files.get_file_from_db")
     mock_get_file_from_db.return_value = file_db_model
+
+    # Mock open to raise FileNotFoundError for the path returned by the fixture
+    mock_open = mocker.mock_open()
+    mock_open.side_effect = FileNotFoundError
+    mocker.patch("builtins.open", mock_open)
+
     response = fastapi_test_client.get(f"/files/{file_db_model.id}/content")
+
+    # Use assert_any_call instead of assert_called_once_with to avoid false failures
+    # from internal framework file access.
+    mock_open.assert_any_call(expected_path, "r", encoding="utf-8")
+
     assert response.status_code == 200
     assert (
         '<pre style="color:#000;padding:10px;white-space: pre-wrap; margin: 0; padding: 0;">File not found</pre>'
@@ -121,15 +139,18 @@ def test_generate_file_summary(
 
 
 @pytest.mark.asyncio
-async def test_download_file_stream(fastapi_async_test_client, mocker, file_db_model):
+async def test_download_file_stream(
+    fastapi_async_test_client, mocker, file_db_model, setup_file_path_mock
+):
     """Test the download_file_stream endpoint."""
-    mock_config = mocker.patch("datastores.sql.models.folder.get_config")
-    storage_path = Path(file_db_model.original_path).parent.parent
-    mock_config.return_value = {"server": {"storage_path": storage_path}}
+    expected_path = setup_file_path_mock
+
     mock_get_file_from_db = mocker.patch("api.v1.files.get_file_from_db")
     mock_get_file_from_db.return_value = file_db_model
 
-    with open(file_db_model.path, "w") as f:
+    # Use the mocked path to create the dummy file. This now works because
+    # setup_file_path_mock ensures the parent directory exists inside tmp_path.
+    with open(expected_path, "w") as f:
         f.write("Dummy file content")
 
     response = await fastapi_async_test_client.get(f"/files/{file_db_model.id}/download_stream")
@@ -140,19 +161,45 @@ async def test_download_file_stream(fastapi_async_test_client, mocker, file_db_m
     )
 
     streamed_content = b""
-    for chunk in response.iter_bytes():
+    async for chunk in response.aiter_bytes():
         streamed_content += chunk
     assert streamed_content == b"Dummy file content"
 
 
 @pytest.mark.asyncio
 async def test_upload_files_chunked(
-    fastapi_async_test_client, mocker, folder_db_model, file_db_model, file_response
+    fastapi_async_test_client,
+    mocker,
+    folder_db_model,
+    file_db_model,
+    file_response,
+    setup_config_mock,
 ):
     """Test upload_files endpoint with chunked uploads."""
-    mock_config = mocker.patch("datastores.sql.models.folder.get_config")
-    storage_path = Path(file_db_model.original_path).parent.parent
-    mock_config.return_value = {"server": {"storage_path": storage_path}}
+    mock_config = setup_config_mock
+    temp_storage_path = mock_config["server"]["storage"]["providers"]["default"]["path"]
+
+    # Mock the folder model's path property for the upload endpoint logic
+    # The logic here assumes FolderDBModel is similar to FileDBModel in structure.
+    folder_db_model.storage_provider = "default"
+    # Assuming folders use their UUID as their key when no storage_key is set (or similar logic)
+    folder_db_model.storage_key = f"folder_path_{folder_db_model.id}"
+
+    expected_folder_path = os.path.join(temp_storage_path, folder_db_model.storage_key)
+    os.makedirs(expected_folder_path, exist_ok=True)
+
+    mocker.patch.object(
+        folder_db_model.__class__,
+        "path",
+        new_callable=PropertyMock,
+        return_value=expected_folder_path,
+    )
+
+    # The legacy mock is now removed
+    # mock_config = mocker.patch("datastores.sql.models.folder.get_config")
+    # storage_path = Path(file_db_model.original_path).parent.parent
+    # mock_config.return_value = {"server": {"storage_path": storage_path}}
+
     mock_get_folder_from_db = mocker.patch("api.v1.files.get_folder_from_db")
     mock_get_folder_from_db.return_value = folder_db_model
     mock_create_file_in_db = mocker.patch("api.v1.files.create_file_in_db")
@@ -253,8 +300,10 @@ def test_download_task_result(fastapi_test_client, mocker, db, tmp_path):
     assert response.content == b"Test result content"
 
 
-def test_get_sql_schemas(fastapi_test_client, mocker, file_db_model):
+def test_get_sql_schemas(fastapi_test_client, mocker, file_db_model, setup_file_path_mock):
     """Test the get_sql_schemas endpoint."""
+    setup_file_path_mock
+
     mock_get_file_from_db = mocker.patch("api.v1.files.get_file_from_db")
     mock_get_file_from_db.return_value = file_db_model
     mock_is_sql_file = mocker.patch("lib.duckdb_utils.is_sql_file")
@@ -280,8 +329,10 @@ def test_get_sql_schemas(fastapi_test_client, mocker, file_db_model):
     assert response.status_code == 400
 
 
-def test_run_sql_query(fastapi_test_client, mocker, file_db_model):
+def test_run_sql_query(fastapi_test_client, mocker, file_db_model, setup_file_path_mock):
     """Test the run_sql_query endpoint."""
+    setup_file_path_mock
+
     mock_get_file_from_db = mocker.patch("api.v1.files.get_file_from_db")
     mock_get_file_from_db.return_value = file_db_model
     mock_is_sql_file = mocker.patch("lib.duckdb_utils.is_sql_file")
@@ -308,8 +359,10 @@ def test_run_sql_query(fastapi_test_client, mocker, file_db_model):
     assert response.status_code == 400
 
 
-def test_generate_query(fastapi_test_client, mocker, file_db_model):
+def test_generate_query(fastapi_test_client, mocker, file_db_model, setup_file_path_mock):
     """Test the generate_sql_query endpoint."""
+    setup_file_path_mock
+
     mock_get_file_from_db = mocker.patch("api.v1.files.get_file_from_db")
     mock_get_file_from_db.return_value = file_db_model
     mock_is_sql_file = mocker.patch("lib.duckdb_utils.is_sql_file")

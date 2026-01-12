@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2024-2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -134,6 +134,7 @@ class GroupResponse(BaseSchema):
 class FolderCreateRequest(BaseModel):
     display_name: str
     parent_id: Optional[int] = None
+    storage_provider: Optional[str] = None
 
 
 class FolderUpdateRequest(BaseModel):
@@ -164,6 +165,7 @@ class FolderResponse(BaseSchema):
     workflows: Optional[List["WorkflowResponse"]]
     user_roles: Optional[List["UserRoleResponse"]]
     group_roles: Optional[List["GroupRoleResponse"]]
+    storage_provider: Optional[str] = None
 
 
 class FolderResponseCompact(BaseSchema):
@@ -237,6 +239,8 @@ class FileResponse(BaseSchema):
     hash_sha1: Optional[str] = None
     hash_sha256: Optional[str] = None
     hash_ssdeep: Optional[str] = None
+    storage_provider: Optional[str] = None
+    storage_key: Optional[str] = None
     user_id: int
     user: UserResponseCompact
     folder: Optional[FolderResponse] = None
@@ -486,8 +490,20 @@ class FileChatMessageCreate(BaseModel):
 
 
 class AgentRequest(BaseModel):
-    question_prompt: str
+    session_id: str
     agent_name: str
+    user_message: Optional[str] = None
+    function_name: Optional[str] = None
+    long_running_tool_id: Optional[str] = None
+    invocation_id: Optional[str] = None
+
+
+class AgentSessionRequest(BaseModel):
+    context: str
+
+
+class AgentSessionResponse(BaseModel):
+    session_id: str
 
 
 class InvestigativeQuestionsRequest(BaseModel):

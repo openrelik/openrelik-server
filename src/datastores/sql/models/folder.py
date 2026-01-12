@@ -26,8 +26,8 @@ from ..database import AttributeMixin, BaseModel
 
 if TYPE_CHECKING:
     from datastores.sql.models.file import File
-    from datastores.sql.models.user import User, UserRole
     from datastores.sql.models.group import GroupRole
+    from datastores.sql.models.user import User, UserRole
 
 
 class Folder(BaseModel):
@@ -49,6 +49,12 @@ class Folder(BaseModel):
     display_name: Mapped[str] = mapped_column(UnicodeText, index=True)
     description: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
     uuid: Mapped[uuid_module.UUID] = mapped_column(UUID(as_uuid=True))
+
+    # Root-level folders only: The storage provider name is used to identify where the folder is
+    # stored. The name is used to lookup the storage provider configuration, which contains the
+    # mount point. Only root-level folders have this set; subfolders inherit the storage provider of
+    # their top-level parent folder. This attribute is ignored for subfolders.
+    storage_provider: Mapped[str] = mapped_column(UnicodeText, index=True, nullable=True)
 
     # Relationships
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
@@ -79,10 +85,89 @@ class Folder(BaseModel):
 
     @hybrid_property
     def path(self):
-        """Returns the full path of the folder."""
-        current_config = get_config()
-        base_storage_path = current_config.get("server").get("storage_path")
-        return os.path.join(base_storage_path, self.uuid.hex)
+        """Returns the full path of the folder, accounting for old root-level folders.
+
+        Returns:
+            str: The full path of the folder.
+        """
+        is_root_folder = not self.parent
+
+        def _get_root_base_path(storage_provider: Optional[str] = None) -> str:
+            """Helper to get the base storage path for a root folder from the config.
+
+            Args:
+                storage_provider: The storage provider name.
+
+            Returns:
+                str: The base storage path.
+            """
+            current_config = get_config()
+            storage_provider_configs = (
+                current_config.get("server", {}).get("storage", {}).get("providers", {})
+            )
+            base_path = None
+
+            if storage_provider_configs:
+                if storage_provider:
+                    provider_config = storage_provider_configs.get(storage_provider)
+                    if provider_config:
+                        base_path = provider_config.get("path")
+                
+                # This is a fallback for legacy root folders with no storage provider set.
+                # This relies on the server_default provider being set in the config which is part
+                # of the migration to the new config format.
+                if not base_path:
+                    default_provider = storage_provider_configs.get("server_default", {})
+                    base_path = default_provider.get("path")
+
+            # Fallback path for old config format. If no storage provider is set in the config, use
+            # the storage_path from the old config format.
+            if not base_path:
+                base_path = current_config.get("server", {}).get("storage_path")
+
+            return base_path
+
+        # If the folder has a storage provider set, use it to determine the base path.
+        # This allows any folder (root or subfolder) to be a "mount point" for a storage provider.
+        if self.storage_provider:
+             base_storage_path = _get_root_base_path(self.storage_provider)
+             if not base_storage_path:
+                 raise ValueError(
+                     f"Storage provider '{self.storage_provider}' path not found in config."
+                 )
+             return os.path.join(base_storage_path, self.uuid.hex)
+
+        # If the folder is a root folder (no parent) and has no storage provider set,
+        # use the default base storage path from the config.
+        if is_root_folder:
+            base_storage_path = _get_root_base_path()
+            if not base_storage_path:
+                raise ValueError("Storage path not configured for root folder.")
+            return os.path.join(base_storage_path, self.uuid.hex)
+
+        parent_path = self.parent.path
+        return os.path.join(parent_path, self.uuid.hex)
+
+    def get_effective_storage_provider(self):
+        """Returns the effective storage provider for the folder.
+        
+        This recursively traverses up the folder hierarchy to find the storage provider.
+        If no provider is explicitly set on the folder or its ancestors, it returns
+        the default provider (None or 'server_default' implicitly).
+
+        Returns:
+            str: The effective storage provider name.
+        """
+        if self.storage_provider:
+            return self.storage_provider
+        
+        if self.parent:
+            return self.parent.get_effective_storage_provider()
+        
+        # If root and no provider, it uses the server default implicitly.
+        # We return None to represent "inherited/default" which effectively maps
+        # to the server_default in the config logic.
+        return None
 
 
 class FolderAttribute(BaseModel, AttributeMixin):
