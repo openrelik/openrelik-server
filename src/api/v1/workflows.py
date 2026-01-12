@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import asyncio
+import functools
 import json
 import os
 from typing import List
@@ -803,7 +805,10 @@ async def generate_workflow_name(
         )
     provider = manager.LLMManager().get_provider(active_llm["name"])
     llm = provider(model_name=active_llm["config"]["model"])
-    generated_name = llm.generate(prompt=prompt)
+    loop = asyncio.get_running_loop()
+    generated_name = await loop.run_in_executor(
+        None, functools.partial(llm.generate, prompt=prompt)
+    )
     # Limit the generated name to a maximum number of MAX_WORDS
     generated_name = " ".join(generated_name.split()[:MAX_WORDS])
     return {"generated_name": generated_name.strip()}
