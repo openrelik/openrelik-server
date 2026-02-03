@@ -170,12 +170,13 @@ def create_user(
 
         # Create the new user
         hashed_password = password_hasher.hash(password) if not nopassword else None
+        password_hash_algorithm = "argon2id" if not nopassword else None
         new_user = schemas.UserCreate(
             display_name=username,
             username=username,
             email=email,
             password_hash=hashed_password,
-            password_hash_algorithm="argon2id",
+            password_hash_algorithm=password_hash_algorithm,
             auth_method=auth,
             uuid=uuid.uuid4(),
             is_admin=admin,
