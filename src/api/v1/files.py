@@ -16,6 +16,7 @@ import html
 import json
 import os
 import re
+from datetime import datetime
 from typing import List
 from uuid import uuid4
 
@@ -38,6 +39,8 @@ from auth.common import get_current_active_user
 from config import config, get_active_llm
 from datastores.sql.crud.authz import require_access
 from datastores.sql.crud.file import (
+    create_file_chat_in_db,
+    create_file_chat_message_in_db,
     create_file_in_db,
     create_file_summary_in_db,
     delete_file_from_db,
@@ -52,6 +55,7 @@ from datastores.sql.models.role import Role
 from datastores.sql.models.workflow import Task
 from lib import duckdb_utils
 from lib.file_hashes import generate_hashes
+from lib.llm_file_chat import BASE_SYSTEM_INSTRUCTIONS, create_chat_session
 from lib.llm_summary import generate_sql_summary, generate_summary
 
 from . import schemas
@@ -408,9 +412,9 @@ def generate_file_summary(
     )
 
 
-@router.get("/{file_id}/chat")
+@router.get("/{file_id}/chat/history")
 @require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
-def get_latest_file_chat(
+def get_file_chat_history(
     file_id: int,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
@@ -425,6 +429,73 @@ def get_latest_file_chat(
         title=chat.title if chat else None,
         history=chat.get_chat_history() if chat else [],
     )
+
+
+@router.post("/{file_id}/chat", response_class=StreamingResponse)
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
+def create_file_chat_message(
+    file_id: int,
+    request: schemas.FileChatRequest,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+):
+    """Chat about a file using Server-Sent Events (SSE)."""
+    file_chat = get_latest_file_chat_from_db(
+        db=db,
+        file_id=file_id,
+        user_id=current_user.id,
+    )
+
+    if not file_chat:
+        file_chat_schema = schemas.FileChatCreate(
+            system_instructions=BASE_SYSTEM_INSTRUCTIONS,
+            user_id=current_user.id,
+            file_id=file_id,
+        )
+        file_chat = create_file_chat_in_db(db=db, file_chat=file_chat_schema)
+
+    history = file_chat.get_chat_history()
+    active_llm = get_active_llm()
+
+    if not active_llm:
+        raise HTTPException(
+            status_code=503,
+            detail="No active LLM available.",
+        )
+
+    llm_provider = active_llm["name"]
+    llm_model = active_llm["config"]["model"]
+    chat_session = create_chat_session(llm_provider, llm_model, file_id, history)
+
+    def event_generator():
+        start_time = datetime.now()
+        try:
+            # Synchronous LLM call
+            response_text = chat_session.chat(request.prompt)
+
+            end_time = datetime.now()
+            duration = end_time - start_time
+
+            # Save the message independently
+            file_chat_message = schemas.FileChatMessageCreate(
+                file_chat_id=file_chat.id,
+                request_prompt=request.prompt,
+                response_text=response_text,
+                runtime=duration.seconds,
+            )
+            create_file_chat_message_in_db(db=db, file_chat_message=file_chat_message)
+
+            # Yield content block properly formatted for SSE
+            lines = response_text.split("\n")
+            data_payload = "\ndata: ".join(lines)
+            yield f"data: {data_payload}\n\n"
+
+        except Exception as e:
+            yield f"event: error\ndata: {str(e)}\n\n"
+        finally:
+            yield "event: close\ndata: \n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @router.post("/{file_id}/sql/query")
