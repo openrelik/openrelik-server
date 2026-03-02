@@ -128,6 +128,12 @@ async def auth_header_token(
             uuid=uuid.uuid4(),
         )
         db_user = create_user_in_db(db, new_user)
+    else:
+        # Update the user's display name and profile picture URL in case they have changed.
+        db_user.display_name = user_info.get("name", db_user.display_name)
+        db_user.profile_picture_url = user_info.get("picture", db_user.profile_picture_url)
+        db.add(db_user)
+        db.commit()
 
     # Create JWT access token with default expiry time.
     refresh_token = create_jwt_token(
@@ -208,6 +214,12 @@ async def auth(request: Request, db: Session = Depends(get_db_connection)) -> Re
             uuid=uuid.uuid4(),
         )
         db_user = create_user_in_db(db, new_user)
+    else:
+        # Update the user's display name and profile picture URL in case they have changed.
+        db_user.display_name = user_info.get("name", db_user.display_name)
+        db_user.profile_picture_url = user_info.get("picture", db_user.profile_picture_url)
+        db.add(db_user)
+        db.commit()
 
     # Create JWT access token with default expiry time.
     refresh_token = create_jwt_token(
