@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "openrelik-server"
-version = "0.6.0"
-description = "Experimental forensic workflow system"
+version = "0.7.0"
+description = "Digital Forensic Workflow System"
 authors = ["Johan Berggren <jberggren@gmail.com>"]
 license = "Apache 2.0"
 readme = "README.md"
