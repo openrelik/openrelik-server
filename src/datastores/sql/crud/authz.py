@@ -21,9 +21,9 @@ from sqlalchemy.orm import Session
 
 from datastores.sql.models.file import File
 from datastores.sql.models.folder import Folder
+from datastores.sql.models.group import GroupRole
 from datastores.sql.models.role import Role
 from datastores.sql.models.user import User, UserRole
-from datastores.sql.models.group import GroupRole
 
 
 class AuthorizationError(Exception):
@@ -113,9 +113,7 @@ def check_user_access(
         for group in user.groups:
             group_role = (
                 db.query(GroupRole)
-                .filter(
-                    GroupRole.group_id == group.id, GroupRole.folder_id == folder.id
-                )
+                .filter(GroupRole.group_id == group.id, GroupRole.folder_id == folder.id)
                 .first()
             )
             if group_role and group_role.role in allowed_roles:
@@ -126,12 +124,11 @@ def check_user_access(
     return False  # No access found
 
 
-def require_access(
-    allowed_roles: list, http_exception: bool = True, error_message: str = None
-):
+def require_access(allowed_roles: list, http_exception: bool = True, error_message: str = None):
     def decorator(func: Callable):
-        @wraps(func)
-        async def wrapper(*args, **kwargs):
+
+        def _check_access(kwargs):
+            """Shared access check logic for both sync and async wrappers."""
             db = kwargs.get("db")
             folder_id = kwargs.get("folder_id")
             file_id = kwargs.get("file_id")
@@ -141,9 +138,7 @@ def require_access(
                 folder = db.get(Folder, folder_id)
                 if not folder:
                     raise HTTPException(status_code=404, detail="Folder not found.")
-                if not check_user_access(
-                    db, current_user, allowed_roles, folder=folder
-                ):
+                if not check_user_access(db, current_user, allowed_roles, folder=folder):
                     raise_authorization_error(
                         http_exception, error_message or "No access to folder"
                     )
@@ -152,18 +147,24 @@ def require_access(
                 file = db.get(File, file_id)
                 if not file:
                     raise HTTPException(status_code=404, detail="File not found.")
-                if not check_user_access(
-                    db, current_user, allowed_roles, file=file
-                ):
-                    raise_authorization_error(
-                        http_exception, error_message or "No access to file"
-                    )
-            # Await only if func is async
-            if asyncio.iscoroutinefunction(func):
+                if not check_user_access(db, current_user, allowed_roles, file=file):
+                    raise_authorization_error(http_exception, error_message or "No access to file")
+
+        if asyncio.iscoroutinefunction(func):
+
+            @wraps(func)
+            async def async_wrapper(*args, **kwargs):
+                _check_access(kwargs)
                 return await func(*args, **kwargs)
 
-            return func(*args, **kwargs)  # Call directly if func is sync
+            return async_wrapper
+        else:
 
-        return wrapper
+            @wraps(func)
+            def sync_wrapper(*args, **kwargs):
+                _check_access(kwargs)
+                return func(*args, **kwargs)
+
+            return sync_wrapper
 
     return decorator
