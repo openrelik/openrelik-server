@@ -574,6 +574,7 @@ def generate_query(
         llm_model=active_llm["config"]["model"],
         tables_schemas=json.dumps(tables_schemas),
         user_request=request.user_request,
+        file=file,
     )
     return {"user_request": request.user_request, "generated_query": generated_query}
 
