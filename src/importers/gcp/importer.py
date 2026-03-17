@@ -139,17 +139,14 @@ def main() -> None:
     """
     Main function to subscribe to Pub/Sub messages and process GCS events.
 
-    This function initializes a database session, creates a Pub/Sub subscriber client,
-    subscribes to the specified subscription path, and listens for incoming messages.
+    This function initializes a Pub/Sub subscriber client, subscribes to the 
+    specified subscription path, and listens for incoming messages.
     Each message is then processed by the process_gcs_message function.
     """
     if not ROBOT_ACCOUNT_USER_ID:
         logger.error("ROBOT_ACCOUNT_USER_ID environment variable is not set.")
         return
     try:
-        # Initialize database session
-        db = database.SessionLocal()
-
         # Create a Pub/Sub subscriber client
         subscriber = pubsub_v1.SubscriberClient()
         subscription_path = subscriber.subscription_path(PROJECT_ID, SUBSCRIPTION_ID)
@@ -158,7 +155,8 @@ def main() -> None:
 
         # Define a callback function to process incoming messages
         def callback(message: pubsub_v1.subscriber.message.Message) -> None:
-            process_gcs_message(message, db)
+            with database.SessionLocal() as db:
+                process_gcs_message(message, db)
 
         # Subscribe to the subscription path and start listening for messages
         listener = subscriber.subscribe(subscription_path, callback=callback)
@@ -167,11 +165,6 @@ def main() -> None:
 
     except Exception as e:  # Broad exception handling to catch all errors in main.
         logger.exception(f"An error occurred during processing: {e}")
-
-    finally:
-        # Clean up resources by closing the database session
-        if db:
-            db.close()
 
 
 if __name__ == "__main__":
