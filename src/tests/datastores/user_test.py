@@ -26,6 +26,7 @@ from datastores.sql.crud.user import (
 from datastores.sql.models.user import User
 from api.v1 import schemas
 
+
 def test_get_users_from_db(db):
     """Test get_users_from_db."""
     mock_query = db.query.return_value
@@ -36,6 +37,7 @@ def test_get_users_from_db(db):
     db.query.assert_called_once_with(User)
     assert len(result) == 1
     assert result[0].id == 1
+
 
 def test_get_user_from_db(db):
     """Test get_user_from_db."""
@@ -52,6 +54,7 @@ def test_get_user_from_db(db):
     mock_query.filter.assert_called_once()
     assert result.id == user_id
 
+
 def test_create_user_in_db(mocker, db):
     """Test create_user_in_db."""
     mock_get_group = mocker.patch("datastores.sql.crud.user.get_group_by_name_from_db")
@@ -64,7 +67,7 @@ def test_create_user_in_db(mocker, db):
         auth_method="local",
         uuid=uuid.uuid4(),
     )
-    
+
     # Mock "Everyone" group
     mock_group = mocker.MagicMock()
     mock_get_group.return_value = mock_group
@@ -76,6 +79,7 @@ def test_create_user_in_db(mocker, db):
     db.refresh.assert_called()
     assert result.username == "testuser"
     assert mock_group in result.groups
+
 
 def test_search_users(db):
     """Test search_users."""
