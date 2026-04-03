@@ -15,7 +15,6 @@
 """Tests for workflows endpoints."""
 
 import json
-from unittest.mock import ANY
 
 import pytest
 from celery.canvas import Signature
@@ -197,7 +196,7 @@ async def test_run_workflow(
     mock_get_workflow_from_db = mocker.patch("api.v1.workflows.get_workflow_from_db")
     mock_get_workflow_from_db.return_value = workflow_db_model
     mock_create_workflow = mocker.patch("api.v1.workflows.create_workflow_signature")
-    mock_create_workflow.return_value.apply_async.return_value = ANY
+    mock_create_workflow.return_value.apply_async.return_value = mocker.ANY
     mock_makedirs = mocker.patch("os.makedirs")
     mocker.patch("os.path.exists", return_value=False)  # Path doesn't exist
 
@@ -251,7 +250,7 @@ async def test_run_workflow_nested_tasks(
     mock_get_workflow_from_db = mocker.patch("api.v1.workflows.get_workflow_from_db")
     mock_get_workflow_from_db.return_value = workflow_db_model
     mock_create_workflow = mocker.patch("api.v1.workflows.create_workflow_signature")
-    mock_create_workflow.return_value.apply_async.return_value = ANY
+    mock_create_workflow.return_value.apply_async.return_value = mocker.ANY
     mock_makedirs = mocker.patch("os.makedirs")
     mocker.patch("os.path.exists", return_value=False)  # Path doesn't exist
 
@@ -501,3 +500,122 @@ def test_get_task_signature(mocker, db, user_db_model, task_response, workflow_d
     assert created_task.description is None
     assert created_task.uuid == "test_uuid"
     assert json.loads(created_task.config) == {"param1": "value1"}
+
+
+def test_create_workflow_signature_chain_multiple(
+    mocker, db, regular_user, workflow_schema_mock
+):
+    """Test create_workflow_signature with a chain of multiple tasks."""
+    task_data = {
+        "type": "chain",
+        "tasks": [
+            {
+                "type": "task",
+                "task_name": "task1",
+                "queue_name": "q1",
+                "task_config": [],
+                "tasks": [],
+            },
+            {
+                "type": "task",
+                "task_name": "task2",
+                "queue_name": "q2",
+                "task_config": [],
+                "tasks": [],
+            },
+        ],
+    }
+    input_files = []
+    output_path = ""
+
+    mock_get_task_signature = mocker.patch("api.v1.workflows.get_task_signature")
+    mock_get_task_signature.return_value = mocker.MagicMock(spec=Signature)
+
+    # Mock celery_group to consume the generator
+    mocker.patch("api.v1.workflows.celery_group", side_effect=lambda x: list(x))
+
+    from api.v1.workflows import create_workflow_signature
+
+    sig = create_workflow_signature(
+        db,
+        regular_user,
+        task_data,
+        input_files,
+        output_path,
+        workflow_schema_mock,
+    )
+
+    assert sig is not None
+    assert mock_get_task_signature.call_count == 2
+
+
+
+def test_create_workflow_signature_chord(
+    mocker, db, regular_user, workflow_schema_mock
+):
+    """Test create_workflow_signature with a chord."""
+    task_data = {
+        "type": "chord",
+        "tasks": [
+            {
+                "type": "task",
+                "task_name": "task1",
+                "queue_name": "q1",
+                "task_config": [],
+                "tasks": [],
+            }
+        ],
+        "callback": {
+            "type": "task",
+            "task_name": "callback_task",
+            "queue_name": "q2",
+            "task_config": [],
+            "tasks": [],
+        },
+    }
+    input_files = []
+    output_path = ""
+
+    mock_get_task_signature = mocker.patch("api.v1.workflows.get_task_signature")
+    mock_get_task_signature.return_value = mocker.MagicMock(spec=Signature)
+
+    from api.v1.workflows import create_workflow_signature
+
+    sig = create_workflow_signature(
+        db,
+        regular_user,
+        task_data,
+        input_files,
+        output_path,
+        workflow_schema_mock,
+    )
+
+    assert sig is not None
+    assert mock_get_task_signature.call_count == 2
+
+
+def test_get_workflow_status_running(fastapi_test_client, mocker):
+    """Test get_workflow_status returns RUNNING."""
+    mock_workflow = mocker.MagicMock()
+    mock_task = mocker.MagicMock()
+    mock_task.status_short = "STARTED"
+    mock_task.display_name = "Mock Task"
+    mock_task.description = "Mock Description"
+    mock_task.uuid = "3fa85f64-5717-4562-b3fc-2c963f66afa7"
+    
+    mock_user = mocker.MagicMock()
+    mock_user.display_name = "Mock User"
+    mock_user.username = "mockuser"
+    mock_user.profile_picture_url = "http://localhost/profile/pic"
+    mock_user.uuid = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+    
+    mock_task.user = mock_user
+    mock_workflow.tasks = [mock_task]
+
+    mocker.patch("api.v1.workflows.get_workflow_from_db", return_value=mock_workflow)
+
+    response = fastapi_test_client.get("/folders/1/workflows/1/status")
+    assert response.status_code == 200
+    assert response.json()["status"] == "RUNNING"
+
+
