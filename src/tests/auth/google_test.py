@@ -21,6 +21,7 @@ from authlib.integrations.starlette_client import OAuthError
 # Mock config before importing google
 try:
     from config import config
+
     config["auth"] = {
         "google": {
             "client_id": "test_id",
@@ -29,15 +30,16 @@ try:
             "public_access": False,
             "workspace_domain": False,
             "allowed_robot_accounts": [],
-            "extra_audiences": []
+            "extra_audiences": [],
         },
         "jwt_cookie_refresh_expire_minutes": 60,
-        "jwt_cookie_access_expire_minutes": 15
+        "jwt_cookie_access_expire_minutes": 15,
     }
 except:
     pass
 
 import auth.google as google_auth
+
 
 def test_validate_user_info_robot():
     """Test allowed robot accounts bypass checks."""
@@ -45,6 +47,7 @@ def test_validate_user_info_robot():
     user_info = {"email": "robot@example.com"}
     # Should not raise any exception
     google_auth._validate_user_info(user_info)
+
 
 def test_validate_user_info_workspace_ok():
     """Test valid workspace domain."""
@@ -54,6 +57,7 @@ def test_validate_user_info_workspace_ok():
     user_info = {"email": "user@example.com", "hd": "example.com"}
     # Should not raise any exception
     google_auth._validate_user_info(user_info)
+
 
 def test_validate_user_info_workspace_fail():
     """Test invalid workspace domain."""
@@ -65,6 +69,7 @@ def test_validate_user_info_workspace_fail():
     assert excinfo.value.status_code == 401
     assert excinfo.value.detail == "Unauthorized. Invalid workspace domain."
 
+
 def test_validate_user_info_public_access():
     """Test public access allowed."""
     google_auth.GOOGLE_WORKSPACE_DOMAIN = False
@@ -73,6 +78,7 @@ def test_validate_user_info_public_access():
     user_info = {"email": "user@any.com"}
     # Should not raise any exception
     google_auth._validate_user_info(user_info)
+
 
 def test_validate_user_info_allowlist_ok():
     """Test user in allowlist."""
@@ -83,6 +89,7 @@ def test_validate_user_info_allowlist_ok():
     user_info = {"email": "user@allowed.com"}
     # Should not raise any exception
     google_auth._validate_user_info(user_info)
+
 
 def test_validate_user_info_allowlist_fail():
     """Test user not in allowlist."""
@@ -96,6 +103,7 @@ def test_validate_user_info_allowlist_fail():
     assert excinfo.value.status_code == 401
     assert excinfo.value.detail == "Unauthorized. Not in allowlist."
 
+
 @pytest.mark.asyncio
 async def test_auth_header_token_missing_header(mocker):
     """Test auth_header_token with missing header."""
@@ -104,6 +112,7 @@ async def test_auth_header_token_missing_header(mocker):
     assert excinfo.value.status_code == 401
     assert excinfo.value.detail == "Unauthorized, missing x-google-id-token header."
 
+
 @pytest.mark.asyncio
 async def test_auth_header_token_valid_new_user(mocker):
     """Test auth_header_token with valid token and new user."""
@@ -111,22 +120,25 @@ async def test_auth_header_token_valid_new_user(mocker):
     mock_get_user = mocker.patch("auth.google.get_user_by_email_from_db")
     mock_validate_user_info = mocker.patch("auth.google._validate_user_info")
     mock_create_jwt = mocker.patch("auth.google.create_jwt_token")
-    
+
     mock_validate_google_token.return_value = {
         "email": "new@example.com",
         "name": "New User",
-        "picture": "http://pic"
+        "picture": "http://pic",
     }
     mock_get_user.return_value = None
     mock_create_jwt.return_value = "mocked_jwt"
-    
+
     mock_db = mocker.MagicMock()
-    
-    response = await google_auth.auth_header_token(x_goog_id_token="valid_token", db=mock_db)
-    
+
+    response = await google_auth.auth_header_token(
+        x_goog_id_token="valid_token", db=mock_db
+    )
+
     assert response["x-openrelik-refresh-token"] == "mocked_jwt"
     assert response["x-openrelik-access-token"] == "mocked_jwt"
     mock_validate_user_info.assert_called_once()
+
 
 @pytest.mark.asyncio
 async def test_auth_header_token_valid_existing_user(mocker):
@@ -135,24 +147,27 @@ async def test_auth_header_token_valid_existing_user(mocker):
     mock_get_user = mocker.patch("auth.google.get_user_by_email_from_db")
     mock_validate_user_info = mocker.patch("auth.google._validate_user_info")
     mock_create_jwt = mocker.patch("auth.google.create_jwt_token")
-    
+
     mock_validate_google_token.return_value = {
         "email": "existing@example.com",
         "name": "Existing User",
-        "picture": "http://pic"
+        "picture": "http://pic",
     }
     mock_user = mocker.MagicMock()
     mock_user.uuid.hex = "existing_uuid"
     mock_get_user.return_value = mock_user
     mock_create_jwt.return_value = "mocked_jwt"
-    
+
     mock_db = mocker.MagicMock()
-    
-    response = await google_auth.auth_header_token(x_goog_id_token="valid_token", db=mock_db)
-    
+
+    response = await google_auth.auth_header_token(
+        x_goog_id_token="valid_token", db=mock_db
+    )
+
     assert response["x-openrelik-refresh-token"] == "mocked_jwt"
     assert response["x-openrelik-access-token"] == "mocked_jwt"
     mock_validate_user_info.assert_called_once()
+
 
 def test_validate_google_token_success(mocker):
     """Test _validate_google_token success."""
@@ -160,6 +175,7 @@ def test_validate_google_token_success(mocker):
     mock_verify.return_value = {"aud": "test_aud", "email": "user@example.com"}
     result = google_auth._validate_google_token("valid_token", ["test_aud"])
     assert result["email"] == "user@example.com"
+
 
 def test_validate_google_token_aud_mismatch(mocker):
     """Test _validate_google_token audience mismatch."""
@@ -170,6 +186,7 @@ def test_validate_google_token_aud_mismatch(mocker):
     assert excinfo.value.status_code == 401
     assert "Could not verify audience" in excinfo.value.detail
 
+
 def test_validate_google_token_value_error(mocker):
     """Test _validate_google_token value error."""
     mock_verify = mocker.patch("auth.google.id_token.verify_oauth2_token")
@@ -178,6 +195,7 @@ def test_validate_google_token_value_error(mocker):
         google_auth._validate_google_token("invalid_token", ["test_aud"])
     assert excinfo.value.status_code == 401
     assert "Invalid token" in excinfo.value.detail
+
 
 def test_validate_google_token_auth_error(mocker):
     """Test _validate_google_token auth error."""
@@ -188,35 +206,43 @@ def test_validate_google_token_auth_error(mocker):
     assert excinfo.value.status_code == 401
     assert "Could not verify token" in excinfo.value.detail
 
+
 @pytest.mark.asyncio
 async def test_login(mocker):
     """Test login endpoint redirects to Google."""
-    mock_authorize_redirect = mocker.patch("auth.google.oauth.google.authorize_redirect")
+    mock_authorize_redirect = mocker.patch(
+        "auth.google.oauth.google.authorize_redirect"
+    )
     mock_request = mocker.MagicMock()
     mock_request.url_for.return_value = "http://test/auth"
     mock_authorize_redirect.return_value = "mock_redirect"
-    
+
     google_auth.GOOGLE_WORKSPACE_DOMAIN = "example.com"
-    
+
     response = await google_auth.login(mock_request)
-    
+
     assert response == "mock_redirect"
-    mock_authorize_redirect.assert_called_once_with(mock_request, "http://test/auth", hd="example.com")
+    mock_authorize_redirect.assert_called_once_with(
+        mock_request, "http://test/auth", hd="example.com"
+    )
+
 
 @pytest.mark.asyncio
 async def test_auth_callback(mocker):
     """Test auth callback success."""
-    mock_authorize_access_token = mocker.patch("auth.google.oauth.google.authorize_access_token")
+    mock_authorize_access_token = mocker.patch(
+        "auth.google.oauth.google.authorize_access_token"
+    )
     mock_get_user = mocker.patch("auth.google.get_user_by_email_from_db")
     mock_validate_user_info = mocker.patch("auth.google._validate_user_info")
     mock_create_jwt = mocker.patch("auth.google.create_jwt_token")
     mock_generate_csrf = mocker.patch("auth.google.generate_csrf_token")
-    
+
     mock_authorize_access_token.return_value = {
         "userinfo": {
             "email": "user@example.com",
             "name": "User",
-            "picture": "http://pic"
+            "picture": "http://pic",
         }
     }
     mock_user = mocker.MagicMock()
@@ -224,43 +250,49 @@ async def test_auth_callback(mocker):
     mock_get_user.return_value = mock_user
     mock_create_jwt.return_value = "mocked_jwt"
     mock_generate_csrf.return_value = "mocked_csrf"
-    
+
     mock_request = mocker.MagicMock()
     mock_db = mocker.MagicMock()
-    
+
     response = await google_auth.auth(mock_request, db=mock_db)
-    
+
     assert isinstance(response, RedirectResponse)
     assert response.status_code == 307
+
 
 @pytest.mark.asyncio
 async def test_auth_callback_oauth_error(mocker):
     """Test auth callback with OAuth error."""
-    mock_authorize_access_token = mocker.patch("auth.google.oauth.google.authorize_access_token")
+    mock_authorize_access_token = mocker.patch(
+        "auth.google.oauth.google.authorize_access_token"
+    )
     mock_authorize_access_token.side_effect = OAuthError(error="invalid_grant")
-    
+
     mock_request = mocker.MagicMock()
     mock_db = mocker.MagicMock()
-    
+
     response = await google_auth.auth(mock_request, db=mock_db)
-    
+
     assert response == {"OAuth error": "invalid_grant"}
+
 
 @pytest.mark.asyncio
 async def test_auth_callback_new_user(mocker):
     """Test auth callback with new user."""
-    mock_authorize_access_token = mocker.patch("auth.google.oauth.google.authorize_access_token")
+    mock_authorize_access_token = mocker.patch(
+        "auth.google.oauth.google.authorize_access_token"
+    )
     mock_get_user = mocker.patch("auth.google.get_user_by_email_from_db")
     mock_validate_user_info = mocker.patch("auth.google._validate_user_info")
     mock_create_user = mocker.patch("auth.google.create_user_in_db")
     mock_create_jwt = mocker.patch("auth.google.create_jwt_token")
     mock_generate_csrf = mocker.patch("auth.google.generate_csrf_token")
-    
+
     mock_authorize_access_token.return_value = {
         "userinfo": {
             "email": "new@example.com",
             "name": "New User",
-            "picture": "http://pic"
+            "picture": "http://pic",
         }
     }
     mock_get_user.return_value = None
@@ -269,11 +301,11 @@ async def test_auth_callback_new_user(mocker):
     mock_create_user.return_value = mock_user
     mock_create_jwt.return_value = "mocked_jwt"
     mock_generate_csrf.return_value = "mocked_csrf"
-    
+
     mock_request = mocker.MagicMock()
     mock_db = mocker.MagicMock()
-    
+
     response = await google_auth.auth(mock_request, db=mock_db)
-    
+
     assert isinstance(response, RedirectResponse)
     mock_create_user.assert_called_once()

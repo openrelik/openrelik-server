@@ -21,11 +21,13 @@ from auth.common import (
     validate_jwt_token,
 )
 
+
 def test_generate_csrf_token():
     """Test generate_csrf_token."""
     token = generate_csrf_token()
     assert isinstance(token, str)
     assert len(token) > 0
+
 
 def test_create_and_validate_jwt_token():
     """Test create_jwt_token and validate_jwt_token."""
@@ -33,7 +35,7 @@ def test_create_and_validate_jwt_token():
     expire_minutes = 10
     subject = "test-user"
     token_type = "access"
-    
+
     # Create token
     token = create_jwt_token(
         audience=audience,
@@ -42,17 +44,18 @@ def test_create_and_validate_jwt_token():
         token_type=token_type,
     )
     assert isinstance(token, str)
-    
+
     # Validate token
     payload = validate_jwt_token(
         token=token,
         expected_token_type=token_type,
         expected_audience=audience,
     )
-    
+
     assert payload["sub"] == subject
     assert payload["aud"] == audience
     assert payload["token_type"] == token_type
+
 
 def test_validate_jwt_token_wrong_type():
     """Test validate_jwt_token with wrong token type."""
@@ -63,8 +66,9 @@ def test_validate_jwt_token_wrong_type():
         subject="test-user",
         token_type="access",
     )
-    
+
     from fastapi import HTTPException
+
     with pytest.raises(HTTPException) as exc_info:
         validate_jwt_token(
             token=token,
