@@ -84,10 +84,12 @@ def test_check_postgresql_connection_success(mocker):
     mocker.patch("healthz.database.SessionLocal", return_value=mock_db)
     assert _check_postgresql_connection() == "Ok"
 
+
 def test_check_postgresql_connection_failure(mocker):
     """Test _check_postgresql_connection failure."""
     mocker.patch("healthz.database.SessionLocal", side_effect=Exception("DB error"))
     assert _check_postgresql_connection() == "Database connection error"
+
 
 def test_check_redis_connection_success(mocker):
     """Test _check_redis_connection success."""
@@ -96,6 +98,7 @@ def test_check_redis_connection_success(mocker):
     mock_redis.ping.return_value = True
     assert _check_redis_connection("redis://localhost:6379") == "Ok"
 
+
 def test_check_redis_connection_failure(mocker):
     """Test _check_redis_connection failure."""
     mock_redis = mocker.MagicMock()
@@ -103,7 +106,7 @@ def test_check_redis_connection_failure(mocker):
     mock_redis.ping.side_effect = Exception("Redis error")
     assert _check_redis_connection("redis://localhost:6379") == "Redis connection error"
 
+
 def test_check_redis_connection_no_url():
     """Test _check_redis_connection with no URL."""
     assert _check_redis_connection(None) == "Redis connection error"
-

@@ -53,7 +53,9 @@ def test_folder_path_subfolder_with_provider(mocker, mock_config):
 
     # Subfolder with special storage provider (acting as mount point)
     sub_uuid = uuid4()
-    sub_folder = Folder(uuid=sub_uuid, parent=root_folder, storage_provider="special_provider")
+    sub_folder = Folder(
+        uuid=sub_uuid, parent=root_folder, storage_provider="special_provider"
+    )
 
     # Expected path is directly under the special provider path, flattened by UUID
     expected_sub_path = os.path.join("/data/special", sub_uuid.hex)
@@ -70,7 +72,9 @@ def test_folder_path_nested_inheritance_from_subfolder(mocker, mock_config):
 
     # Subfolder 1 (special provider)
     sub1_uuid = uuid4()
-    sub1_folder = Folder(uuid=sub1_uuid, parent=root_folder, storage_provider="special_provider")
+    sub1_folder = Folder(
+        uuid=sub1_uuid, parent=root_folder, storage_provider="special_provider"
+    )
 
     # Subfolder 2 (child of Subfolder 1) - should inherit from Subfolder 1
     sub2_uuid = uuid4()
