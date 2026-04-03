@@ -189,7 +189,9 @@ def test_get_group_users_not_found(fastapi_test_client, db):
 def test_add_users_to_group(fastapi_test_client, db, example_groups, mocker):
     """Test the add_users_to_group endpoint."""
     mock_group = example_groups[0]
-    mock_group.users = mocker.MagicMock(spec=list)  # Ensure users attribute is a mock list
+    mock_group.users = mocker.MagicMock(
+        spec=list
+    )  # Ensure users attribute is a mock list
 
     # Mock users to be added - these need full attributes for UserResponse
     mock_user_to_add_1 = mocker.MagicMock(spec=UserSQLModel)
@@ -461,7 +463,9 @@ def test_remove_users_from_group_user_not_in_group(
         if model.__name__ == "Group":
             return mocker.MagicMock(
                 filter=mocker.MagicMock(
-                    return_value=mocker.MagicMock(first=mocker.MagicMock(return_value=mock_group))
+                    return_value=mocker.MagicMock(
+                        first=mocker.MagicMock(return_value=mock_group)
+                    )
                 )
             )
         elif model.__name__ == "User":

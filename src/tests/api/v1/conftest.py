@@ -74,7 +74,10 @@ def setup_file_path_mock(mocker, file_db_model, setup_config_mock):
 
     # 3. Mock the 'path' property on the file_db_model class to return the expected path
     mocker.patch.object(
-        file_db_model.__class__, "path", new_callable=mocker.PropertyMock, return_value=expected_path
+        file_db_model.__class__,
+        "path",
+        new_callable=mocker.PropertyMock,
+        return_value=expected_path,
     )
 
     # Return the expected path for tests that need to assert on the 'open' call

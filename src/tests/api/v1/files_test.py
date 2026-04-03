@@ -42,7 +42,9 @@ def test_get_file_content(
     mock_open = mocker.mock_open(read_data=file_content)
     mocker.patch("builtins.open", mock_open)
 
-    response = fastapi_test_client.get(f"/files/{file_db_model.id}/content?theme={theme}")
+    response = fastapi_test_client.get(
+        f"/files/{file_db_model.id}/content?theme={theme}"
+    )
 
     assert response.status_code == 200
     assert (
@@ -85,7 +87,9 @@ def test_get_file_content_file_not_found(
     )
 
 
-@pytest.mark.parametrize("file_id, display_name", [(1, "file1.txt"), (2, "another_file.pdf")])
+@pytest.mark.parametrize(
+    "file_id, display_name", [(1, "file1.txt"), (2, "another_file.pdf")]
+)
 def test_download_file(fastapi_test_client, mocker, file_id, display_name, tmp_path):
     mock_file_response = mocker.Mock()
     mock_file_response.id = file_id
@@ -99,12 +103,17 @@ def test_download_file(fastapi_test_client, mocker, file_id, display_name, tmp_p
     mock_get_file_from_db.return_value = mock_file_response
     response = fastapi_test_client.get(f"/files/{file_id}/download")
     assert response.status_code == 200
-    assert response.headers["content-disposition"] == f'attachment; filename="{display_name}"'
+    assert (
+        response.headers["content-disposition"]
+        == f'attachment; filename="{display_name}"'
+    )
 
 
 def test_get_workflows_empty(fastapi_test_client, mocker):
     """Test the get_workflows endpoint."""
-    mock_get_file_workflows_from_db = mocker.patch("api.v1.files.get_file_workflows_from_db")
+    mock_get_file_workflows_from_db = mocker.patch(
+        "api.v1.files.get_file_workflows_from_db"
+    )
     mock_get_file_workflows_from_db.return_value = []
     file_id = 1
 
@@ -114,7 +123,9 @@ def test_get_workflows_empty(fastapi_test_client, mocker):
 
 def test_get_workflows(fastapi_test_client, mocker, workflow_response):
     """Test the get_workflows endpoint."""
-    mock_get_file_workflows_from_db = mocker.patch("api.v1.files.get_file_workflows_from_db")
+    mock_get_file_workflows_from_db = mocker.patch(
+        "api.v1.files.get_file_workflows_from_db"
+    )
     mock_get_file_workflows_from_db.return_value = [workflow_response]
     file_id = 1
 
@@ -129,9 +140,16 @@ def test_generate_file_summary(
 ):
     """Test generate_file_summary endpoint."""
     mock_get_active_llm = mocker.patch("api.v1.files.get_active_llm")
-    mock_get_active_llm.return_value = {"name": "test_llm", "config": {"model": "test_model"}}
-    mock_create_file_summary_in_db = mocker.patch("api.v1.files.create_file_summary_in_db")
-    mock_background_tasks_add_task = mocker.patch("api.v1.files.BackgroundTasks.add_task")
+    mock_get_active_llm.return_value = {
+        "name": "test_llm",
+        "config": {"model": "test_model"},
+    }
+    mock_create_file_summary_in_db = mocker.patch(
+        "api.v1.files.create_file_summary_in_db"
+    )
+    mock_background_tasks_add_task = mocker.patch(
+        "api.v1.files.BackgroundTasks.add_task"
+    )
 
     response = fastapi_test_client.post(f"/files/{file_db_model.id}/summaries")
     assert response.status_code == 200
@@ -152,7 +170,9 @@ async def test_download_file_stream(
     with open(expected_path, "w") as f:
         f.write("Dummy file content")
 
-    response = await fastapi_async_test_client.get(f"/files/{file_db_model.id}/download_stream")
+    response = await fastapi_async_test_client.get(
+        f"/files/{file_db_model.id}/download_stream"
+    )
     assert response.status_code == 200
     assert (
         response.headers["content-disposition"]
@@ -203,7 +223,9 @@ async def test_upload_files_chunked(
     mock_get_folder_from_db.return_value = folder_db_model
     mock_create_file_in_db = mocker.patch("api.v1.files.create_file_in_db")
     mock_create_file_in_db.return_value = file_response
-    mock_background_tasks_add_task = mocker.patch("api.v1.files.BackgroundTasks.add_task")
+    mock_background_tasks_add_task = mocker.patch(
+        "api.v1.files.BackgroundTasks.add_task"
+    )
     resumable_identifier = "12345"
     resumable_filename = "test_file.txt"
     folder_id = folder_db_model.id
@@ -211,7 +233,9 @@ async def test_upload_files_chunked(
     total_chunks = 3
     total_size = chunk_size * total_chunks
     chunk_number = 1
-    current_chunk_size = chunk_size if chunk_number < total_chunks else total_size % chunk_size
+    current_chunk_size = (
+        chunk_size if chunk_number < total_chunks else total_size % chunk_size
+    )
 
     chunk_content = b"test file content" * (chunk_size // len(b"test file content"))
     response = await fastapi_async_test_client.post(
@@ -241,7 +265,9 @@ def test_get_task(fastapi_test_client, mocker, db, task_response):
     file_id = 1
     workflow_id = 1
     task_id = 1
-    response = fastapi_test_client.get(f"/files/{file_id}/workflows/{workflow_id}/tasks/{task_id}")
+    response = fastapi_test_client.get(
+        f"/files/{file_id}/workflows/{workflow_id}/tasks/{task_id}"
+    )
 
     assert response.status_code == 200
     mock_get_task_from_db.assert_called_once_with(db, task_id)
@@ -265,7 +291,9 @@ def test_get_file_summary(fastapi_test_client, mocker, db):
         "llm_model_config": None,
         "file_id": 1,
     }
-    mock_get_file_summary_from_db = mocker.patch("api.v1.files.get_file_summary_from_db")
+    mock_get_file_summary_from_db = mocker.patch(
+        "api.v1.files.get_file_summary_from_db"
+    )
     mock_get_file_summary_from_db.return_value = mock_summary
 
     file_id = 1
@@ -295,11 +323,16 @@ def test_download_task_result(fastapi_test_client, mocker, db, tmp_path):
     )
 
     assert response.status_code == 200
-    assert response.headers["content-disposition"] == 'attachment; filename="test_result.txt"'
+    assert (
+        response.headers["content-disposition"]
+        == 'attachment; filename="test_result.txt"'
+    )
     assert response.content == b"Test result content"
 
 
-def test_get_sql_schemas(fastapi_test_client, mocker, file_db_model, setup_file_path_mock):
+def test_get_sql_schemas(
+    fastapi_test_client, mocker, file_db_model, setup_file_path_mock
+):
     """Test the get_sql_schemas endpoint."""
     setup_file_path_mock
 
@@ -328,7 +361,9 @@ def test_get_sql_schemas(fastapi_test_client, mocker, file_db_model, setup_file_
     assert response.status_code == 400
 
 
-def test_run_sql_query(fastapi_test_client, mocker, file_db_model, setup_file_path_mock):
+def test_run_sql_query(
+    fastapi_test_client, mocker, file_db_model, setup_file_path_mock
+):
     """Test the run_sql_query endpoint."""
     setup_file_path_mock
 
@@ -358,7 +393,9 @@ def test_run_sql_query(fastapi_test_client, mocker, file_db_model, setup_file_pa
     assert response.status_code == 400
 
 
-def test_generate_query(fastapi_test_client, mocker, file_db_model, setup_file_path_mock):
+def test_generate_query(
+    fastapi_test_client, mocker, file_db_model, setup_file_path_mock
+):
     """Test the generate_sql_query endpoint."""
     setup_file_path_mock
 
@@ -372,13 +409,17 @@ def test_generate_query(fastapi_test_client, mocker, file_db_model, setup_file_p
         "table2": {"columnA": "REAL", "columnB": "BLOB"},
     }
     mock_get_active_llm = mocker.patch("api.v1.files.get_active_llm")
-    mock_get_active_llm.return_value = {"name": "test_llm", "config": {"model": "test_model"}}
+    mock_get_active_llm.return_value = {
+        "name": "test_llm",
+        "config": {"model": "test_model"},
+    }
     mock_generate_sql_query = mocker.patch("lib.duckdb_utils.generate_sql_query")
     mock_generate_sql_query.return_value = "SELECT * FROM table1 LIMIT 10;"
 
     user_request = "Get all records from table1"
     response = fastapi_test_client.post(
-        f"/files/{file_db_model.id}/sql/query/generate", json={"user_request": user_request}
+        f"/files/{file_db_model.id}/sql/query/generate",
+        json={"user_request": user_request},
     )
     assert response.status_code == 200
     assert response.json() == {
@@ -461,12 +502,14 @@ async def test_upload_files_complete(
     mock_get_folder_from_db.return_value = folder_db_model
     mock_create_file_in_db = mocker.patch("api.v1.files.create_file_in_db")
     mock_create_file_in_db.return_value = file_response
-    mock_background_tasks_add_task = mocker.patch("api.v1.files.BackgroundTasks.add_task")
-    
+    mock_background_tasks_add_task = mocker.patch(
+        "api.v1.files.BackgroundTasks.add_task"
+    )
+
     # Mock Redis
     mock_redis = mocker.patch("api.v1.files.redis_client")
     mock_redis.smembers.return_value = {b"1", b"2", b"3"}
-    
+
     resumable_identifier = "12345"
     resumable_filename = "test_file.txt"
     folder_id = folder_db_model.id
@@ -474,7 +517,7 @@ async def test_upload_files_complete(
     total_chunks = 3
     total_size = chunk_size * total_chunks
     chunk_number = 3
-    
+
     # Create dummy chunk files
     for i in range(1, total_chunks + 1):
         chunk_path = os.path.join(expected_folder_path, f"{resumable_identifier}.{i}")
@@ -527,9 +570,7 @@ def test_run_sql_query_non_sql(fastapi_test_client, mocker, file_db_model):
     assert response.json()["detail"] == "File is not a supported SQL format."
 
 
-def test_run_sql_query_limit_exceeded(
-    fastapi_test_client, mocker, file_db_model
-):
+def test_run_sql_query_limit_exceeded(fastapi_test_client, mocker, file_db_model):
     """Test run_sql_query with LIMIT exceeding max."""
     mock_get_file_from_db = mocker.patch("api.v1.files.get_file_from_db")
     mock_get_file_from_db.return_value = file_db_model
@@ -582,7 +623,6 @@ def test_get_file_chat_history_empty(fastapi_test_client, mocker):
     }
 
 
-
 def test_get_file_chat_history_with_data(fastapi_test_client, mocker):
     """Test get_file_chat_history when chat exists."""
     mock_chat = mocker.Mock()
@@ -608,15 +648,12 @@ def test_get_file_chat_history_with_data(fastapi_test_client, mocker):
     }
 
 
-
 def test_create_file_chat_message_no_llm(fastapi_test_client, mocker):
     """Test create_file_chat_message when no LLM available."""
     mock_get_latest_file_chat_from_db = mocker.patch(
         "api.v1.files.get_latest_file_chat_from_db"
     )
-    mock_get_latest_file_chat_from_db.return_value = (
-        mocker.Mock()
-    )  # Assume chat exists
+    mock_get_latest_file_chat_from_db.return_value = mocker.Mock()  # Assume chat exists
 
     mock_get_active_llm = mocker.patch("api.v1.files.get_active_llm")
     mock_get_active_llm.return_value = None  # No active LLM
@@ -630,9 +667,7 @@ def test_create_file_chat_message_no_llm(fastapi_test_client, mocker):
 
 
 @pytest.mark.asyncio
-async def test_create_file_chat_message_success(
-    fastapi_async_test_client, mocker
-):
+async def test_create_file_chat_message_success(fastapi_async_test_client, mocker):
     """Test create_file_chat_message success."""
     mock_chat_obj = mocker.Mock()
     mock_chat_obj.id = 1
@@ -672,7 +707,3 @@ async def test_create_file_chat_message_success(
 
     assert b"This is the LLM response" in content
     assert mock_create_file_chat_message_in_db.called
-
-
-
-

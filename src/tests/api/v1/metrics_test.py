@@ -63,9 +63,7 @@ def test_query_prometheus_range(mocker):
 
 
 def test_get_celery_task_metrics(mocker, monkeypatch):
-    mock_query_prometheus_range = mocker.patch(
-        "api.v1.metrics.query_prometheus_range"
-    )
+    mock_query_prometheus_range = mocker.patch("api.v1.metrics.query_prometheus_range")
     mock_prometheus_response = {
         "status": "success",
         "data": {
@@ -125,9 +123,7 @@ def test_format_prometheus_data():
 
 
 def test_get_celery_task_metrics_no_prometheus(mocker):
-    mock_query_prometheus_range = mocker.patch(
-        "api.v1.metrics.query_prometheus_range"
-    )
+    mock_query_prometheus_range = mocker.patch("api.v1.metrics.query_prometheus_range")
     mock_query_prometheus_range.return_value = []
     request_body = MetricsRequest(
         metric_name="celery_task_completed_total",

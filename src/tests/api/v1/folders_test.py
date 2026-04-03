@@ -69,8 +69,7 @@ def test_get_subfolders(fastapi_test_client, mocker, folder_response_compact):
 
 @pytest.mark.asyncio
 async def test_create_root_folder(fastapi_async_test_client, mocker, folder_response):
-    mock_folder_create = mocker.patch(
-        "api.v1.folders.create_root_folder_in_db")
+    mock_folder_create = mocker.patch("api.v1.folders.create_root_folder_in_db")
     mock_folder_create.return_value = folder_response
     request = {"display_name": "test folder"}
     response = await fastapi_async_test_client.post("/folders/", json=request)
@@ -82,8 +81,7 @@ async def test_create_root_folder(fastapi_async_test_client, mocker, folder_resp
 async def test_create_subfolder(fastapi_async_test_client, mocker, folder_response):
     """Test create subfolder route."""
     parent_folder_id = 1
-    mock_create_subfolder = mocker.patch(
-        "api.v1.folders.create_subfolder_in_db")
+    mock_create_subfolder = mocker.patch("api.v1.folders.create_subfolder_in_db")
     folder_response.display_name = "test subfolder"
     mock_create_subfolder.return_value = folder_response
     request = {"display_name": "test subfolder"}
@@ -124,7 +122,9 @@ def test_delete_folder(fastapi_test_client, mocker, db):
     mock_delete_folder.assert_called_once_with(db, folder_id)
 
 
-def test_share_folder(fastapi_test_client, mocker, db, folder_db_model, folder_response):
+def test_share_folder(
+    fastapi_test_client, mocker, db, folder_db_model, folder_response
+):
     folder_id = 1
     mock_get_folder_db = mocker.patch("api.v1.folders.get_folder_from_db")
     folder_db_model.id = folder_id  # Ensure the fixture's ID matches
@@ -136,10 +136,8 @@ def test_share_folder(fastapi_test_client, mocker, db, folder_db_model, folder_r
     mock_user_role_exists.return_value = False
     mock_user_1 = mocker.MagicMock(spec=UserSQLModel, id=1, username="user1")
     mock_user_2 = mocker.MagicMock(spec=UserSQLModel, id=2, username="user2")
-    mock_user_admin = mocker.MagicMock(
-        spec=UserSQLModel, id=10, username="admin")
-    mock_user_test = mocker.MagicMock(
-        spec=UserSQLModel, id=11, username="test")
+    mock_user_admin = mocker.MagicMock(spec=UserSQLModel, id=10, username="admin")
+    mock_user_test = mocker.MagicMock(spec=UserSQLModel, id=11, username="test")
 
     mock_get_user_from_db = mocker.patch("api.v1.folders.get_user_from_db")
     mock_get_user_from_db.side_effect = lambda db_session, user_id_val: {
@@ -157,10 +155,10 @@ def test_share_folder(fastapi_test_client, mocker, db, folder_db_model, folder_r
 
     mock_group_3 = mocker.MagicMock(spec=GroupSQLModel, id=3, name="group3")
     mock_group_4 = mocker.MagicMock(spec=GroupSQLModel, id=4, name="group4")
-    mock_group_everyone = mocker.MagicMock(
-        spec=GroupSQLModel, id=20, name="Everyone")
+    mock_group_everyone = mocker.MagicMock(spec=GroupSQLModel, id=20, name="Everyone")
     mock_group_test_group = mocker.MagicMock(
-        spec=GroupSQLModel, id=21, name="test_group")
+        spec=GroupSQLModel, id=21, name="test_group"
+    )
 
     mock_get_group_from_db = mocker.patch("api.v1.folders.get_group_from_db")
     mock_get_group_from_db.side_effect = lambda db_session, group_id_val: {
@@ -181,10 +179,8 @@ def test_share_folder(fastapi_test_client, mocker, db, folder_db_model, folder_r
     mocker.patch("api.v1.folders.group_role_exists", return_value=False)
 
     # 4. Mock role creation functions (already in the original test)
-    mock_create_user_role = mocker.patch(
-        "api.v1.folders.create_user_role_in_db")
-    mock_create_group_role = mocker.patch(
-        "api.v1.folders.create_group_role_in_db")
+    mock_create_user_role = mocker.patch("api.v1.folders.create_user_role_in_db")
+    mock_create_group_role = mocker.patch("api.v1.folders.create_group_role_in_db")
 
     request = schemas.FolderShareRequest(
         user_ids=[1, 2],
@@ -204,24 +200,32 @@ def test_share_folder(fastapi_test_client, mocker, db, folder_db_model, folder_r
 
     # Assert that create_user_role_in_db was called correctly
     mock_create_user_role.assert_any_call(
-        db, Role.EDITOR.name, mock_user_1.id, folder_id=folder_id)
+        db, Role.EDITOR.name, mock_user_1.id, folder_id=folder_id
+    )
     mock_create_user_role.assert_any_call(
-        db, Role.EDITOR.name, mock_user_2.id, folder_id=folder_id)
+        db, Role.EDITOR.name, mock_user_2.id, folder_id=folder_id
+    )
     mock_create_user_role.assert_any_call(
-        db, Role.EDITOR.name, mock_user_admin.id, folder_id=folder_id)
+        db, Role.EDITOR.name, mock_user_admin.id, folder_id=folder_id
+    )
     mock_create_user_role.assert_any_call(
-        db, Role.EDITOR.name, mock_user_test.id, folder_id=folder_id)
+        db, Role.EDITOR.name, mock_user_test.id, folder_id=folder_id
+    )
     assert mock_create_user_role.call_count == 4
 
     # Assert that create_group_role_in_db was called correctly
     mock_create_group_role.assert_any_call(
-        db, Role.VIEWER.name, mock_group_3.id, folder_id=folder_id)
+        db, Role.VIEWER.name, mock_group_3.id, folder_id=folder_id
+    )
     mock_create_group_role.assert_any_call(
-        db, Role.VIEWER.name, mock_group_4.id, folder_id=folder_id)
+        db, Role.VIEWER.name, mock_group_4.id, folder_id=folder_id
+    )
     mock_create_group_role.assert_any_call(
-        db, Role.VIEWER.name, mock_group_everyone.id, folder_id=folder_id)
+        db, Role.VIEWER.name, mock_group_everyone.id, folder_id=folder_id
+    )
     mock_create_group_role.assert_any_call(
-        db, Role.VIEWER.name, mock_group_test_group.id, folder_id=folder_id)
+        db, Role.VIEWER.name, mock_group_test_group.id, folder_id=folder_id
+    )
     assert mock_create_group_role.call_count == 4
 
 
@@ -278,8 +282,7 @@ def test_delete_user_role(fastapi_test_client, mocker, db):
     folder_id = 1
     role_id = 2
 
-    response = fastapi_test_client.delete(
-        f"/folders/{folder_id}/roles/users/{role_id}")
+    response = fastapi_test_client.delete(f"/folders/{folder_id}/roles/users/{role_id}")
 
     assert response.status_code == 200
     mock_delete_user_role_from_db.assert_called_once_with(db, role_id)
@@ -299,9 +302,11 @@ def test_get_folder_files(fastapi_test_client, mocker, file_response_compact_lis
     assert response.status_code == 200
     assert response.json() == mock_files
 
+
 def test_get_folder_success(fastapi_test_client, mocker):
     """Test get_folder returns success."""
     import uuid
+
     mock_folder = mocker.MagicMock()
     mock_folder.is_deleted = False
     mock_folder.id = 1
@@ -314,7 +319,7 @@ def test_get_folder_success(fastapi_test_client, mocker):
     mock_folder.user_roles = []
     mock_folder.group_roles = []
     mock_folder.storage_provider = "local"
-    
+
     mock_user = mocker.MagicMock()
     mock_user.display_name = "Test User"
     mock_user.username = "testuser"
@@ -323,7 +328,7 @@ def test_get_folder_success(fastapi_test_client, mocker):
     mock_folder.user = mock_user
 
     mocker.patch("api.v1.folders.get_folder_from_db", return_value=mock_folder)
-    
+
     response = fastapi_test_client.get("/folders/1")
     assert response.status_code == 200
     assert response.json()["display_name"] == "Test Folder"
@@ -332,7 +337,7 @@ def test_get_folder_success(fastapi_test_client, mocker):
 def test_get_folder_not_found(fastapi_test_client, mocker):
     """Test get_folder returns 404 when folder not found."""
     mocker.patch("api.v1.folders.get_folder_from_db", return_value=None)
-    
+
     response = fastapi_test_client.get("/folders/1")
     assert response.status_code == 404
     assert response.json()["detail"] == "Folder not found."
@@ -343,7 +348,7 @@ def test_get_folder_deleted(fastapi_test_client, mocker):
     mock_folder = mocker.MagicMock()
     mock_folder.is_deleted = True
     mocker.patch("api.v1.folders.get_folder_from_db", return_value=mock_folder)
-    
+
     response = fastapi_test_client.get("/folders/1")
     assert response.status_code == 404
     assert response.json()["detail"] == "Folder is deleted."
@@ -351,15 +356,16 @@ def test_get_folder_deleted(fastapi_test_client, mocker):
 
 def test_get_folder_value_error(fastapi_test_client, mocker):
     """Test get_folder returns 404 on ValueError."""
-    mocker.patch("api.v1.folders.get_folder_from_db", side_effect=ValueError("Invalid ID"))
-    
+    mocker.patch(
+        "api.v1.folders.get_folder_from_db", side_effect=ValueError("Invalid ID")
+    )
+
     response = fastapi_test_client.get("/folders/1")
     assert response.status_code == 404
     assert response.json()["detail"] == "Invalid ID"
 
 
 def test_share_folder_not_found(fastapi_test_client, mocker):
-
     """Test share_folder when folder not found."""
     mock_get_folder_from_db = mocker.patch("api.v1.folders.get_folder_from_db")
     mock_get_folder_from_db.return_value = None
@@ -398,6 +404,8 @@ def test_share_folder_user_not_found(fastapi_test_client, mocker, folder_db_mode
     response = fastapi_test_client.post(f"/folders/{folder_id}/roles", json=request)
     assert response.status_code == 404
     assert "User with ID 999 not found" in response.json()["detail"]
+
+
 def test_share_folder_invalid_role(fastapi_test_client, mocker, folder_db_model):
     """Test share_folder with invalid role."""
     mock_get_folder_from_db = mocker.patch("api.v1.folders.get_folder_from_db")
@@ -436,7 +444,9 @@ def test_share_folder_username_not_found(fastapi_test_client, mocker, folder_db_
     folder_db_model.is_deleted = False
     mock_get_folder_from_db.return_value = folder_db_model
 
-    mock_get_user_by_username = mocker.patch("api.v1.folders.get_user_by_username_from_db")
+    mock_get_user_by_username = mocker.patch(
+        "api.v1.folders.get_user_by_username_from_db"
+    )
     mock_get_user_by_username.return_value = None
 
     folder_id = 1
@@ -446,7 +456,9 @@ def test_share_folder_username_not_found(fastapi_test_client, mocker, folder_db_
     assert "User with username 'nonexistent' not found" in response.json()["detail"]
 
 
-def test_share_folder_username_role_exists(fastapi_test_client, mocker, folder_db_model):
+def test_share_folder_username_role_exists(
+    fastapi_test_client, mocker, folder_db_model
+):
     """Test share_folder when user by username already has the role."""
     mock_get_folder_from_db = mocker.patch("api.v1.folders.get_folder_from_db")
     folder_db_model.is_deleted = False
@@ -454,7 +466,9 @@ def test_share_folder_username_role_exists(fastapi_test_client, mocker, folder_d
 
     mock_user = mocker.MagicMock()
     mock_user.id = 1
-    mock_get_user_by_username = mocker.patch("api.v1.folders.get_user_by_username_from_db")
+    mock_get_user_by_username = mocker.patch(
+        "api.v1.folders.get_user_by_username_from_db"
+    )
     mock_get_user_by_username.return_value = mock_user
 
     mock_user_role_exists = mocker.patch("api.v1.folders.user_role_exists")
@@ -502,7 +516,9 @@ def test_share_folder_group_role_exists(fastapi_test_client, mocker, folder_db_m
     assert "already has the role" in response.json()["detail"]
 
 
-def test_share_folder_group_by_name_not_found(fastapi_test_client, mocker, folder_db_model):
+def test_share_folder_group_by_name_not_found(
+    fastapi_test_client, mocker, folder_db_model
+):
     """Test share_folder when group by name not found."""
     mock_get_folder_from_db = mocker.patch("api.v1.folders.get_folder_from_db")
     folder_db_model.is_deleted = False
@@ -518,7 +534,9 @@ def test_share_folder_group_by_name_not_found(fastapi_test_client, mocker, folde
     assert "Group with name 'nonexistent' not found" in response.json()["detail"]
 
 
-def test_share_folder_group_by_name_role_exists(fastapi_test_client, mocker, folder_db_model):
+def test_share_folder_group_by_name_role_exists(
+    fastapi_test_client, mocker, folder_db_model
+):
     """Test share_folder when group by name already has the role."""
     mock_get_folder_from_db = mocker.patch("api.v1.folders.get_folder_from_db")
     folder_db_model.is_deleted = False
@@ -540,9 +558,6 @@ def test_share_folder_group_by_name_role_exists(fastapi_test_client, mocker, fol
 
 
 def test_start_investigation_no_adk_url(fastapi_test_client, mocker, folder_db_model):
-
-
-
     """Test start_investigation when ADK URL is not configured."""
     mock_get_folder_from_db = mocker.patch("api.v1.folders.get_folder_from_db")
     mock_get_folder_from_db.return_value = folder_db_model
@@ -564,42 +579,48 @@ def test_start_investigation_no_adk_url(fastapi_test_client, mocker, folder_db_m
 
 
 @pytest.mark.asyncio
-async def test_start_investigation_success(fastapi_async_test_client, mocker, folder_db_model):
+async def test_start_investigation_success(
+    fastapi_async_test_client, mocker, folder_db_model
+):
     """Test start_investigation success."""
     mock_get_folder = mocker.patch("api.v1.folders.get_folder_from_db")
     mock_get_folder.return_value = folder_db_model
-    
+
     # Mock config
-    mocker.patch("api.v1.folders.config.config", {"experiments": {"agents": {"adk_server_url": "http://mock-adk"}}})
-    
+    mocker.patch(
+        "api.v1.folders.config.config",
+        {"experiments": {"agents": {"adk_server_url": "http://mock-adk"}}},
+    )
+
     # Mock stream manager
     mock_stream_manager = mocker.patch("api.v1.folders.stream_manager")
     mock_session = mocker.MagicMock()
-    mock_stream_manager.get_session.return_value = None # New session
+    mock_stream_manager.get_session.return_value = None  # New session
     mock_stream_manager.create_session.return_value = mock_session
-    
+
     # Mock httpx.AsyncClient
     mock_async_client = mocker.patch("api.v1.folders.httpx.AsyncClient")
     mock_client_instance = mocker.MagicMock()
     mock_async_client.return_value.__aenter__.return_value = mock_client_instance
-    
+
     mock_response = mocker.MagicMock()
     mock_response.raise_for_status.return_value = None
-    
+
     # Mock async iterator for response.aiter_bytes()
     async def mock_aiter_bytes():
-        yield b"data: {\"type\": \"message\", \"message\": \"hello\"}\n"
-        yield b"data: {\"type\": \"complete\", \"message\": \"done\"}\n"
-        
+        yield b'data: {"type": "message", "message": "hello"}\n'
+        yield b'data: {"type": "complete", "message": "done"}\n'
+
     mock_response.aiter_bytes.return_value = mock_aiter_bytes()
-    
+
     # Mock the context manager for client.stream
     class MockStreamContextManager:
         async def __aenter__(self):
             return mock_response
+
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             pass
-            
+
     mock_client_instance.stream.return_value = MockStreamContextManager()
 
     folder_id = 1
@@ -608,13 +629,12 @@ async def test_start_investigation_success(fastapi_async_test_client, mocker, fo
         "agent_name": "test_agent",
         "user_message": "test question",
     }
-    
+
     response = await fastapi_async_test_client.post(
         f"/folders/{folder_id}/investigations/run", json=request_data
     )
-    
-    assert response.status_code == 200
 
+    assert response.status_code == 200
 
 
 def test_create_adk_session_no_adk_url(fastapi_test_client, mocker, folder_db_model):
@@ -682,9 +702,7 @@ async def test_create_adk_session_success(
     )
 
     assert response.status_code == 200
-    assert (
-        response.json()["session_id"] == "12345678-1234-5678-1234-567812345678"
-    )
+    assert response.json()["session_id"] == "12345678-1234-5678-1234-567812345678"
 
 
 def test_get_all_folders(fastapi_test_client, mocker, folder_response_compact):
@@ -745,9 +763,7 @@ async def test_create_adk_session_status_error(
     )
 
     assert response.status_code == 200
-    assert (
-        response.json()["session_id"] == "12345678-1234-5678-1234-567812345678"
-    )
+    assert response.json()["session_id"] == "12345678-1234-5678-1234-567812345678"
 
 
 @pytest.mark.asyncio
@@ -786,48 +802,45 @@ async def test_create_adk_session_request_error(
     )
 
     assert response.status_code == 200
-    assert (
-        response.json()["session_id"] == "12345678-1234-5678-1234-567812345678"
-    )
+    assert response.json()["session_id"] == "12345678-1234-5678-1234-567812345678"
+
+
 @pytest.mark.asyncio
 async def test_get_adk_sse_session_success(mocker):
     """Test get_adk_sse_session success by calling it directly."""
     from api.v1.folders import get_adk_sse_session
-    
+
     mocker.patch(
         "api.v1.folders.config.config",
         {"experiments": {"agents": {"adk_server_url": "http://mock-adk"}}},
     )
-    
+
     # Mock sleep to not wait
     mocker.patch("api.v1.folders.asyncio.sleep", return_value=None)
-    
+
     mock_async_client = mocker.patch("api.v1.folders.httpx.AsyncClient")
     mock_client_instance = mocker.AsyncMock()
     mock_async_client.return_value.__aenter__.return_value = mock_client_instance
-    
+
     mock_response = mocker.MagicMock()
     mock_response.raise_for_status.return_value = None
     mock_response.json.return_value = {"status": "running"}
-    
+
     # First call succeeds, second raises RequestError to break loop
     mock_client_instance.get.side_effect = [
         mock_response,
-        httpx.RequestError("Connection failed", request=mocker.MagicMock())
+        httpx.RequestError("Connection failed", request=mocker.MagicMock()),
     ]
 
     # Mock dependencies
     mock_db = mocker.MagicMock()
     mock_user = mocker.MagicMock()
     mock_user.id = 1
-    
+
     response = await get_adk_sse_session(
-        folder_id=1,
-        session_id="test_session",
-        db=mock_db,
-        current_user=mock_user
+        folder_id=1, session_id="test_session", db=mock_db, current_user=mock_user
     )
-    
+
     # response is an EventSourceResponse
     # We can iterate over its body_iterator
     results = []
@@ -836,8 +849,6 @@ async def test_get_adk_sse_session_success(mocker):
             results.append(item)
     except Exception:
         pass
-        
+
     assert len(results) > 0
     assert "running" in results[0]
-
-
