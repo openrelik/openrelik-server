@@ -16,7 +16,7 @@
 import uuid
 from datastores.sql.models.group import Group as GroupSQLModel  # Import Group model
 import json
-from unittest.mock import MagicMock
+
 
 from datastores.sql.models.user import User as UserSQLModel
 
@@ -43,23 +43,23 @@ def test_create_group_with_users(fastapi_test_client, db, mocker):
     # db.query.return_value.filter.return_value.first.return_value = None
 
     # Mock the user lookups within create_group_in_db and add_users_to_group
-    mock_user_test = MagicMock(spec=UserSQLModel)
+    mock_user_test = mocker.MagicMock(spec=UserSQLModel)
     mock_user_test.username = "test"
-    mock_user_test_groups_collection = MagicMock(spec=list)
+    mock_user_test_groups_collection = mocker.MagicMock(spec=list)
     mock_user_test.groups = mock_user_test_groups_collection
-    mock_user_test._sa_instance_state = MagicMock()
+    mock_user_test._sa_instance_state = mocker.MagicMock()
     mock_user_test._sa_instance_state.manager.initialize_collection.return_value = (
-        MagicMock(),
+        mocker.MagicMock(),
         mock_user_test_groups_collection,
     )
 
-    mock_user_test2 = MagicMock(spec=UserSQLModel)
+    mock_user_test2 = mocker.MagicMock(spec=UserSQLModel)
     mock_user_test2.username = "test2"
-    mock_user_test2_groups_collection = MagicMock(spec=list)
+    mock_user_test2_groups_collection = mocker.MagicMock(spec=list)
     mock_user_test2.groups = mock_user_test2_groups_collection
-    mock_user_test2._sa_instance_state = MagicMock()
+    mock_user_test2._sa_instance_state = mocker.MagicMock()
     mock_user_test2._sa_instance_state.manager.initialize_collection.return_value = (
-        MagicMock(),
+        mocker.MagicMock(),
         mock_user_test2_groups_collection,
     )
 
@@ -73,16 +73,16 @@ def test_create_group_with_users(fastapi_test_client, db, mocker):
 
     def query_side_effect(model):
         if model.__name__ == "Group":
-            mock_group_query = MagicMock()
+            mock_group_query = mocker.MagicMock()
             mock_group_query.filter.return_value.first.return_value = (
                 None  # No existing group
             )
             return mock_group_query
         elif model.__name__ == "User":
-            mock_user_query = MagicMock()
+            mock_user_query = mocker.MagicMock()
             # Simulate filter by username: User.username == value
-            mock_user_query.filter.side_effect = lambda expr: MagicMock(
-                first=MagicMock(
+            mock_user_query.filter.side_effect = lambda expr: mocker.MagicMock(
+                first=mocker.MagicMock(
                     return_value=mock_user_query_result.get(expr.right.value)
                 )
             )
@@ -189,10 +189,12 @@ def test_get_group_users_not_found(fastapi_test_client, db):
 def test_add_users_to_group(fastapi_test_client, db, example_groups, mocker):
     """Test the add_users_to_group endpoint."""
     mock_group = example_groups[0]
-    mock_group.users = MagicMock(spec=list)  # Ensure users attribute is a mock list
+    mock_group.users = mocker.MagicMock(
+        spec=list
+    )  # Ensure users attribute is a mock list
 
     # Mock users to be added - these need full attributes for UserResponse
-    mock_user_to_add_1 = MagicMock(spec=UserSQLModel)
+    mock_user_to_add_1 = mocker.MagicMock(spec=UserSQLModel)
     mock_user_to_add_1.id = 101
     mock_user_to_add_1.display_name = "Added User 1"
     mock_user_to_add_1.username = "added_user1_uname"
@@ -201,15 +203,15 @@ def test_add_users_to_group(fastapi_test_client, db, example_groups, mocker):
     mock_user_to_add_1.profile_picture_url = None
     mock_user_to_add_1.uuid = uuid.uuid4()
     mock_user_to_add_1.is_admin = False
-    mock_user_to_add_1_groups_collection = MagicMock(spec=list)
+    mock_user_to_add_1_groups_collection = mocker.MagicMock(spec=list)
     mock_user_to_add_1.groups = mock_user_to_add_1_groups_collection
-    mock_user_to_add_1._sa_instance_state = MagicMock()
+    mock_user_to_add_1._sa_instance_state = mocker.MagicMock()
     mock_user_to_add_1._sa_instance_state.manager.initialize_collection.return_value = (
-        MagicMock(),
+        mocker.MagicMock(),
         mock_user_to_add_1_groups_collection,
     )
 
-    mock_user_to_add_2 = MagicMock(spec=UserSQLModel)
+    mock_user_to_add_2 = mocker.MagicMock(spec=UserSQLModel)
     mock_user_to_add_2.id = 102
     mock_user_to_add_2.display_name = "Added User 2"
     mock_user_to_add_2.username = "added_user2_uname"
@@ -218,11 +220,11 @@ def test_add_users_to_group(fastapi_test_client, db, example_groups, mocker):
     mock_user_to_add_2.profile_picture_url = None
     mock_user_to_add_2.uuid = uuid.uuid4()
     mock_user_to_add_2.is_admin = False
-    mock_user_to_add_2_groups_collection = MagicMock(spec=list)
+    mock_user_to_add_2_groups_collection = mocker.MagicMock(spec=list)
     mock_user_to_add_2.groups = mock_user_to_add_2_groups_collection
-    mock_user_to_add_2._sa_instance_state = MagicMock()
+    mock_user_to_add_2._sa_instance_state = mocker.MagicMock()
     mock_user_to_add_2._sa_instance_state.manager.initialize_collection.return_value = (
-        MagicMock(),
+        mocker.MagicMock(),
         mock_user_to_add_2_groups_collection,
     )
 
@@ -235,13 +237,13 @@ def test_add_users_to_group(fastapi_test_client, db, example_groups, mocker):
 
     def query_side_effect(model):
         if model.__name__ == "Group":
-            mock_group_query = MagicMock()
+            mock_group_query = mocker.MagicMock()
             mock_group_query.filter.return_value.first.return_value = mock_group
             return mock_group_query
         elif model.__name__ == "User":
-            mock_user_query = MagicMock()
-            mock_user_query.filter.side_effect = lambda expr: MagicMock(
-                first=MagicMock(
+            mock_user_query = mocker.MagicMock()
+            mock_user_query.filter.side_effect = lambda expr: mocker.MagicMock(
+                first=mocker.MagicMock(
                     return_value=mock_user_query_results.get(expr.right.value)
                 )
             )
@@ -283,13 +285,13 @@ def test_add_users_to_group_with_nonexistent_user(
     mock_group = example_groups[0]
 
     # Mock user lookup: one exists, one doesn't
-    mock_existing_user = MagicMock(spec=UserSQLModel)
+    mock_existing_user = mocker.MagicMock(spec=UserSQLModel)
     mock_existing_user.username = "existing_user"
-    mock_existing_user_groups_collection = MagicMock(spec=list)
+    mock_existing_user_groups_collection = mocker.MagicMock(spec=list)
     mock_existing_user.groups = mock_existing_user_groups_collection
-    mock_existing_user._sa_instance_state = MagicMock()
+    mock_existing_user._sa_instance_state = mocker.MagicMock()
     mock_existing_user._sa_instance_state.manager.initialize_collection.return_value = (
-        MagicMock(),
+        mocker.MagicMock(),
         mock_existing_user_groups_collection,
     )
 
@@ -302,13 +304,13 @@ def test_add_users_to_group_with_nonexistent_user(
 
     def query_side_effect(model):
         if model.__name__ == "Group":
-            mock_group_query = MagicMock()
+            mock_group_query = mocker.MagicMock()
             mock_group_query.filter.return_value.first.return_value = mock_group
             return mock_group_query
         elif model.__name__ == "User":
-            mock_user_query = MagicMock()
-            mock_user_query.filter.side_effect = lambda expr: MagicMock(
-                first=MagicMock(
+            mock_user_query = mocker.MagicMock()
+            mock_user_query.filter.side_effect = lambda expr: mocker.MagicMock(
+                first=mocker.MagicMock(
                     return_value=mock_user_query_results.get(expr.right.value)
                 )
             )
@@ -347,10 +349,10 @@ def test_add_users_to_group_not_found(fastapi_test_client, db):
 
 def test_remove_users_from_group(fastapi_test_client, db, example_groups, mocker):
     """Test the remove_users_from_group endpoint."""
-    mock_group = MagicMock(spec=GroupSQLModel)  # Use a fresh mock for the group
+    mock_group = mocker.MagicMock(spec=GroupSQLModel)  # Use a fresh mock for the group
     mock_group.name = "GroupForRemoveTest"
 
-    mock_user_to_remove = MagicMock(spec=UserSQLModel)
+    mock_user_to_remove = mocker.MagicMock(spec=UserSQLModel)
     mock_user_to_remove.id = 101
     mock_user_to_remove.display_name = "User To Remove"
     mock_user_to_remove.username = "user_to_remove_uname"
@@ -361,16 +363,16 @@ def test_remove_users_from_group(fastapi_test_client, db, example_groups, mocker
     mock_user_to_remove.is_admin = False
 
     # Configure _sa_instance_state for mock_user_to_remove.groups (backref)
-    mock_user_to_remove_groups_collection = MagicMock(spec=list)
+    mock_user_to_remove_groups_collection = mocker.MagicMock(spec=list)
     mock_user_to_remove.groups = mock_user_to_remove_groups_collection
-    mock_user_to_remove._sa_instance_state = MagicMock()
+    mock_user_to_remove._sa_instance_state = mocker.MagicMock()
     mock_user_to_remove._sa_instance_state.manager.initialize_collection.return_value = (
-        MagicMock(),
+        mocker.MagicMock(),
         mock_user_to_remove_groups_collection,
     )
 
-    # Configure mock_group.users to be a MagicMock list that "contains" the user to be removed
-    users_collection_on_group = MagicMock(spec=list)
+    # Configure mock_group.users to be a mocker.MagicMock list that "contains" the user to be removed
+    users_collection_on_group = mocker.MagicMock(spec=list)
     users_collection_on_group.__contains__.side_effect = (
         lambda item: item == mock_user_to_remove
     )
@@ -383,13 +385,13 @@ def test_remove_users_from_group(fastapi_test_client, db, example_groups, mocker
 
     def query_side_effect(model):
         if model.__name__ == "Group":
-            mock_group_query = MagicMock()
+            mock_group_query = mocker.MagicMock()
             mock_group_query.filter.return_value.first.return_value = mock_group
             return mock_group_query
         elif model.__name__ == "User":
-            mock_user_query = MagicMock()
-            mock_user_query.filter.side_effect = lambda expr: MagicMock(
-                first=MagicMock(
+            mock_user_query = mocker.MagicMock()
+            mock_user_query.filter.side_effect = lambda expr: mocker.MagicMock(
+                first=mocker.MagicMock(
                     return_value=mock_user_query_results.get(expr.right.value)
                 )
             )
@@ -438,20 +440,20 @@ def test_remove_users_from_group_user_not_in_group(
     """Test removing a user that exists but is not in the specified group."""
     mock_group = example_groups[0]
 
-    users_collection_mock = MagicMock(spec=list)
+    users_collection_mock = mocker.MagicMock(spec=list)
     # Explicitly mock the __contains__ method on the users_collection_mock
-    users_collection_mock.__contains__ = MagicMock(
+    users_collection_mock.__contains__ = mocker.MagicMock(
         return_value=False
     )  # User is NOT in the group
     mock_group.users = users_collection_mock
 
-    mock_user_not_in_group = MagicMock(spec=UserSQLModel)
+    mock_user_not_in_group = mocker.MagicMock(spec=UserSQLModel)
     mock_user_not_in_group.username = "user_not_in_group_uname"
-    mock_user_not_in_group_groups_collection = MagicMock(spec=list)
+    mock_user_not_in_group_groups_collection = mocker.MagicMock(spec=list)
     mock_user_not_in_group.groups = mock_user_not_in_group_groups_collection
-    mock_user_not_in_group._sa_instance_state = MagicMock()
+    mock_user_not_in_group._sa_instance_state = mocker.MagicMock()
     mock_user_not_in_group._sa_instance_state.manager.initialize_collection.return_value = (
-        MagicMock(),
+        mocker.MagicMock(),
         mock_user_not_in_group_groups_collection,
     )
 
@@ -459,16 +461,18 @@ def test_remove_users_from_group_user_not_in_group(
 
     def query_side_effect(model):
         if model.__name__ == "Group":
-            return MagicMock(
-                filter=MagicMock(
-                    return_value=MagicMock(first=MagicMock(return_value=mock_group))
+            return mocker.MagicMock(
+                filter=mocker.MagicMock(
+                    return_value=mocker.MagicMock(
+                        first=mocker.MagicMock(return_value=mock_group)
+                    )
                 )
             )
         elif model.__name__ == "User":
-            return MagicMock(
-                filter=MagicMock(
-                    return_value=MagicMock(
-                        first=MagicMock(return_value=mock_user_not_in_group)
+            return mocker.MagicMock(
+                filter=mocker.MagicMock(
+                    return_value=mocker.MagicMock(
+                        first=mocker.MagicMock(return_value=mock_user_not_in_group)
                     )
                 )
             )
