@@ -1,4 +1,4 @@
-# Copyright 2025 Google LLC
+# Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,41 +12,50 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import hashlib
-from pathlib import Path
-
 import pytest
+import hashlib
 
-from lib.file_hashes import _calculate_file_hashes
-
-
-# A pytest fixture that provides a temporary directory for the test.
-@pytest.fixture
-def temp_file(tmp_path: Path):
-    """
-    Creates a temporary file for testing and returns its path.
-    """
-    file_content = b"This is a test file for calculating hashes."
-    file_path = tmp_path / "test_file.txt"
-    file_path.write_bytes(file_content)
-    return file_path, file_content
+from lib.file_hashes import _calculate_file_hashes, generate_hashes
 
 
-def test_calculate_file_hashes(temp_file):
-    """
-    Tests the _calculate_file_hashes function using a temporary file.
-    """
-    file_path, file_content = temp_file
+def test_calculate_file_hashes(mocker):
+    """Test _calculate_file_hashes with mock file data."""
+    file_content = b"test file content"
 
-    # Calculate the expected hashes for the file content
-    expected_md5 = hashlib.md5(file_content).hexdigest()
-    expected_sha1 = hashlib.sha1(file_content).hexdigest()
-    expected_sha256 = hashlib.sha256(file_content).hexdigest()
+    # Calculate expected hashes
+    md5 = hashlib.md5(file_content).hexdigest()
+    sha1 = hashlib.sha1(file_content).hexdigest()
+    sha256 = hashlib.sha256(file_content).hexdigest()
 
-    # Call the function with the path to the temporary file
-    calculated_md5, calculated_sha1, calculated_sha256 = _calculate_file_hashes(file_path)
+    m = mocker.mock_open(read_data=file_content)
+    mocker.patch("builtins.open", m)
 
-    # Assert that the calculated hashes match the expected hashes
-    assert calculated_md5 == expected_md5
-    assert calculated_sha1 == expected_sha1
-    assert calculated_sha256 == expected_sha256
+    md5_res, sha1_res, sha256_res = _calculate_file_hashes("/dummy/path")
+
+    assert md5_res == md5
+    assert sha1_res == sha1
+    assert sha256_res == sha256
+
+
+def test_generate_hashes(mocker, db):
+    """Test generate_hashes updates the database."""
+    mocker.patch("lib.file_hashes.database.SessionLocal", return_value=db)
+    mock_get_file = mocker.patch("lib.file_hashes.get_file_from_db")
+    mock_calc_hashes = mocker.patch("lib.file_hashes._calculate_file_hashes")
+
+    mock_file = mocker.MagicMock()
+    mock_file.path = "/dummy/path"
+    mock_get_file.return_value = mock_file
+
+    mock_calc_hashes.return_value = ("md5sum", "sha1sum", "sha256sum")
+
+    generate_hashes(file_id=1)
+
+    mock_get_file.assert_called_once_with(db, 1)
+    mock_calc_hashes.assert_called_once_with("/dummy/path")
+
+    assert mock_file.hash_md5 == "md5sum"
+    assert mock_file.hash_sha1 == "sha1sum"
+    assert mock_file.hash_sha256 == "sha256sum"
+
+    db.commit.assert_called_once()

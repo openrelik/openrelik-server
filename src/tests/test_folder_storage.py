@@ -1,5 +1,4 @@
 import os
-from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
@@ -22,8 +21,8 @@ def mock_config():
     }
 
 
-@patch("datastores.sql.models.folder.get_config")
-def test_folder_path_default_provider(mock_get_config, mock_config):
+def test_folder_path_default_provider(mocker, mock_config):
+    mock_get_config = mocker.patch("datastores.sql.models.folder.get_config")
     mock_get_config.return_value = mock_config
 
     folder_uuid = uuid4()
@@ -33,8 +32,8 @@ def test_folder_path_default_provider(mock_get_config, mock_config):
     assert folder.path == expected_path
 
 
-@patch("datastores.sql.models.folder.get_config")
-def test_folder_path_special_provider(mock_get_config, mock_config):
+def test_folder_path_special_provider(mocker, mock_config):
+    mock_get_config = mocker.patch("datastores.sql.models.folder.get_config")
     mock_get_config.return_value = mock_config
 
     folder_uuid = uuid4()
@@ -44,8 +43,8 @@ def test_folder_path_special_provider(mock_get_config, mock_config):
     assert folder.path == expected_path
 
 
-@patch("datastores.sql.models.folder.get_config")
-def test_folder_path_subfolder_with_provider(mock_get_config, mock_config):
+def test_folder_path_subfolder_with_provider(mocker, mock_config):
+    mock_get_config = mocker.patch("datastores.sql.models.folder.get_config")
     mock_get_config.return_value = mock_config
 
     # Root folder with default storage
@@ -54,15 +53,17 @@ def test_folder_path_subfolder_with_provider(mock_get_config, mock_config):
 
     # Subfolder with special storage provider (acting as mount point)
     sub_uuid = uuid4()
-    sub_folder = Folder(uuid=sub_uuid, parent=root_folder, storage_provider="special_provider")
+    sub_folder = Folder(
+        uuid=sub_uuid, parent=root_folder, storage_provider="special_provider"
+    )
 
     # Expected path is directly under the special provider path, flattened by UUID
     expected_sub_path = os.path.join("/data/special", sub_uuid.hex)
     assert sub_folder.path == expected_sub_path
 
 
-@patch("datastores.sql.models.folder.get_config")
-def test_folder_path_nested_inheritance_from_subfolder(mock_get_config, mock_config):
+def test_folder_path_nested_inheritance_from_subfolder(mocker, mock_config):
+    mock_get_config = mocker.patch("datastores.sql.models.folder.get_config")
     mock_get_config.return_value = mock_config
 
     # Root folder (default)
@@ -71,7 +72,9 @@ def test_folder_path_nested_inheritance_from_subfolder(mock_get_config, mock_con
 
     # Subfolder 1 (special provider)
     sub1_uuid = uuid4()
-    sub1_folder = Folder(uuid=sub1_uuid, parent=root_folder, storage_provider="special_provider")
+    sub1_folder = Folder(
+        uuid=sub1_uuid, parent=root_folder, storage_provider="special_provider"
+    )
 
     # Subfolder 2 (child of Subfolder 1) - should inherit from Subfolder 1
     sub2_uuid = uuid4()
@@ -84,8 +87,8 @@ def test_folder_path_nested_inheritance_from_subfolder(mock_get_config, mock_con
     assert sub2_folder.path == expected_sub2_path
 
 
-@patch("datastores.sql.models.folder.get_config")
-def test_folder_path_subfolder_inheritance(mock_get_config, mock_config):
+def test_folder_path_subfolder_inheritance(mocker, mock_config):
+    mock_get_config = mocker.patch("datastores.sql.models.folder.get_config")
     mock_get_config.return_value = mock_config
 
     root_uuid = uuid4()
@@ -117,10 +120,10 @@ def test_get_effective_storage_provider_default():
     assert root.get_effective_storage_provider() is None
 
 
-@patch("datastores.sql.models.folder.get_config")
-def test_folder_path_fallback_old_config(mock_get_config):
+def test_folder_path_fallback_old_config(mocker):
     # Config without providers, just storage_path
     old_config = {"server": {"storage_path": "/data/old_default"}}
+    mock_get_config = mocker.patch("datastores.sql.models.folder.get_config")
     mock_get_config.return_value = old_config
 
     folder_uuid = uuid4()
