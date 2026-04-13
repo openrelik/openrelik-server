@@ -91,6 +91,26 @@ allowed_robot_accounts = []
 # WARNING: This allows anyone to login to your server!
 public_access = false
 
+[auth.oidc]
+# Generic OIDC authentication (e.g. Keycloak, Okta, Auth0).
+# Set discovery_url to your IdP's OpenID Connect discovery document URL.
+# Keycloak example: http://keycloak/realms/{realm}/.well-known/openid-configuration
+# client_id = ""
+# client_secret = ""
+# discovery_url = ""
+
+# Allow only these users (email address) to access the server.
+# allowlist = ["<REPLACE_WITH_USER_EMAIL>"]
+
+# Allow anyone (who is authenticated with the IdP) to access the server.
+# WARNING: This allows anyone to login to your server!
+# public_access = false
+
+# Explicit redirect URI for the OIDC callback. Set this when running behind a reverse
+# proxy that terminates TLS, to ensure the correct scheme (https) is used.
+# Example: https://openrelik.example.com/auth/oidc
+# redirect_uri = ""
+
 [ui]
 # data_types that will be rendered using unescaped HTML in a sandboxed iframe in the
 # frontend UI.
