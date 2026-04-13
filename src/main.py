@@ -98,7 +98,6 @@ telemetry.setup_telemetry("openrelik-server")
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(SessionMiddleware, secret_key=config["auth"]["secret_session_key"])
 
-
 # Create app for API version 1
 api_v1 = FastAPI()
 

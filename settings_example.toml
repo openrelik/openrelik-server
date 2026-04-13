@@ -106,6 +106,11 @@ public_access = false
 # WARNING: This allows anyone to login to your server!
 # public_access = false
 
+# Explicit redirect URI for the OIDC callback. Set this when running behind a reverse
+# proxy that terminates TLS, to ensure the correct scheme (https) is used.
+# Example: https://openrelik.example.com/auth/oidc
+# redirect_uri = ""
+
 [ui]
 # data_types that will be rendered using unescaped HTML in a sandboxed iframe in the
 # frontend UI.

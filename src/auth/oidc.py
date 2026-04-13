@@ -35,6 +35,7 @@ OIDC_CLIENT_SECRET = config["auth"]["oidc"]["client_secret"]
 OIDC_DISCOVERY_URL = config["auth"]["oidc"]["discovery_url"]
 OIDC_ALLOW_LIST = config["auth"]["oidc"]["allowlist"]
 OIDC_PUBLIC_ACCESS = config["auth"]["oidc"].get("public_access", False)
+OIDC_REDIRECT_URI = config["auth"]["oidc"].get("redirect_uri", None)
 REFRESH_TOKEN_EXPIRE_MINUTES = config["auth"]["jwt_cookie_refresh_expire_minutes"]
 ACCESS_TOKEN_EXPIRE_MINUTES = config["auth"]["jwt_cookie_access_expire_minutes"]
 
@@ -73,7 +74,7 @@ async def login(request: Request) -> Any:
     Returns:
         Response: The redirect response to the IdP.
     """
-    redirect_uri = str(request.url_for("oidc_auth"))
+    redirect_uri = OIDC_REDIRECT_URI or str(request.url_for("oidc_auth"))
     return await oauth.oidc.authorize_redirect(request, redirect_uri)
 
 
