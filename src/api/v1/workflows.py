@@ -51,6 +51,8 @@ from datastores.sql.models.workflow import Task
 from lib import workflow_utils
 from lib.reporting_utils import create_workflow_report
 
+from datastores.sql.crud.authz import check_user_access
+
 from . import schemas
 
 redis_url = os.getenv("REDIS_URL")
@@ -814,19 +816,72 @@ async def generate_workflow_name(
     return {"generated_name": generated_name.strip()}
 
 
+# Get workflow
+# /workflows/{workflow_id}
+@router_root.get("/{workflow_id}")
+async def get_workflow(
+    workflow_id: int,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> schemas.WorkflowResponse:
+    """Get a workflow by ID.
+
+    WorkflowResponse:
+        - id (int): The ID of the workflow.
+        - display_name (str): The display name of the workflow.
+        - spec_json (str): The JSON representation of the workflow specification.
+        - file_ids (List[int]): A list of file IDs associated with the workflow.
+        - folder_id (int): The ID of the folder the workflow belongs to.
+        - user_id (int): The ID of the user who created the workflow.
+        - created_at (datetime): The timestamp when the workflow was created.
+        - updated_at (datetime): The timestamp when the workflow was last updated.
+
+    Args:
+        workflow_id (int): The ID of the workflow to get.
+        db (Session): The database session.
+        current_user (schemas.User): The current user.
+
+    Returns:
+        schemas.WorkflowResponse: The workflow.
+    """
+    workflow = get_workflow_from_db(db, workflow_id)
+
+    # Check if user has access to the workflow's folder
+    has_access = check_user_access(
+        db,
+        current_user,
+        allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER],
+        folder=workflow.folder
+    )
+    if not has_access:
+        raise HTTPException(status_code=403, detail="No access to workflow")
+
+    return workflow
+
 # Generate workflow report
 # /workflows/{workflow_id}/report
 @router_root.get("/{workflow_id}/report/")
-@require_access(allowed_roles=[Role.EDITOR, Role.OWNER])
 async def generate_workflow_report(
     workflow_id: int,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.WorkflowReportResponse:
     workflow = get_workflow_from_db(db, workflow_id)
+
+    # Check if user has access to the workflow's folder
+    has_access = check_user_access(
+        db,
+        current_user,
+        allowed_roles=[Role.EDITOR, Role.OWNER],
+        folder=workflow.folder
+    )
+    if not has_access:
+        raise HTTPException(status_code=403, detail="No access to workflow")
+
     markdown = create_workflow_report(workflow)
     response = schemas.WorkflowReportResponse(
         workflow=workflow,
         markdown=markdown,
     )
     return response
+
