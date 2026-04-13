@@ -36,6 +36,10 @@ from auth import common as common_auth
 from auth import google as google_auth
 from auth import local as local_auth
 from config import config
+
+if config.get("auth", {}).get("oidc"):
+    from auth import oidc as oidc_auth
+
 from datastores.sql.crud.group import (
     add_user_to_group,
     create_group_in_db,
@@ -121,6 +125,8 @@ api_v1.add_middleware(
 app.include_router(common_auth.router)
 app.include_router(local_auth.router)
 app.include_router(google_auth.router)
+if config.get("auth", {}).get("oidc"):
+    app.include_router(oidc_auth.router)
 app.include_router(healthz_router)
 
 # Routes
