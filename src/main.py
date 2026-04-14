@@ -12,8 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 import os
 from contextlib import asynccontextmanager
+
+# Temporary: enable DEBUG for external-storage modules to diagnose browse 404.
+logging.getLogger("api.v1.external_storages").setLevel(logging.DEBUG)
+logging.getLogger("datastores.sql.crud.external_storage").setLevel(logging.DEBUG)
 
 from celery.app import Celery
 from fastapi import Depends, FastAPI
@@ -24,6 +29,7 @@ from sqlalchemy.exc import ProgrammingError
 from starlette.middleware.sessions import SessionMiddleware
 
 from api.v1 import configs as configs_v1
+from api.v1 import external_storages as external_storages_v1
 from api.v1 import files as files_v1
 from api.v1 import folders as folders_v1
 from api.v1 import groups as groups_v1
@@ -205,6 +211,15 @@ api_v1.include_router(
     metrics_v1.router,
     prefix="/metrics",
     tags=["metrics"],
+    dependencies=[
+        Depends(common_auth.get_current_active_user),
+        Depends(common_auth.verify_csrf),
+    ],
+)
+api_v1.include_router(
+    external_storages_v1.router,
+    prefix="/datastores",
+    tags=["datastores"],
     dependencies=[
         Depends(common_auth.get_current_active_user),
         Depends(common_auth.verify_csrf),

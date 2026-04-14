@@ -194,6 +194,42 @@ class GroupRoleResponse(BaseSchema):
     role: str
 
 
+# ExternalStorage schemas
+class ExternalStorageCreate(BaseModel):
+    name: str
+    mount_point: str
+    description: Optional[str] = None
+
+
+class ExternalStorageUpdate(BaseModel):
+    mount_point: Optional[str] = None
+    description: Optional[str] = None
+
+
+class ExternalStorageResponse(BaseSchema):
+    name: str
+    mount_point: str
+    description: Optional[str] = None
+
+
+class ExternalFileRegisterRequest(BaseModel):
+    folder_id: int
+    relative_path: str
+    display_name: Optional[str] = None
+    extension: Optional[str] = None
+
+
+class BrowseItem(BaseModel):
+    name: str
+    type: str  # "file" or "directory"
+    size: Optional[int] = None
+
+
+class BrowseResponse(BaseModel):
+    current_path: str
+    items: List[BrowseItem]
+
+
 # File schemas
 class FileCreate(BaseModel):
     display_name: str
@@ -214,6 +250,8 @@ class FileCreate(BaseModel):
     folder_id: Optional[int] = None
     task_output_id: Optional[int] = None
     source_file_id: Optional[int] = None
+    external_storage_name: Optional[str] = None
+    external_relative_path: Optional[str] = None
 
 
 class FileResponseCompact(BaseSchemaCompact):
@@ -241,6 +279,10 @@ class FileResponse(BaseSchema):
     hash_ssdeep: Optional[str] = None
     storage_provider: Optional[str] = None
     storage_key: Optional[str] = None
+    # External (read-only) storage fields. is_external=True means the file must not be written.
+    is_external: bool = False
+    external_storage_name: Optional[str] = None
+    external_relative_path: Optional[str] = None
     user_id: int
     user: UserResponseCompact
     folder: Optional[FolderResponse] = None

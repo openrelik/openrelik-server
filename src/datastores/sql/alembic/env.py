@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 
 # Import OpenRelik models so Alembic finds them.
 from datastores.sql.database import BaseModel
+from datastores.sql.models.external_storage import ExternalStorage
 from datastores.sql.models.file import (
     File,
     FileAttribute,

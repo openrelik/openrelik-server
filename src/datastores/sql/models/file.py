@@ -38,6 +38,8 @@ from ..database import (
     FeedbackMixin,
 )
 
+from .external_storage import ExternalStorage
+
 if TYPE_CHECKING:
     from .folder import Folder
     from .group import GroupRole
@@ -116,6 +118,18 @@ class File(BaseModel):
     storage_provider: Mapped[str] = mapped_column(UnicodeText, index=True, nullable=True)
     storage_key: Mapped[Optional[str]] = mapped_column(UnicodeText, index=True)
 
+    # External (read-only) storage: when set, the file lives in an ExternalStorage mount rather
+    # than the main data volume. external_relative_path is relative to ExternalStorage.mount_point.
+    external_storage_name: Mapped[Optional[str]] = mapped_column(
+        UnicodeText,
+        ForeignKey("externalstorage.name"),
+        index=True,
+        nullable=True,
+    )
+    external_relative_path: Mapped[Optional[str]] = mapped_column(
+        UnicodeText, index=False, nullable=True
+    )
+
     # Relationships
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
     user: Mapped["User"] = relationship(back_populates="files")
@@ -179,16 +193,55 @@ class File(BaseModel):
     user_roles: Mapped[List["UserRole"]] = relationship(back_populates="file")
     group_roles: Mapped[List["GroupRole"]] = relationship(back_populates="file")
 
+    # Relationship to the external storage config (None for regular files).
+    external_storage: Mapped[Optional["ExternalStorage"]] = relationship(
+        "ExternalStorage",
+        foreign_keys=[external_storage_name],
+    )
+
+    @property
+    def is_external(self) -> bool:
+        """Returns True if this file lives in a read-only external storage."""
+        return self.external_storage_name is not None
+
     @hybrid_property
     def path(self):
         """Returns the full path of the file.
+
+        For external files the path is:
+            ExternalStorage.mount_point / external_relative_path
+
+        For files with an explicit storage provider the path is:
+            provider_base_path / storage_key
+
+        For all other files (default case) the path is:
+            folder.path / uuid[.extension]
 
         Returns:
             str: The full path of the file.
 
         Raises:
-            ValueError: If no storage provider is configured or no storage key is set for the file.
+            ValueError: If path resolution fails (missing config, missing key, path traversal).
         """
+        # --- External (read-only) storage ---
+        if self.external_storage_name is not None:
+            if self.external_storage is None:
+                raise ValueError(
+                    f"External storage '{self.external_storage_name}' not found in database."
+                )
+            if not self.external_relative_path:
+                raise ValueError("No relative path set for external file.")
+            parts = self.external_relative_path.replace("\\", "/").split("/")
+            if ".." in parts:
+                raise ValueError(
+                    "Path traversal detected in external_relative_path: "
+                    f"'{self.external_relative_path}'."
+                )
+            return os.path.join(
+                self.external_storage.mount_point,
+                self.external_relative_path.lstrip("/"),
+            )
+
         full_path = None
         storage_provider_configs = config.get("server", {}).get("storage", {}).get("providers", {})
 
@@ -490,7 +543,10 @@ class FileChatMessageFeedback(BaseModel, FeedbackMixin):
 
 
 # Delete file from the filesystem when the database row is deleted.
+# External files are never removed from disk — they are read-only references.
 @event.listens_for(File, "after_delete")
 def delete_file_after_row_delete(mapper, connection, file_to_delete):
+    if file_to_delete.external_storage_name is not None:
+        return
     if os.path.exists(file_to_delete.path):
         os.remove(file_to_delete.path)
