@@ -58,6 +58,8 @@ from lib.file_hashes import generate_hashes
 from lib.llm_file_chat import BASE_SYSTEM_INSTRUCTIONS, create_chat_session
 from lib.llm_summary import generate_sql_summary, generate_summary
 
+from openrelik_common import telemetry
+
 from . import schemas
 
 router = APIRouter()
@@ -79,6 +81,7 @@ def get_file(
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.FileResponse:
     """Get a file's metadata from the database."""
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     return get_file_from_db(db, int(file_id))
 
 
@@ -93,6 +96,7 @@ def get_file_content(
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> HTMLResponse:
     """Returns an HTML response with the file's content."""
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     file = get_file_from_db(db, file_id)
     encodings_to_try = ["utf-8", "utf-16", "ISO-8859-1"]
 
@@ -140,6 +144,7 @@ def download_file(
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> FileResponse:
     """Downloads a file's contents based on its ID."""
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     file = get_file_from_db(db, file_id)
     headers = {"Access-Control-Expose-Headers": "Content-Disposition"}
     return FileResponse(
@@ -159,6 +164,7 @@ async def download_file_stream(
     current_user: schemas.User = Depends(get_current_active_user),
 ):
     """Downloads a file using streaming."""
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     file = get_file_from_db(db, file_id)
     file_path = file.path
     CHUNK_SIZE = 10 * 1024 * 1024  # 10MB
@@ -185,6 +191,7 @@ def delete_file(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ):
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     delete_file_from_db(db, file_id)
 
 
@@ -326,6 +333,7 @@ def get_workflows(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> List[schemas.WorkflowResponse]:
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     return get_file_workflows_from_db(db, file_id)
 
 
@@ -339,6 +347,9 @@ def get_task(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> List[schemas.TaskResponse]:
+    telemetry.add_attribute_to_current_span('file_id', file_id)
+    telemetry.add_attribute_to_current_span('workflow_id', workflow_id)
+    telemetry.add_attribute_to_current_span('task_id', task_id)
     return get_task_from_db(db, task_id)
 
 
@@ -353,6 +364,9 @@ def download_task_result(
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> FileResponse:
     """Downloads a task result file based on its ID."""
+    telemetry.add_attribute_to_current_span('file_id', file_id)
+    telemetry.add_attribute_to_current_span('workflow_id', workflow_id)
+    telemetry.add_attribute_to_current_span('task_id', task_id)
     task = db.get(Task, task_id)
     result = json.loads(task.result)
     result_file_path = result.get("output_file_path")
@@ -375,6 +389,8 @@ def get_file_summary(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ):
+    telemetry.add_attribute_to_current_span('file_id', file_id)
+    telemetry.add_attribute_to_current_span('summary_id', summary_id)
     return get_file_summary_from_db(db, summary_id)
 
 
@@ -386,6 +402,8 @@ def generate_file_summary(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ):
+    telemetry.add_attribute_to_current_span('file_id', file_id)
+    telemetry.add_attribute_to_current_span('summary_id', summary_id)
     file = get_file_from_db(db, file_id)
     active_llm = get_active_llm()
     if not active_llm:
@@ -420,6 +438,7 @@ def get_file_chat_history(
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.FileChatResponse:
     """Get the latest file chat for a given file ID."""
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     chat = get_latest_file_chat_from_db(
         db=db,
         file_id=file_id,
@@ -440,11 +459,13 @@ def create_file_chat_message(
     current_user: schemas.User = Depends(get_current_active_user),
 ):
     """Chat about a file using Server-Sent Events (SSE)."""
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     file_chat = get_latest_file_chat_from_db(
         db=db,
         file_id=file_id,
         user_id=current_user.id,
     )
+    telemetry.add_attribute_to_current_span('user_id', current_user.id)
 
     if not file_chat:
         file_chat_schema = schemas.FileChatCreate(
@@ -506,6 +527,7 @@ def run_sql_query(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.SQLQueryResponse:
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     file = get_file_from_db(db, file_id)
     MAX_RESULT_LIMIT = 10000
 
@@ -555,6 +577,7 @@ def generate_query(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.SQLGenerateQueryResponse:
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     file = get_file_from_db(db, file_id)
     if not duckdb_utils.is_sql_file(file.magic_text):
         raise HTTPException(
@@ -586,6 +609,7 @@ def get_all_tables_schemas(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.SQLSchemasResponse:
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     file = get_file_from_db(db, file_id)
     if not duckdb_utils.is_sql_file(file.magic_text):
         raise HTTPException(
