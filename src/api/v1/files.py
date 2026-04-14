@@ -403,7 +403,6 @@ def generate_file_summary(
     current_user: schemas.User = Depends(get_current_active_user),
 ):
     telemetry.add_attribute_to_current_span('file_id', file_id)
-    telemetry.add_attribute_to_current_span('summary_id', summary_id)
     file = get_file_from_db(db, file_id)
     active_llm = get_active_llm()
     if not active_llm:
