@@ -1925,14 +1925,14 @@ ratelimit = ">=2.2.1,<3.0.0"
 
 [[package]]
 name = "openrelik-common"
-version = "0.7.8"
+version = "0.7.9"
 description = "Common utilities for OpenRelik"
 optional = false
 python-versions = "<4.0,>=3.11"
 groups = ["main"]
 files = [
-    {file = "openrelik_common-0.7.8-py3-none-any.whl", hash = "sha256:cb68d36bf4b8b353416009a734b173589dbb8471468ee4b0bf09b63951ff0adc"},
-    {file = "openrelik_common-0.7.8.tar.gz", hash = "sha256:8c58451c9f970726fdceb2284f0211c5b45046a64d4809225e0cfd0f3402508c"},
+    {file = "openrelik_common-0.7.9-py3-none-any.whl", hash = "sha256:9f63a085e030b1b1aa773f399685e120f287e3b5f5ceb724be9f7104067a6ee9"},
+    {file = "openrelik_common-0.7.9.tar.gz", hash = "sha256:1b083ee6471cafe9bd47b3b5587c4d72e4c9776e637c3f294e204572382949ce"},
 ]
 
 [package.dependencies]
@@ -3748,4 +3748,4 @@ type = ["pytest-mypy"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.12"
-content-hash = "d699008e011c9af1f4b7a81dea1d03d3303a1e370427e29962a2d0afbb3b3af0"
+content-hash = "85aa1a1df8e64358f4b18a3fb3ca03f76766244643dfb99d944faa33ca208525"
