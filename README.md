@@ -25,11 +25,30 @@ All endpoints are under `/api/v1/datastores/` and require an authenticated user.
 | `POST` | `/api/v1/datastores/` | Create a new external storage (requires `name`, `mount_point`, optional `description`). Returns `409` if the name already exists. |
 | `GET` | `/api/v1/datastores/{name}` | Get a single external storage by name. |
 | `PATCH` | `/api/v1/datastores/{name}` | Update `mount_point` and/or `description`. |
-| `DELETE` | `/api/v1/datastores/{name}` | Delete a storage configuration. Returns `409` if any files still reference it. |
-| `POST` | `/api/v1/datastores/{name}/files` | Register an existing file into the virtual filesystem. Supply `relative_path` (relative to the mount point), `folder_id`, and optional `display_name`/`extension`. No data is copied; a `File` DB record is created pointing at the original location. |
-| `GET` | `/api/v1/datastores/{name}/browse?path=` | List the contents of a directory inside the storage. `path` is relative to the mount point; omit it to list the root. Returns directories and files with sizes, sorted directories-first. |
+| `DELETE` | `/api/v1/datastores/{name}` | Delete a storage configuration and cascade: all folders mounted to this storage are unmounted and all lazily-registered file records are deleted from the database. Physical files on disk are never touched. |
+| `POST` | `/api/v1/datastores/{name}/files` | Register a single existing file into the virtual filesystem. Supply `relative_path` (relative to the mount point), `folder_id`, and optional `display_name`/`extension`. No data is copied; a `File` DB record is created pointing at the original location. |
+| `GET` | `/api/v1/datastores/{name}/browse?path=` | List the contents of a directory inside the storage. `path` is relative to the mount point; omit it to list the root. Returns entries sorted directories-first, then files, alphabetically within each group. |
 
 Path traversal (`..` components and symlink escapes) is rejected with `400` on both the register and browse endpoints.
+
+### Folder-Level Mount
+
+A folder can be mounted directly to an external storage path, after which file listing automatically registers all files in that directory tree as `File` DB records on first access (lazy registration).
+
+**PATCH /api/v1/folders/{id}** accepts two new fields:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `external_storage_name` | `string` \| `null` | Name of a configured `ExternalStorage`. Set to mount; send `null` to unmount. |
+| `external_base_path` | `string` \| `null` | Optional subdirectory relative to the storage mount point. `null` or omitted means the root of the mount. |
+
+Both fields are also returned in `GET /api/v1/folders/{id}` responses.
+
+**GET /api/v1/folders/{id}/files/** — when the folder has an active mount, this endpoint walks the external directory tree recursively (via `os.walk`, symlinks not followed) and registers any files not yet in the database before returning the file list. Registration is idempotent: files already present are skipped. The relative path stored for each file is relative to the storage mount point, not to `external_base_path`.
+
+**Unmounting** — sending `PATCH /api/v1/folders/{id}` with `external_storage_name: null` removes all lazily-registered file records for that folder from the database. Physical files are not affected.
+
+**Deleting a storage** cascades in the same way: all mounted folders are unmounted and all associated file records are deleted. The deletion uses Core-style SQL throughout to ensure soft-deleted records are also cleaned up.
 
 ### Database Changes
 
@@ -50,7 +69,16 @@ The table also inherits the standard `BaseModel` columns (`id`, `created_at`, `u
 | `external_storage_name` | `UnicodeText` FK → `externalstorage.name` | Set when the file lives in an external store; `NULL` for normal files. |
 | `external_relative_path` | `UnicodeText` (nullable) | Path relative to `ExternalStorage.mount_point`. |
 
-A derived property `is_external` returns `True` when `external_storage_name` is set.
+A derived property `is_external` returns `True` when `external_storage_name` is set. Both `is_external` and `external_relative_path` are included in `FileResponseCompactList` so that the frontend can render read-only badges correctly on folder file listings and across page refreshes.
+
+A unique constraint on `(folder_id, external_storage_name, external_relative_path)` prevents duplicate registrations under concurrent requests.
+
+**New columns on `Folder`**
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `external_storage_name` | `UnicodeText` FK → `externalstorage.name` (nullable, indexed) | Storage this folder is mounted to, or `NULL` if not mounted. |
+| `external_base_path` | `UnicodeText` (nullable) | Subdirectory within the storage to use as the root for this mount. `NULL` means the storage mount point root. |
 
 ### How It Works
 

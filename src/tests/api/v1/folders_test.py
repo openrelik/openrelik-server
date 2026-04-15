@@ -288,13 +288,14 @@ def test_delete_user_role(fastapi_test_client, mocker, db):
     mock_delete_user_role_from_db.assert_called_once_with(db, role_id)
 
 
-def test_get_folder_files(fastapi_test_client, mocker, file_response_compact_list):
+def test_get_folder_files(fastapi_test_client, mocker, folder_db_model, file_response_compact_list):
     """Test getting files for a folder."""
     folder_id = 1
     mock_files = [
         file_response_compact_list.model_dump(mode="json"),
         file_response_compact_list.model_dump(mode="json"),
     ]
+    mocker.patch("api.v1.folders.get_folder_from_db", return_value=folder_db_model)
     mock_get_files_from_db = mocker.patch("api.v1.folders.get_files_from_db")
     mock_get_files_from_db.return_value = mock_files
 
@@ -319,6 +320,8 @@ def test_get_folder_success(fastapi_test_client, mocker):
     mock_folder.user_roles = []
     mock_folder.group_roles = []
     mock_folder.storage_provider = "local"
+    mock_folder.external_storage_name = None
+    mock_folder.external_base_path = None
 
     mock_user = mocker.MagicMock()
     mock_user.display_name = "Test User"
@@ -852,3 +855,136 @@ async def test_get_adk_sse_session_success(mocker):
 
     assert len(results) > 0
     assert "running" in results[0]
+
+
+# ---------------------------------------------------------------------------
+# External mount tests
+# ---------------------------------------------------------------------------
+
+
+def test_get_folder_files_with_mount_triggers_sync(
+    fastapi_test_client, mocker, folder_db_model, file_response_compact_list
+):
+    """When folder has external_storage_name, sync is triggered before listing files."""
+    folder_db_model.external_storage_name = "my_storage"
+
+    mock_files = [file_response_compact_list.model_dump(mode="json")]
+    mocker.patch("api.v1.folders.get_folder_from_db", return_value=folder_db_model)
+    mock_sync = mocker.patch("api.v1.folders.sync_external_mount_files_in_db")
+    mocker.patch("api.v1.folders.get_files_from_db", return_value=mock_files)
+
+    response = fastapi_test_client.get("/folders/1/files/")
+    assert response.status_code == 200
+    mock_sync.assert_called_once()
+
+
+def test_get_folder_files_without_mount_skips_sync(
+    fastapi_test_client, mocker, folder_db_model, file_response_compact_list
+):
+    """When folder has no external mount, sync is not called."""
+    folder_db_model.external_storage_name = None
+
+    mock_files = [file_response_compact_list.model_dump(mode="json")]
+    mocker.patch("api.v1.folders.get_folder_from_db", return_value=folder_db_model)
+    mock_sync = mocker.patch("api.v1.folders.sync_external_mount_files_in_db")
+    mocker.patch("api.v1.folders.get_files_from_db", return_value=mock_files)
+
+    response = fastapi_test_client.get("/folders/1/files/")
+    assert response.status_code == 200
+    mock_sync.assert_not_called()
+
+
+def test_get_folder_files_sync_failure_returns_200(
+    fastapi_test_client, mocker, folder_db_model, file_response_compact_list
+):
+    """A sync ValueError is soft-failed — existing files are still returned."""
+    folder_db_model.external_storage_name = "broken_storage"
+
+    mock_files = [file_response_compact_list.model_dump(mode="json")]
+    mocker.patch("api.v1.folders.get_folder_from_db", return_value=folder_db_model)
+    mocker.patch(
+        "api.v1.folders.sync_external_mount_files_in_db",
+        side_effect=ValueError("mount not available"),
+    )
+    mocker.patch("api.v1.folders.get_files_from_db", return_value=mock_files)
+
+    response = fastapi_test_client.get("/folders/1/files/")
+    assert response.status_code == 200
+    assert response.json() == mock_files
+
+
+@pytest.mark.asyncio
+async def test_update_folder_sets_external_mount(
+    fastapi_async_test_client, mocker, folder_db_model, folder_response
+):
+    """PATCH with a valid external mount updates the folder."""
+    mock_storage = mocker.MagicMock()
+    mock_storage.mount_point = "/mnt/cases"
+
+    mocker.patch("api.v1.folders.get_external_storage_from_db", return_value=mock_storage)
+    mocker.patch("api.v1.folders.get_folder_from_db", return_value=folder_db_model)
+    mock_update = mocker.patch("api.v1.folders.update_folder_in_db", return_value=folder_response)
+
+    request = {"external_storage_name": "my_storage"}
+    response = await fastapi_async_test_client.patch("/folders/1", json=request)
+    assert response.status_code == 200
+    mock_update.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_update_folder_clears_external_mount(
+    fastapi_async_test_client, mocker, folder_db_model, folder_response
+):
+    """PATCH with explicit null fields clears the external mount."""
+    mocker.patch("api.v1.folders.get_folder_from_db", return_value=folder_db_model)
+    mock_update = mocker.patch("api.v1.folders.update_folder_in_db", return_value=folder_response)
+
+    request = {"external_storage_name": None, "external_base_path": None}
+    response = await fastapi_async_test_client.patch("/folders/1", json=request)
+    assert response.status_code == 200
+
+    # Verify that the FolderUpdateRequest passed to update_folder_in_db has None for both
+    # mount fields and that those keys are in model_fields_set (explicitly sent in request).
+    folder_arg = mock_update.call_args[0][2]  # third positional arg is the FolderUpdateRequest
+    assert folder_arg.external_storage_name is None
+    assert folder_arg.external_base_path is None
+    assert "external_storage_name" in folder_arg.model_fields_set
+    assert "external_base_path" in folder_arg.model_fields_set
+
+
+@pytest.mark.asyncio
+async def test_update_folder_invalid_storage_name_returns_400(
+    fastapi_async_test_client, mocker
+):
+    """PATCH with a non-existent storage name returns 400."""
+    mocker.patch("api.v1.folders.get_external_storage_from_db", return_value=None)
+
+    request = {"external_storage_name": "nonexistent_storage"}
+    response = await fastapi_async_test_client.patch("/folders/1", json=request)
+    assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_update_folder_null_clears_mount_uses_model_fields_set(
+    fastapi_async_test_client, mocker, folder_response
+):
+    """Regression: explicit null in request must reach update_folder_in_db via model_fields_set.
+
+    Before the Bug 1 fix, the endpoint merged the update into a FolderCreate model and
+    passed that merged model to the CRUD. The CRUD's ``if value is not None`` guard then
+    silently dropped the null, leaving the old value in the DB.  Now the CRUD iterates
+    ``model_fields_set`` so explicit nulls are always written.
+    """
+    mock_update = mocker.patch("api.v1.folders.update_folder_in_db", return_value=folder_response)
+
+    # Send explicit nulls for both mount fields
+    request = {"external_storage_name": None, "external_base_path": None}
+    response = await fastapi_async_test_client.patch("/folders/1", json=request)
+    assert response.status_code == 200
+
+    folder_arg = mock_update.call_args[0][2]  # FolderUpdateRequest
+    # Both fields must be in model_fields_set so the CRUD will write None to the DB.
+    assert "external_storage_name" in folder_arg.model_fields_set
+    assert "external_base_path" in folder_arg.model_fields_set
+    assert folder_arg.external_storage_name is None
+    assert folder_arg.external_base_path is None

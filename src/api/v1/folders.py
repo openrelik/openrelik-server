@@ -14,6 +14,8 @@
 
 import asyncio
 import json
+import logging
+import os
 import uuid
 from typing import List
 
@@ -25,7 +27,10 @@ from sse_starlette import EventSourceResponse
 import config
 from auth.common import get_current_active_user
 from datastores.sql.crud.authz import check_user_access, require_access
-from datastores.sql.crud.file import get_files_from_db
+from datastores.sql.crud.external_storage import get_external_storage_from_db
+from datastores.sql.crud.file import get_files_from_db, sync_external_mount_files_in_db
+
+logger = logging.getLogger(__name__)
 from datastores.sql.crud.folder import (
     create_root_folder_in_db,
     create_subfolder_in_db,
@@ -59,6 +64,36 @@ from lib.stream_manager import stream_manager
 from . import schemas
 
 router = APIRouter()
+
+
+def _validate_external_base_path(mount_point: str, base_path: str) -> None:
+    """Validate that base_path is safe and points to a directory inside mount_point.
+
+    Args:
+        mount_point: Absolute path of the ExternalStorage mount.
+        base_path: Relative path within the mount to validate.
+
+    Raises:
+        HTTPException 400: If path traversal is detected, the path escapes the mount,
+                           or the resolved path is not a directory.
+    """
+    if ".." in base_path.replace("\\", "/").split("/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Path traversal not allowed in external_base_path.",
+        )
+    resolved = os.path.realpath(os.path.join(mount_point, base_path.lstrip("/")))
+    mount_real = os.path.realpath(mount_point)
+    if resolved != mount_real and not resolved.startswith(mount_real + os.sep):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="external_base_path escapes the mount point.",
+        )
+    if not os.path.isdir(resolved):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"external_base_path '{base_path}' is not a directory.",
+        )
 
 
 # Get all root folders for a user
@@ -257,14 +292,24 @@ async def update_folder(
     Raises:
         HTTPException: If the user does not have permission to update it.
     """
-    folder_from_db = get_folder_from_db(db, folder_id)
-    folder_model = schemas.FolderCreate(**folder_from_db.__dict__)
+    # Validate external mount fields if provided
+    if folder_from_request.external_storage_name is not None:
+        storage = get_external_storage_from_db(db, folder_from_request.external_storage_name)
+        if not storage:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"External storage '{folder_from_request.external_storage_name}' not found.",
+            )
+        if folder_from_request.external_base_path:
+            _validate_external_base_path(
+                storage.mount_point, folder_from_request.external_base_path
+            )
 
-    # Update folder data with supplied values
-    update_data = folder_from_request.model_dump(exclude_unset=True)
-    updated_folder_model = folder_model.model_copy(update=update_data)
+    # Normalize empty string to None for canonical storage
+    if folder_from_request.external_base_path == "":
+        folder_from_request.external_base_path = None
 
-    return update_folder_in_db(db, updated_folder_model)
+    return update_folder_in_db(db, folder_id, folder_from_request)
 
 
 # Get files for a folder
@@ -275,6 +320,18 @@ def get_folder_files(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> List[schemas.FileResponseCompactList]:
+    folder = get_folder_from_db(db, folder_id)
+    if folder is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found.")
+
+    if folder.external_storage_name:
+        try:
+            sync_external_mount_files_in_db(db, folder, current_user)
+        except ValueError as exc:
+            logger.warning(
+                "External mount sync failed for folder %s: %s", folder_id, exc
+            )
+
     return get_files_from_db(db, folder_id)
 
 

@@ -12,11 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
 import os
 import uuid
 
 import magic
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from api.v1 import schemas
 from datastores.sql.models.file import File, FileChat, FileChatMessage, FileReport, FileSummary
@@ -37,6 +41,90 @@ def get_files_from_db(db: Session, folder_id: int):
         List[File]: A list of File objects representing the files in the folder.
     """
     return db.query(File).filter_by(folder_id=folder_id).order_by(File.id.desc()).all()
+
+
+def sync_external_mount_files_in_db(db: Session, folder, current_user) -> None:
+    """Lazily register files from a folder's external mount into the DB.
+
+    Recursively walks the directory at
+    (ExternalStorage.mount_point / folder.external_base_path) and creates File
+    DB records for any regular files not already registered. Idempotent.
+    Symbolic links are skipped. Symbolic-link directories are not followed.
+
+    Args:
+        db: SQLAlchemy session.
+        folder: Folder ORM object with external_storage_name set.
+        current_user: Authenticated user assigned as owner of newly created records.
+
+    Raises:
+        ValueError: If the storage is not found, the path escapes the mount point,
+                    or the resolved path is not a directory.
+    """
+    from datastores.sql.crud.external_storage import (
+        get_external_storage_from_db,
+        register_external_file_in_db,
+    )
+
+    storage = get_external_storage_from_db(db, folder.external_storage_name)
+    if not storage:
+        raise ValueError(f"External storage '{folder.external_storage_name}' not found.")
+
+    base = folder.external_base_path or ""
+    resolved_dir = os.path.realpath(os.path.join(storage.mount_point, base.lstrip("/")))
+    mount_real = os.path.realpath(storage.mount_point)
+
+    if resolved_dir != mount_real and not resolved_dir.startswith(mount_real + os.sep):
+        raise ValueError(
+            f"external_base_path '{base}' escapes mount point '{storage.mount_point}'."
+        )
+    if not os.path.isdir(resolved_dir):
+        raise ValueError(f"External base path '{resolved_dir}' is not a directory.")
+
+    # Pre-load existing registered paths in a single query to avoid N+1 on large trees.
+    existing_paths = {
+        row.external_relative_path
+        for row in db.query(File.external_relative_path)
+        .filter_by(folder_id=folder.id, external_storage_name=folder.external_storage_name)
+        .all()
+    }
+
+    for dirpath, _dirnames, filenames in os.walk(resolved_dir, followlinks=False):
+        for filename in filenames:
+            physical_path = os.path.join(dirpath, filename)
+
+            # Skip symbolic links — consistent with the original scandir behaviour.
+            if os.path.islink(physical_path):
+                continue
+
+            # relative_path is always relative to mount_point, so nested files
+            # naturally include their subdirectory prefix (e.g. "evidence/file.bin").
+            relative_path = os.path.relpath(physical_path, storage.mount_point)
+            if relative_path in existing_paths:
+                continue
+
+            display_name = filename
+            _, ext = os.path.splitext(filename)
+            extension = ext.lstrip(".") if ext else ""
+            try:
+                register_external_file_in_db(
+                    db,
+                    storage,
+                    relative_path,
+                    physical_path,
+                    folder.id,
+                    display_name,
+                    extension,
+                    current_user,
+                )
+            except IntegrityError:
+                # Another concurrent request registered the same file — safe to ignore.
+                db.rollback()
+                logger.debug(
+                    "sync_external_mount: IntegrityError for '%s' in folder %s "
+                    "(concurrent insert)",
+                    relative_path,
+                    folder.id,
+                )
 
 
 def get_file_from_db(db: Session, file_id: int):

@@ -10,3 +10,4 @@ package-lock.json
 yarn.lock
 CLAUDE.md
 OPENRELIK_DESIGN.md
+.coverage

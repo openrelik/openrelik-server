@@ -148,18 +148,19 @@ def delete_external_storage(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ):
-    """Delete an external storage. Fails with 409 if files still reference it."""
+    """Delete an external storage and cascade all references.
+
+    Any folders mounted to this storage are unmounted (external_storage_name set to
+    null) and any lazily-registered File records that point to this storage are
+    deleted from the database.  Physical files on disk are never touched.
+    """
     storage = get_external_storage_from_db(db, storage_name)
     if not storage:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"External storage '{storage_name}' not found.",
         )
-    if not delete_external_storage_from_db(db, storage):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Cannot delete: files are still referencing this external storage.",
-        )
+    delete_external_storage_from_db(db, storage)
 
 
 # --- Browse ---

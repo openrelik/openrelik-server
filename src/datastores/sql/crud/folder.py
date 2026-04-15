@@ -15,12 +15,16 @@
 import os
 import uuid
 
-from sqlalchemy import and_, func, select, union, update
+from sqlalchemy import and_, delete as sql_delete, func, select, union, update
 from sqlalchemy.orm import Session, aliased
 
 from api.v1 import schemas
 from config import config
-from datastores.sql.models.file import File
+from datastores.sql.models.file import (
+    File,
+    file_task_input_association_table,
+    file_workflow_association_table,
+)
 from datastores.sql.models.folder import Folder
 from datastores.sql.models.group import Group, GroupRole
 from datastores.sql.models.role import Role
@@ -366,22 +370,99 @@ def create_subfolder_in_db(
     return new_db_folder
 
 
-def update_folder_in_db(db: Session, folder: schemas.FolderUpdateRequest):
+def _delete_external_files_for_folder(db: Session, folder_id: int) -> None:
+    """Hard-delete all lazily-registered external File records for a folder.
+
+    Called when a folder's external mount is cleared.  Physical files are
+    never touched — the ``after_delete`` event on File returns early for
+    external files, and the bulk Core deletes below bypass that event
+    entirely while only targeting rows where external_storage_name IS NOT NULL.
+
+    Deletion order respects FK constraints:
+      1. Nullify ``source_file_id`` on any files derived from these files.
+      2. Remove rows from the task-input and workflow junction tables.
+      3. Delete UserRole and GroupRole rows (no cascade on these relationships).
+      4. ORM-delete each File, which cascades ``attributes``, ``summaries``,
+         ``chats``, and ``reports`` automatically.
+    """
+    # ORM query; before_compile adds is_deleted filter — intentionally skips
+    # already-soft-deleted external files (they are already "logically gone").
+    external_file_ids = [
+        row[0]
+        for row in db.query(File.id)
+        .filter(File.folder_id == folder_id, File.external_storage_name.isnot(None))
+        .all()
+    ]
+    if not external_file_ids:
+        return
+
+    # 1. Nullify self-referential FK from derived files pointing to these files.
+    db.query(File).filter(File.source_file_id.in_(external_file_ids)).update(
+        {"source_file_id": None}, synchronize_session=False
+    )
+
+    # 2. Remove junction-table rows (Core delete bypasses before_compile — fine
+    #    because we want to remove these regardless of soft-delete status).
+    db.execute(
+        sql_delete(file_task_input_association_table).where(
+            file_task_input_association_table.c.file_id.in_(external_file_ids)
+        )
+    )
+    db.execute(
+        sql_delete(file_workflow_association_table).where(
+            file_workflow_association_table.c.file_id.in_(external_file_ids)
+        )
+    )
+
+    # 3. Delete non-cascade permission rows.
+    db.execute(sql_delete(UserRole).where(UserRole.file_id.in_(external_file_ids)))
+    db.execute(sql_delete(GroupRole).where(GroupRole.file_id.in_(external_file_ids)))
+
+    # 4. ORM-delete each File so cascade removes attributes/summaries/chats/reports.
+    #    after_delete fires but returns early for external files — no disk I/O.
+    for file_obj in db.query(File).filter(File.id.in_(external_file_ids)).all():
+        db.delete(file_obj)
+
+    db.commit()
+
+
+def update_folder_in_db(
+    db: Session, folder_id: int, folder: schemas.FolderUpdateRequest
+) -> Folder:
     """Update a folder in the database.
 
+    Only fields explicitly present in the request body are written — including
+    null values, which clear the corresponding column.  This is achieved by
+    iterating over ``folder.model_fields_set`` instead of ``model_dump()``, so
+    fields that were absent from the request are left unchanged.
+
+    When ``external_storage_name`` is explicitly set to ``None`` (unmounting),
+    all lazily-registered external File records for this folder are deleted
+    from the database.  Physical files on disk are not affected.
+
     Args:
-        db (Session): SQLAlchemy session object
-        folder (dict): Updated dictionary of a folder
+        db (Session): SQLAlchemy session object.
+        folder_id (int): Primary key of the folder to update.
+        folder (FolderUpdateRequest): Parsed request body.  Only
+            ``folder.model_fields_set`` keys are applied.
 
     Returns:
-        Folder object
+        Updated Folder ORM object.
     """
-    folder_in_db = db.get(Folder, folder.id)
-    folder_dict = folder.model_dump()
-    for key, value in folder_dict.items():
-        setattr(folder_in_db, key, value) if value else None
+    unmounting = (
+        "external_storage_name" in folder.model_fields_set
+        and folder.external_storage_name is None
+    )
+
+    folder_in_db = db.get(Folder, folder_id)
+    for key in folder.model_fields_set:
+        setattr(folder_in_db, key, getattr(folder, key))
     db.commit()
     db.refresh(folder_in_db)
+
+    if unmounting:
+        _delete_external_files_for_folder(db, folder_id)
+
     return folder_in_db
 
 

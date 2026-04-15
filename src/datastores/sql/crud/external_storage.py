@@ -18,13 +18,21 @@ import uuid as uuid_module
 from typing import List, Optional
 
 import magic
+from sqlalchemy import delete as sql_delete
+from sqlalchemy import select as sql_select
+from sqlalchemy import update as sql_update
 from sqlalchemy.orm import Session
 
 from api.v1 import schemas
 from datastores.sql.models.external_storage import ExternalStorage
 
 logger = logging.getLogger(__name__)
-from datastores.sql.models.file import File
+from datastores.sql.models.file import (
+    File,
+    file_task_input_association_table,
+    file_workflow_association_table,
+)
+from datastores.sql.models.group import GroupRole
 from datastores.sql.models.role import Role
 from datastores.sql.models.user import UserRole
 
@@ -84,16 +92,73 @@ def update_external_storage_in_db(
 
 
 def delete_external_storage_from_db(db: Session, db_storage: ExternalStorage) -> bool:
-    """Delete an ExternalStorage if no File records reference it.
+    """Cascade-delete an ExternalStorage and all references to it.
+
+    All steps use Core-style SQL so that the before_compile soft-delete filter
+    (added by the global SQLAlchemy event listener in database.py) is bypassed.
+    This ensures soft-deleted files and folders are cleaned up too.
+
+    Before deleting the ExternalStorage record:
+      1. Unmount all folders that reference this storage (set external_storage_name
+         and external_base_path to NULL).
+      2. Delete all File records that reference this storage in FK-safe order:
+         nullify source_file_id back-references, remove junction rows, remove
+         UserRole/GroupRole rows, then DELETE the File rows.
+         Physical files on disk are never touched — we intentionally skip the
+         ORM path (and the after_delete event) because external files must not
+         be deleted from disk.
 
     Returns:
-        True if deleted, False if files still reference this storage.
+        True (always — the storage is deleted unconditionally).
     """
-    file_count = (
-        db.query(File).filter(File.external_storage_name == db_storage.name).count()
+    from datastores.sql.models.folder import Folder
+
+    storage_name = db_storage.name
+
+    # 1. Unmount all folders (Core UPDATE bypasses before_compile soft-delete filter).
+    db.execute(
+        sql_update(Folder)
+        .where(Folder.external_storage_name == storage_name)
+        .values(external_storage_name=None, external_base_path=None)
     )
-    if file_count > 0:
-        return False
+
+    # 2a. Collect all File ids using Core SELECT — bypasses the before_compile
+    #     soft-delete filter so soft-deleted external files are included.
+    result = db.execute(
+        sql_select(File.id).where(File.external_storage_name == storage_name)
+    )
+    external_file_ids = [row[0] for row in result]
+
+    if external_file_ids:
+        # 2b. Nullify self-referential FK from derived files pointing to these files.
+        db.execute(
+            sql_update(File)
+            .where(File.source_file_id.in_(external_file_ids))
+            .values(source_file_id=None)
+        )
+
+        # 2c. Remove junction-table rows.
+        db.execute(
+            sql_delete(file_task_input_association_table).where(
+                file_task_input_association_table.c.file_id.in_(external_file_ids)
+            )
+        )
+        db.execute(
+            sql_delete(file_workflow_association_table).where(
+                file_workflow_association_table.c.file_id.in_(external_file_ids)
+            )
+        )
+
+        # 2d. Delete non-cascade permission rows.
+        db.execute(sql_delete(UserRole).where(UserRole.file_id.in_(external_file_ids)))
+        db.execute(sql_delete(GroupRole).where(GroupRole.file_id.in_(external_file_ids)))
+
+        # 2e. Core DELETE on File rows — bypasses before_compile and after_delete,
+        #     so physical files are never touched (correct for external files).
+        #     Lazily-registered files have no attributes/summaries/chats/reports,
+        #     so there are no child FK rows to clean up before this DELETE.
+        db.execute(sql_delete(File).where(File.id.in_(external_file_ids)))
+
     db.delete(db_storage)
     db.commit()
     return True

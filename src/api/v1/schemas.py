@@ -138,7 +138,9 @@ class FolderCreateRequest(BaseModel):
 
 
 class FolderUpdateRequest(BaseModel):
-    display_name: str
+    display_name: Optional[str] = None
+    external_storage_name: Optional[str] = None
+    external_base_path: Optional[str] = None
 
 
 class FolderShareRequest(BaseModel):
@@ -153,6 +155,8 @@ class FolderShareRequest(BaseModel):
 class FolderCreate(BaseSchema):
     display_name: str
     parent_id: Optional[int] = None
+    external_storage_name: Optional[str] = None
+    external_base_path: Optional[str] = None
 
 
 class FolderResponse(BaseSchema):
@@ -166,6 +170,8 @@ class FolderResponse(BaseSchema):
     user_roles: Optional[List["UserRoleResponse"]]
     group_roles: Optional[List["GroupRoleResponse"]]
     storage_provider: Optional[str] = None
+    external_storage_name: Optional[str] = None
+    external_base_path: Optional[str] = None
 
 
 class FolderResponseCompact(BaseSchema):
@@ -303,6 +309,7 @@ class FileResponseCompactList(BaseModel):
     updated_at: Optional[datetime] = None
     is_deleted: Optional[bool] = False
     is_external: bool = False
+    external_relative_path: Optional[str] = None
 
 
 class FileSummaryCreate(BaseModel):

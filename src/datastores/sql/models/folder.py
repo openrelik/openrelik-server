@@ -20,6 +20,7 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from config import get_config
+from datastores.sql.models.external_storage import ExternalStorage
 from datastores.sql.models.workflow import Workflow
 
 from ..database import AttributeMixin, BaseModel
@@ -55,6 +56,20 @@ class Folder(BaseModel):
     # mount point. Only root-level folders have this set; subfolders inherit the storage provider of
     # their top-level parent folder. This attribute is ignored for subfolders.
     storage_provider: Mapped[str] = mapped_column(UnicodeText, index=True, nullable=True)
+
+    # External mount: when set, GET /folders/{id}/files/ will lazily register all files found
+    # directly under the external directory as read-only File DB records (flat, no recursion).
+    external_storage_name: Mapped[Optional[str]] = mapped_column(
+        UnicodeText,
+        ForeignKey("externalstorage.name"),
+        index=True,
+        nullable=True,
+    )
+    external_base_path: Mapped[Optional[str]] = mapped_column(UnicodeText, nullable=True)
+    external_storage: Mapped[Optional["ExternalStorage"]] = relationship(
+        "ExternalStorage",
+        foreign_keys=[external_storage_name],
+    )
 
     # Relationships
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))

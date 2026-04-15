@@ -168,18 +168,6 @@ def test_delete_external_storage_success(fastapi_test_client, mocker):
     assert response.status_code == 204
 
 
-def test_delete_external_storage_conflict(fastapi_test_client, mocker):
-    mocker.patch(
-        "api.v1.external_storages.get_external_storage_from_db",
-        return_value=_make_storage(),
-    )
-    mocker.patch(
-        "api.v1.external_storages.delete_external_storage_from_db", return_value=False
-    )
-    response = fastapi_test_client.delete("/datastores/test_store")
-    assert response.status_code == 409
-
-
 def test_delete_external_storage_not_found(fastapi_test_client, mocker):
     mocker.patch(
         "api.v1.external_storages.get_external_storage_from_db", return_value=None

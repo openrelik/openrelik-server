@@ -573,6 +573,8 @@ def folder_db_model(user_db_model) -> Folder:
         "deleted_at": None,
         "id": 1,
         "is_deleted": False,
+        "external_storage_name": None,
+        "external_base_path": None,
     }
 
     mock_folder_response = Folder(**folder_data)
