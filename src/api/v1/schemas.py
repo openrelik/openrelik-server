@@ -302,6 +302,7 @@ class FileResponseCompactList(BaseModel):
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     is_deleted: Optional[bool] = False
+    is_external: bool = False
 
 
 class FileSummaryCreate(BaseModel):
