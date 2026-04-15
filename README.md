@@ -29,7 +29,7 @@ All endpoints are under `/api/v1/datastores/` and require an authenticated user.
 | `POST` | `/api/v1/datastores/{name}/files` | Register a single existing file into the virtual filesystem. Supply `relative_path` (relative to the mount point), `folder_id`, and optional `display_name`/`extension`. No data is copied; a `File` DB record is created pointing at the original location. |
 | `GET` | `/api/v1/datastores/{name}/browse?path=` | List the contents of a directory inside the storage. `path` is relative to the mount point; omit it to list the root. Returns entries sorted directories-first, then files, alphabetically within each group. |
 
-Path traversal (`..` components and symlink escapes) is rejected with `400` on both the register and browse endpoints.
+Path traversal (`..` components and symlink escapes) is rejected with `400` on both the register and browse endpoints. Symlink files and symlink directories are skipped in both the browse listing and the lazy-registration sync, so symlinks are never registered as `File` records.
 
 ### Folder-Level Mount
 
@@ -88,4 +88,4 @@ A unique constraint on `(folder_id, external_storage_name, external_relative_pat
 2. **Explicit storage provider** (`storage_provider` is set): looks up the provider's base path from config and joins it with `storage_key`.
 3. **Default** (most files): constructs `folder.path / <uuid>[.extension]` using the parent folder's path recursively.
 
-On soft-delete, the standard SQLAlchemy `after_delete` event removes the file from disk for normal files. External files are skipped — the listener returns early when `external_storage_name` is set, so the original data on the mount is never touched.
+When a `File` ORM object is hard-deleted via `db.delete()`, the standard SQLAlchemy `after_delete` listener removes the physical file from disk for normal files. External files are skipped — the listener returns early when `external_storage_name` is set, so the original data on the mount is never touched. For soft-deletes (bulk `UPDATE … SET is_deleted = TRUE`), the listener never fires, so no disk I/O occurs for either file type.

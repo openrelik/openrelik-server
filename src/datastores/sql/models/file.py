@@ -25,6 +25,7 @@ from sqlalchemy import (
     Table,
     Unicode,
     UnicodeText,
+    UniqueConstraint,
     event,
 )
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -91,6 +92,15 @@ class File(BaseModel):
         workflows (List[Workflow]): The workflows that have been applied to the file.
         summaries (List[FileSummary]): The summaries of the file.
     """
+
+    __table_args__ = (
+        UniqueConstraint(
+            "folder_id",
+            "external_storage_name",
+            "external_relative_path",
+            name="uq_file_folder_external",
+        ),
+    )
 
     display_name: Mapped[Optional[str]] = mapped_column(UnicodeText, index=True)
     description: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)

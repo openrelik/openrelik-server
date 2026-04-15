@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 from auth.common import get_current_active_user
+from datastores.sql.crud import authz as crud_authz
 from datastores.sql.crud.external_storage import (
     create_external_storage_in_db,
     delete_external_storage_from_db,
@@ -30,7 +31,9 @@ from datastores.sql.crud.external_storage import (
     register_external_file_in_db,
     update_external_storage_in_db,
 )
+from datastores.sql.crud.folder import get_folder_from_db
 from datastores.sql.database import get_db_connection
+from datastores.sql.models.role import Role
 
 from . import schemas
 
@@ -227,6 +230,10 @@ def browse_external_storage(
 
     items = []
     for entry in os.scandir(resolved):
+        # Skip all symlinks — consistent with the recursive sync which also skips
+        # symlink files and does not follow symlink directories.
+        if entry.is_symlink():
+            continue
         if entry.is_dir(follow_symlinks=False):
             items.append(schemas.BrowseItem(name=entry.name, type="directory", size=None))
         else:
@@ -266,6 +273,14 @@ def register_external_file(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"External storage '{storage_name}' not found.",
         )
+
+    folder = get_folder_from_db(db, request.folder_id)
+    if folder is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Folder {request.folder_id} not found.",
+        )
+    crud_authz.check_user_access(db, current_user, [Role.EDITOR, Role.OWNER], folder=folder)
 
     _validate_no_traversal(request.relative_path)
     physical_path = _resolve_and_validate_path(storage.mount_point, request.relative_path)

@@ -210,3 +210,54 @@ def test_unmount_is_idempotent(seeded_db):
     update_folder_in_db(db, folder.id, FolderUpdateRequest(external_storage_name=None))
 
     assert db.query(File).filter_by(folder_id=folder.id).count() == 0
+
+
+def test_unmount_clears_external_base_path_even_when_not_in_request(sqlite_session, tmp_path):
+    """Unmounting by sending only external_storage_name=null must also clear
+    external_base_path, even if it was not included in the request body.
+
+    Regression: previously the CRUD only updated fields present in model_fields_set,
+    so a stale external_base_path would remain after unmounting.
+    """
+    db = sqlite_session
+
+    user = User(
+        username="tester2",
+        display_name="Tester2",
+        email="t2@example.com",
+        password_hash="x",
+        auth_method="local",
+        uuid=uuid_module.uuid4(),
+    )
+    db.add(user)
+    db.flush()
+
+    storage = ExternalStorage(
+        name="store2",
+        mount_point=str(tmp_path),
+        description=None,
+    )
+    db.add(storage)
+    db.flush()
+
+    folder = Folder(
+        display_name="folder2",
+        uuid=uuid_module.uuid4(),
+        user_id=user.id,
+        external_storage_name="store2",
+        external_base_path="cases/2024",  # non-null base path
+    )
+    db.add(folder)
+    db.commit()
+
+    # Send only external_storage_name=null — external_base_path is NOT in the request.
+    request = FolderUpdateRequest(external_storage_name=None)
+    assert "external_base_path" not in request.model_fields_set
+
+    updated = update_folder_in_db(db, folder.id, request)
+
+    assert updated.external_storage_name is None
+    assert updated.external_base_path is None, (
+        "external_base_path must be cleared when external_storage_name is set to null, "
+        "even if external_base_path was not explicitly included in the request."
+    )

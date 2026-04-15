@@ -457,6 +457,10 @@ def update_folder_in_db(
     folder_in_db = db.get(Folder, folder_id)
     for key in folder.model_fields_set:
         setattr(folder_in_db, key, getattr(folder, key))
+    if unmounting:
+        # Always clear the base path when unmounting, even if the client did not
+        # explicitly include external_base_path in the request body.
+        folder_in_db.external_base_path = None
     db.commit()
     db.refresh(folder_in_db)
 

@@ -155,8 +155,6 @@ class FolderShareRequest(BaseModel):
 class FolderCreate(BaseSchema):
     display_name: str
     parent_id: Optional[int] = None
-    external_storage_name: Optional[str] = None
-    external_base_path: Optional[str] = None
 
 
 class FolderResponse(BaseSchema):

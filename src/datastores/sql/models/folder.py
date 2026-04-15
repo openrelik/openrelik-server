@@ -58,7 +58,7 @@ class Folder(BaseModel):
     storage_provider: Mapped[str] = mapped_column(UnicodeText, index=True, nullable=True)
 
     # External mount: when set, GET /folders/{id}/files/ will lazily register all files found
-    # directly under the external directory as read-only File DB records (flat, no recursion).
+    # recursively under the external directory as read-only File DB records.
     external_storage_name: Mapped[Optional[str]] = mapped_column(
         UnicodeText,
         ForeignKey("externalstorage.name"),
