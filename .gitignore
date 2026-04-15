@@ -4,10 +4,4 @@
 **/.DS_Store
 .python-version
 Tiltfile
-node_modules/
-package.json
-package-lock.json
-yarn.lock
-CLAUDE.md
-OPENRELIK_DESIGN.md
 .coverage
