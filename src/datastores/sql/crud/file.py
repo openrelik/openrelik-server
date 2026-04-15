@@ -70,6 +70,13 @@ def sync_external_mount_files_in_db(db: Session, folder, current_user) -> None:
         raise ValueError(f"External storage '{folder.external_storage_name}' not found.")
 
     base = folder.external_base_path or ""
+
+    # Explicit '..' check mirrors the browse endpoint's _validate_no_traversal.
+    if ".." in base.replace("\\", "/").split("/"):
+        raise ValueError(
+            f"external_base_path '{base}' contains path traversal components."
+        )
+
     resolved_dir = os.path.realpath(os.path.join(storage.mount_point, base.lstrip("/")))
     mount_real = os.path.realpath(storage.mount_point)
 
@@ -80,12 +87,20 @@ def sync_external_mount_files_in_db(db: Session, folder, current_user) -> None:
     if not os.path.isdir(resolved_dir):
         raise ValueError(f"External base path '{resolved_dir}' is not a directory.")
 
-    # Pre-load existing registered paths in a single query to avoid N+1 on large trees.
+    # Pre-load existing registered paths using Core SQL so that soft-deleted
+    # records are included.  The ORM query path adds WHERE is_deleted = FALSE
+    # via the global before_compile listener, which would cause duplicates for
+    # any path whose previous record was soft-deleted.
+    import sqlalchemy as sa
+
     existing_paths = {
-        row.external_relative_path
-        for row in db.query(File.external_relative_path)
-        .filter_by(folder_id=folder.id, external_storage_name=folder.external_storage_name)
-        .all()
+        row[0]
+        for row in db.execute(
+            sa.select(File.external_relative_path).where(
+                File.folder_id == folder.id,
+                File.external_storage_name == storage.name,
+            )
+        ).fetchall()
     }
 
     for dirpath, _dirnames, filenames in os.walk(resolved_dir, followlinks=False):

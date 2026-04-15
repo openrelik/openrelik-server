@@ -15,11 +15,19 @@
 """Unit tests for sync_external_mount_files_in_db (crud/file.py)."""
 
 import os
-import uuid
+import uuid as uuid_module
 
 import pytest
+import sqlalchemy as sa
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from datastores.sql.crud.file import sync_external_mount_files_in_db
+from datastores.sql.database import BaseModel
+from datastores.sql.models.external_storage import ExternalStorage
+from datastores.sql.models.file import File
+from datastores.sql.models.folder import Folder
+from datastores.sql.models.user import User
 
 
 # ---------------------------------------------------------------------------
@@ -62,10 +70,14 @@ def _make_user():
 
 @pytest.fixture()
 def mock_db(mocker):
-    """A db session whose query returns an empty existing_paths set by default."""
+    """A db session that returns an empty existing_paths set by default.
+
+    existing_paths is collected via db.execute(...).fetchall() (Core SQL) so
+    that soft-deleted records are included in the duplicate check.
+    """
     db = mocker.MagicMock()
-    # query(...).filter_by(...).all() → []
-    db.query.return_value.filter_by.return_value.all.return_value = []
+    # execute(...).fetchall() → [] (no previously registered paths)
+    db.execute.return_value.fetchall.return_value = []
     return db
 
 
@@ -108,18 +120,20 @@ def test_sync_registers_top_level_files(tmp_path, mock_db, mock_register, mock_g
     assert registered == {"a.bin", "b.txt"}
 
 
-def test_sync_is_idempotent(tmp_path, mock_db, mock_register, mock_get_storage, mocker):
-    """Already-registered paths are not re-registered."""
+def test_sync_is_idempotent(tmp_path, mock_db, mock_register, mock_get_storage):
+    """Already-registered paths (including soft-deleted ones) are not re-registered.
+
+    existing_paths is now populated via db.execute(...).fetchall() (Core SQL) so
+    that soft-deleted records are included.  The mock must reflect this path.
+    """
     (tmp_path / "exists.bin").write_bytes(b"data")
 
     storage = _make_storage(tmp_path)
     mock_get_storage.return_value = storage
     folder = _make_folder("test_store", None)
 
-    # Simulate the file already being in existing_paths
-    row = mocker.MagicMock()
-    row.external_relative_path = "exists.bin"
-    mock_db.query.return_value.filter_by.return_value.all.return_value = [row]
+    # Simulate the path already being registered (Core SQL returns a list of 1-tuples)
+    mock_db.execute.return_value.fetchall.return_value = [("exists.bin",)]
 
     sync_external_mount_files_in_db(mock_db, folder, _make_user())
 
@@ -200,6 +214,42 @@ def test_sync_with_external_base_path_registers_nested_files(
     assert relative_path == os.path.join("cases", "sub", "file.bin")
 
 
+def test_sync_external_base_path_excludes_files_outside_base(
+    tmp_path, mock_db, mock_register, mock_get_storage
+):
+    """Only files under external_base_path are registered; files at the mount root
+    or in sibling directories must be ignored."""
+    # Files outside the base path (should NOT be registered)
+    (tmp_path / "root_file.dd").write_bytes(b"data")
+    sibling = tmp_path / "sibling"
+    sibling.mkdir()
+    (sibling / "sibling_file.dd").write_bytes(b"data")
+
+    # Files inside the base path (should be registered)
+    evidence = tmp_path / "evidence"
+    evidence.mkdir()
+    (evidence / "inside.dd").write_bytes(b"data")
+    sub = evidence / "sub"
+    sub.mkdir()
+    (sub / "nested.dd").write_bytes(b"data")
+
+    storage = _make_storage(tmp_path)
+    mock_get_storage.return_value = storage
+    folder = _make_folder("test_store", "evidence")
+
+    sync_external_mount_files_in_db(mock_db, folder, _make_user())
+
+    assert mock_register.call_count == 2
+    registered = {c.args[2] for c in mock_register.call_args_list}
+    assert registered == {
+        os.path.join("evidence", "inside.dd"),
+        os.path.join("evidence", "sub", "nested.dd"),
+    }
+    # Confirm files outside the base path were never passed to register
+    assert "root_file.dd" not in registered
+    assert os.path.join("sibling", "sibling_file.dd") not in registered
+
+
 def test_sync_skips_symlinks(tmp_path, mock_db, mock_register, mock_get_storage):
     """Symbolic links to files are skipped."""
     real_file = tmp_path / "real.bin"
@@ -255,11 +305,29 @@ def test_sync_raises_if_storage_not_found(mock_db, mock_get_storage):
         sync_external_mount_files_in_db(mock_db, folder, _make_user())
 
 
-def test_sync_raises_if_base_path_escapes_mount(tmp_path, mock_db, mock_get_storage):
+def test_sync_raises_if_base_path_contains_dotdot(tmp_path, mock_db, mock_get_storage):
+    """external_base_path with '..' components is rejected before realpath resolution."""
     storage = _make_storage(tmp_path / "mount")
     os.makedirs(storage.mount_point, exist_ok=True)
     mock_get_storage.return_value = storage
     folder = _make_folder("test_store", "../outside")
+
+    with pytest.raises(ValueError, match="traversal"):
+        sync_external_mount_files_in_db(mock_db, folder, _make_user())
+
+
+def test_sync_raises_if_base_path_escapes_mount(tmp_path, mock_db, mock_get_storage):
+    """Paths that escape the mount point via symlinks are rejected after realpath."""
+    mount = tmp_path / "mount"
+    mount.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    # Symlink inside mount that points outside — no '..' in the name, so the
+    # explicit check passes, but realpath resolves it outside the mount.
+    (mount / "escape").symlink_to(outside)
+    storage = _make_storage(mount)
+    mock_get_storage.return_value = storage
+    folder = _make_folder("test_store", "escape")
 
     with pytest.raises(ValueError, match="escapes mount point"):
         sync_external_mount_files_in_db(mock_db, folder, _make_user())
@@ -273,3 +341,96 @@ def test_sync_raises_if_resolved_path_not_a_directory(tmp_path, mock_db, mock_ge
 
     with pytest.raises(ValueError, match="not a directory"):
         sync_external_mount_files_in_db(mock_db, folder, _make_user())
+
+
+# ---------------------------------------------------------------------------
+# Integration test — soft-deleted duplicate prevention
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture()
+def sqlite_session():
+    """In-memory SQLite session with all tables created."""
+    engine = create_engine(
+        "sqlite:///:memory:", connect_args={"check_same_thread": False}
+    )
+    BaseModel.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine, autocommit=False, autoflush=True)
+    session = Session()
+    yield session
+    session.close()
+    engine.dispose()
+
+
+def test_sync_does_not_create_duplicates_for_soft_deleted_paths(
+    sqlite_session, tmp_path
+):
+    """Calling sync twice when the first record is soft-deleted must not insert
+    a second record for the same path.
+
+    The ORM query path adds WHERE is_deleted = FALSE, so soft-deleted records
+    are invisible and the path would be re-registered on every sync.  The fix
+    uses Core SQL which bypasses the filter and includes soft-deleted rows in
+    the existing_paths set.
+    """
+    db = sqlite_session
+
+    user = User(
+        username="tester",
+        display_name="Tester",
+        email="t@example.com",
+        password_hash="x",
+        auth_method="local",
+        uuid=uuid_module.uuid4(),
+    )
+    db.add(user)
+    db.flush()
+
+    storage = ExternalStorage(
+        name="test_store",
+        mount_point=str(tmp_path),
+        description=None,
+    )
+    db.add(storage)
+    db.flush()
+
+    folder = Folder(
+        display_name="evidence_folder",
+        uuid=uuid_module.uuid4(),
+        user_id=user.id,
+        external_storage_name="test_store",
+        external_base_path=None,
+    )
+    db.add(folder)
+    db.commit()
+
+    # Create the physical file
+    (tmp_path / "image.dd").write_bytes(b"\x00" * 16)
+
+    # First sync — registers the file normally
+    sync_external_mount_files_in_db(db, folder, user)
+
+    count_after_first = db.execute(
+        sa.text("SELECT COUNT(*) FROM file WHERE folder_id = :fid AND external_storage_name = 'test_store'"),
+        {"fid": folder.id},
+    ).scalar()
+    assert count_after_first == 1
+
+    # Soft-delete the registered record (simulates the user soft-deleting the file)
+    db.execute(
+        sa.text("UPDATE file SET is_deleted = 1 WHERE folder_id = :fid AND external_storage_name = 'test_store'"),
+        {"fid": folder.id},
+    )
+    db.commit()
+
+    # Second sync — must NOT insert a new record for the same path
+    sync_external_mount_files_in_db(db, folder, user)
+
+    count_after_second = db.execute(
+        sa.text("SELECT COUNT(*) FROM file WHERE folder_id = :fid AND external_storage_name = 'test_store'"),
+        {"fid": folder.id},
+    ).scalar()
+    assert count_after_second == 1, (
+        f"Expected 1 total record (including soft-deleted), got {count_after_second}. "
+        "sync must not re-register paths that are already present in a soft-deleted state."
+    )
