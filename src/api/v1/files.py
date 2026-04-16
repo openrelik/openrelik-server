@@ -110,7 +110,7 @@ def get_file_content(
     scrollbar_track_color = "#fff"
     scrollbar_thumb_color = "#ddd"
     if theme == "dark":
-        background_color = "#000"
+        background_color = "#0e172a"
         font_color = "#fff"
         scrollbar_track_color = "#000"
         scrollbar_thumb_color = "#333"
