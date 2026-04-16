@@ -22,7 +22,7 @@ import pytest
 
 @pytest.mark.parametrize(
     "theme, expected_background, expected_color, expected_scrollbar",
-    [("light", "#fff", "#000", "#ddd #fff"), ("dark", "#000", "#fff", "#333 #000")],
+    [("light", "#fff", "#000", "#ddd #fff"), ("dark", "#0e172a", "#fff", "#333 #000")],
 )
 def test_get_file_content(
     fastapi_test_client,
