@@ -92,8 +92,6 @@ async def lifespan(app: FastAPI):
     pass
 
 
-telemetry.setup_telemetry("openrelik-server")
-
 # Create the main app
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(SessionMiddleware, secret_key=config["auth"]["secret_session_key"])
@@ -215,6 +213,5 @@ api_v1.include_router(
 # and generate the task queue config automatically.
 redis_url = os.getenv("REDIS_URL")
 celery = Celery(broker=redis_url, backend=redis_url)
-telemetry.instrument_fast_api(api_v1)
-telemetry.instrument_celery_app(celery)
+telemetry.instrument_fast_api(api_v1, excluded_urls='/files/*/download_stream,/files/upload')
 celery_utils.update_task_queues(celery)
