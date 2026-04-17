@@ -46,6 +46,11 @@ from config import config
 SQLALCHEMY_DATABASE_URL = config["datastores"]["sqlalchemy"]["database_url"]
 SQLALCHEMY_DATABASE_URL_ENV = os.getenv("SQLALCHEMY_DATABASE_URL")
 
+# Set SQLAlchemy connection pool settings
+SQLALCHEMY_POOL_SIZE = 20
+SQLALCHEMY_MAX_OVERFLOW = 30
+SQLALCHEMY_POOL_TIMEOUT = 60
+
 if SQLALCHEMY_DATABASE_URL_ENV:
     SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL_ENV
 
@@ -54,7 +59,12 @@ if SQLALCHEMY_DATABASE_URL_ENV:
 #    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
 # )
 
-engine = create_engine(SQLALCHEMY_DATABASE_URL, pool_pre_ping=True)
+engine = create_engine(
+    SQLALCHEMY_DATABASE_URL,
+    pool_pre_ping=True,
+    pool_size=SQLALCHEMY_POOL_SIZE,
+    max_overflow=SQLALCHEMY_MAX_OVERFLOW,
+    pool_timeout=SQLALCHEMY_POOL_TIMEOUT)
 SessionLocal = sessionmaker(autocommit=False, autoflush=True, bind=engine)
 
 
