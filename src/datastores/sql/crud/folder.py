@@ -83,8 +83,7 @@ def get_shared_folders_from_db(db: Session, current_user: User):
 
     return (
         db.query(Folder)
-        .select_from(shared_folders)  # Use select_from to make the join explicit
-        .join(Folder, Folder.id == shared_folders.c.id)  # Specify the join condition here
+        .join(shared_folders, Folder.id == shared_folders.c.id)  # Specify the join condition here
         .outerjoin(
             UserRole,
             and_(
@@ -211,8 +210,7 @@ def get_all_folders_from_db(
         potentially_shared_folder_ids = user_shared_ids.union(group_shared_ids).subquery()
         shared_folders_query = (
             db.query(Folder)
-            .select_from(potentially_shared_folder_ids)
-            .join(Folder, Folder.id == potentially_shared_folder_ids.c.id)
+            .join(potentially_shared_folder_ids, Folder.id == potentially_shared_folder_ids.c.id)
             .outerjoin(
                 UserRole,
                 and_(
