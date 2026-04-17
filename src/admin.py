@@ -11,7 +11,6 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-
 import os
 import re
 import uuid
@@ -58,7 +57,7 @@ app = typer.Typer(context_settings={"help_option_names": ["-h", "--help"]}, add_
 
 
 def get_username_and_password(
-    username: Optional[str] = None, password: Optional[str] = None
+    username: Optional[str] = None, password: Optional[str] = None, nopassword: bool = False
 ) -> Tuple[str, str]:
     """
     Prompts the user for username and password, pre-filling if provided.
@@ -79,10 +78,10 @@ def get_username_and_password(
     else:
         username = Prompt.ask("[bold blue]Enter username[/]")
 
-    if not password:
+    if not password and not nopassword:
         password = Prompt.ask("[bold blue]Enter password[/]", password=True)
 
-    if not username or not password:
+    if not username or (not password and not nopassword):
         print("[bold red]Error: Both username and password are required.[/bold red]")
         raise typer.Exit(code=1)
     return username, password
@@ -135,6 +134,15 @@ def create_user(
     password: Optional[str] = typer.Option(
         None, "--password", "-p", help="Password for the new user."
     ),
+    nopassword: bool = typer.Option(
+        False, "--nopassword", "-np", help="Create user without password set."
+    ),
+    email: Optional[str] = typer.Option(
+        None, "--email", "-e", help="Email address for the new user."
+    ),
+    auth: Optional[str] = typer.Option(
+        "local", "--authmethod", "-m", help="Authentication method for the new user."
+    ),
     admin: bool = typer.Option(False, "--admin", "-a", help="Make the user an admin."),
 ) -> None:
     """
@@ -158,21 +166,26 @@ def create_user(
 
         # Get username and password, prompting if necessary
         if not username or not password:
-            username, password = get_username_and_password(username, password)
+            username, password = get_username_and_password(username, password, nopassword)
 
         # Create the new user
-        hashed_password = password_hasher.hash(password)
+        hashed_password = password_hasher.hash(password) if not nopassword else None
+        password_hash_algorithm = "argon2id" if not nopassword else None
         new_user = schemas.UserCreate(
             display_name=username,
             username=username,
+            email=email,
             password_hash=hashed_password,
-            password_hash_algorithm="argon2id",
-            auth_method="local",
+            password_hash_algorithm=password_hash_algorithm,
+            auth_method=auth,
             uuid=uuid.uuid4(),
             is_admin=admin,
         )
         create_user_in_db(db, new_user)
-        print(f"User with username '{username}' created and password set.")
+        if nopassword:
+            print(f"User with username '{username}' created without a password.")
+        else:
+            print(f"User with username '{username}' created and password set.")
 
 
 @app.command()

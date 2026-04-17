@@ -26,23 +26,20 @@ def test_get_current_user(fastapi_test_client, user_response):
 
 
 search_user_response = UserSearchResponse(
-        display_name="Test User",
-        username="test_user",
-        profile_picture_url="http://localhost/profile/pic",
-        id=1,
-        created_at = "2025-01-07T18:29:07.772000Z",
-        updated_at = "2025-01-07T18:29:07.772000Z",
-        deleted_at = None,
-        is_deleted = False
-    ).model_dump(mode="json")
+    display_name="Test User",
+    username="test_user",
+    profile_picture_url="http://localhost/profile/pic",
+    id=1,
+    created_at="2025-01-07T18:29:07.772000Z",
+    updated_at="2025-01-07T18:29:07.772000Z",
+    deleted_at=None,
+    is_deleted=False,
+).model_dump(mode="json")
+
 
 @pytest.mark.parametrize(
     "search_string, expected_response",
-    [
-        ("test_user", [search_user_response]),
-        ("", []),
-        ("test", [])
-    ],
+    [("test_user", [search_user_response]), ("", []), ("test", [])],
 )
 def test_search_users_with_query(
     fastapi_test_client, mocker, search_string, expected_response
@@ -50,12 +47,16 @@ def test_search_users_with_query(
     """Test the search_users_with_query endpoint."""
     mock_search_users = mocker.patch("api.v1.users.search_users")
     mock_search_users.return_value = expected_response
-    response = fastapi_test_client.post("/users/search", json={"search_string": search_string})
+    response = fastapi_test_client.post(
+        "/users/search", json={"search_string": search_string}
+    )
     assert response.status_code == 200
     assert response.json() == expected_response
 
 
-def test_get_api_key_for_current_user(fastapi_test_client, mocker, user_api_key_response):
+def test_get_api_key_for_current_user(
+    fastapi_test_client, mocker, user_api_key_response
+):
     """Test the get_api_key_for_current_user endpoint."""
     mock_get_user_api_keys_from_db = mocker.patch(
         "api.v1.users.get_user_api_keys_from_db"
@@ -89,7 +90,9 @@ def test_create_api_key_for_current_user(fastapi_test_client, mocker, regular_us
     )
     mock_create_user_api_key_in_db.return_value = None
     mock_config = mocker.patch("config.get_config")
-    mock_config.return_value = {"auth": {"jwt_header_default_refresh_expire_minutes": 120}}
+    mock_config.return_value = {
+        "auth": {"jwt_header_default_refresh_expire_minutes": 120}
+    }
     request_body = {
         "display_name": "new_api_key",
         "description": "new key description",
@@ -109,4 +112,3 @@ def test_delete_api_key(fastapi_test_client, mocker):
     response = fastapi_test_client.delete("/users/me/apikeys/1")
     assert response.status_code == 200
     mock_delete_user_api_key_from_db.assert_called_once()
-

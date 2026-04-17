@@ -16,6 +16,7 @@ import html
 import json
 import os
 import re
+from datetime import datetime
 from typing import List
 from uuid import uuid4
 
@@ -38,6 +39,8 @@ from auth.common import get_current_active_user
 from config import config, get_active_llm
 from datastores.sql.crud.authz import require_access
 from datastores.sql.crud.file import (
+    create_file_chat_in_db,
+    create_file_chat_message_in_db,
     create_file_in_db,
     create_file_summary_in_db,
     delete_file_from_db,
@@ -52,7 +55,10 @@ from datastores.sql.models.role import Role
 from datastores.sql.models.workflow import Task
 from lib import duckdb_utils
 from lib.file_hashes import generate_hashes
+from lib.llm_file_chat import BASE_SYSTEM_INSTRUCTIONS, create_chat_session
 from lib.llm_summary import generate_sql_summary, generate_summary
+
+from openrelik_common import telemetry
 
 from . import schemas
 
@@ -75,6 +81,7 @@ def get_file(
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.FileResponse:
     """Get a file's metadata from the database."""
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     return get_file_from_db(db, int(file_id))
 
 
@@ -89,6 +96,7 @@ def get_file_content(
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> HTMLResponse:
     """Returns an HTML response with the file's content."""
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     file = get_file_from_db(db, file_id)
     encodings_to_try = ["utf-8", "utf-16", "ISO-8859-1"]
 
@@ -106,7 +114,7 @@ def get_file_content(
     scrollbar_track_color = "#fff"
     scrollbar_thumb_color = "#ddd"
     if theme == "dark":
-        background_color = "#000"
+        background_color = "#0e172a"
         font_color = "#fff"
         scrollbar_track_color = "#000"
         scrollbar_thumb_color = "#333"
@@ -136,6 +144,7 @@ def download_file(
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> FileResponse:
     """Downloads a file's contents based on its ID."""
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     file = get_file_from_db(db, file_id)
     headers = {"Access-Control-Expose-Headers": "Content-Disposition"}
     return FileResponse(
@@ -155,6 +164,7 @@ async def download_file_stream(
     current_user: schemas.User = Depends(get_current_active_user),
 ):
     """Downloads a file using streaming."""
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     file = get_file_from_db(db, file_id)
     file_path = file.path
     CHUNK_SIZE = 10 * 1024 * 1024  # 10MB
@@ -181,6 +191,7 @@ def delete_file(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ):
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     delete_file_from_db(db, file_id)
 
 
@@ -322,6 +333,7 @@ def get_workflows(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> List[schemas.WorkflowResponse]:
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     return get_file_workflows_from_db(db, file_id)
 
 
@@ -335,6 +347,9 @@ def get_task(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> List[schemas.TaskResponse]:
+    telemetry.add_attribute_to_current_span('file_id', file_id)
+    telemetry.add_attribute_to_current_span('workflow_id', workflow_id)
+    telemetry.add_attribute_to_current_span('task_id', task_id)
     return get_task_from_db(db, task_id)
 
 
@@ -349,6 +364,9 @@ def download_task_result(
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> FileResponse:
     """Downloads a task result file based on its ID."""
+    telemetry.add_attribute_to_current_span('file_id', file_id)
+    telemetry.add_attribute_to_current_span('workflow_id', workflow_id)
+    telemetry.add_attribute_to_current_span('task_id', task_id)
     task = db.get(Task, task_id)
     result = json.loads(task.result)
     result_file_path = result.get("output_file_path")
@@ -371,6 +389,8 @@ def get_file_summary(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ):
+    telemetry.add_attribute_to_current_span('file_id', file_id)
+    telemetry.add_attribute_to_current_span('summary_id', summary_id)
     return get_file_summary_from_db(db, summary_id)
 
 
@@ -382,6 +402,7 @@ def generate_file_summary(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ):
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     file = get_file_from_db(db, file_id)
     active_llm = get_active_llm()
     if not active_llm:
@@ -408,14 +429,15 @@ def generate_file_summary(
     )
 
 
-@router.get("/{file_id}/chat")
+@router.get("/{file_id}/chat/history")
 @require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
-def get_latest_file_chat(
+def get_file_chat_history(
     file_id: int,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.FileChatResponse:
     """Get the latest file chat for a given file ID."""
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     chat = get_latest_file_chat_from_db(
         db=db,
         file_id=file_id,
@@ -427,6 +449,75 @@ def get_latest_file_chat(
     )
 
 
+@router.post("/{file_id}/chat", response_class=StreamingResponse)
+@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
+def create_file_chat_message(
+    file_id: int,
+    request: schemas.FileChatRequest,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+):
+    """Chat about a file using Server-Sent Events (SSE)."""
+    telemetry.add_attribute_to_current_span('file_id', file_id)
+    file_chat = get_latest_file_chat_from_db(
+        db=db,
+        file_id=file_id,
+        user_id=current_user.id,
+    )
+    telemetry.add_attribute_to_current_span('user_id', current_user.id)
+
+    if not file_chat:
+        file_chat_schema = schemas.FileChatCreate(
+            system_instructions=BASE_SYSTEM_INSTRUCTIONS,
+            user_id=current_user.id,
+            file_id=file_id,
+        )
+        file_chat = create_file_chat_in_db(db=db, file_chat=file_chat_schema)
+
+    history = file_chat.get_chat_history()
+    active_llm = get_active_llm()
+
+    if not active_llm:
+        raise HTTPException(
+            status_code=503,
+            detail="No active LLM available.",
+        )
+
+    llm_provider = active_llm["name"]
+    llm_model = active_llm["config"]["model"]
+    chat_session = create_chat_session(llm_provider, llm_model, file_id, history)
+
+    def event_generator():
+        start_time = datetime.now()
+        try:
+            # Synchronous LLM call
+            response_text = chat_session.chat(request.prompt)
+
+            end_time = datetime.now()
+            duration = end_time - start_time
+
+            # Save the message independently
+            file_chat_message = schemas.FileChatMessageCreate(
+                file_chat_id=file_chat.id,
+                request_prompt=request.prompt,
+                response_text=response_text,
+                runtime=duration.seconds,
+            )
+            create_file_chat_message_in_db(db=db, file_chat_message=file_chat_message)
+
+            # Yield content block properly formatted for SSE
+            lines = response_text.split("\n")
+            data_payload = "\ndata: ".join(lines)
+            yield f"data: {data_payload}\n\n"
+
+        except Exception as e:
+            yield f"event: error\ndata: {str(e)}\n\n"
+        finally:
+            yield "event: close\ndata: \n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
 @router.post("/{file_id}/sql/query")
 @require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
 def run_sql_query(
@@ -435,6 +526,7 @@ def run_sql_query(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.SQLQueryResponse:
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     file = get_file_from_db(db, file_id)
     MAX_RESULT_LIMIT = 10000
 
@@ -484,6 +576,7 @@ def generate_query(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.SQLGenerateQueryResponse:
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     file = get_file_from_db(db, file_id)
     if not duckdb_utils.is_sql_file(file.magic_text):
         raise HTTPException(
@@ -503,6 +596,7 @@ def generate_query(
         llm_model=active_llm["config"]["model"],
         tables_schemas=json.dumps(tables_schemas),
         user_request=request.user_request,
+        file=file,
     )
     return {"user_request": request.user_request, "generated_query": generated_query}
 
@@ -514,6 +608,7 @@ def get_all_tables_schemas(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.SQLSchemasResponse:
+    telemetry.add_attribute_to_current_span('file_id', file_id)
     file = get_file_from_db(db, file_id)
     if not duckdb_utils.is_sql_file(file.magic_text):
         raise HTTPException(

@@ -1,4 +1,4 @@
-# Copyright 2025 Google LLC
+# Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,84 +12,85 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import json
-
 import pytest
-
-from lib.workflow_utils import add_unique_parameter_names, update_task_config_values
-
-
-@pytest.fixture
-def template_data():
-    test_template_str = '{"workflow": {"type": "chain", "isRoot": true, "tasks": [{"task_name": "openrelik-worker-strings.tasks.strings", "queue_name": "openrelik-worker-strings", "display_name": "Strings", "description": "Extract strings from files", "task_config": [{"name": "UTF16LE", "label": "Extract Unicode strings", "description": "This will tell the strings command to extract UTF-16LE (little endian) encoded strings", "type": "checkbox", "value": true}, {"name": "ASCII", "label": "Extract ASCII strings", "description": "This will tell the strings command to extract ASCII (single-7-bit-byte) encoded strings", "type": "checkbox", "value": false}], "type": "task", "uuid": "e1e6703d5724474aa2a509e9de605430", "tasks": []}, {"task_name": "openrelik-worker-strings.tasks.strings", "queue_name": "openrelik-worker-strings", "display_name": "Strings", "description": "Extract strings from files", "task_config": [{"name": "UTF16LE", "label": "Extract Unicode strings", "description": "This will tell the strings command to extract UTF-16LE (little endian) encoded strings", "type": "checkbox", "value": true}, {"name": "ASCII", "label": "Extract ASCII strings", "description": "This will tell the strings command to extract ASCII (single-7-bit-byte) encoded strings", "type": "checkbox", "value": false}], "type": "task", "uuid": "736a973ffae24081a75abd1d22b8633c", "tasks": []}]}}'
-    return json.loads(test_template_str)
+from lib.workflow_utils import update_task_config_values, add_unique_parameter_names
 
 
-def test_add_unique_parameter_names(template_data):
-    """
-    Tests that add_unique_parameter_names correctly adds unique param_name keys.
-    """
-    add_unique_parameter_names(template_data)
-
-    # Check the first task's config
-    first_task_config = template_data["workflow"]["tasks"][0]["task_config"]
-    assert "param_name" in first_task_config[0]
-    assert first_task_config[0]["param_name"] == "utf16le_0"
-    assert "param_name" in first_task_config[1]
-    assert first_task_config[1]["param_name"] == "ascii_0"
-
-    # Check the second task's config to ensure uniqueness
-    second_task_config = template_data["workflow"]["tasks"][1]["task_config"]
-    assert "param_name" in second_task_config[0]
-    assert second_task_config[0]["param_name"] == "utf16le_1"
-    assert "param_name" in second_task_config[1]
-    assert second_task_config[1]["param_name"] == "ascii_1"
-
-
-def test_update_task_config_values(template_data):
-    """
-    Tests that update_task_config_values correctly updates the 'value' based on parameters.
-    """
-    # First, add the unique parameter names to have a key to update
-    add_unique_parameter_names(template_data)
-
-    # Define the parameters to update
-    parameters = {"utf16le_0": False, "ascii_0": True, "utf16le_1": False, "ascii_1": True}
-
-    # Update the values
-    update_task_config_values(template_data, parameters)
-
-    # Check the updated values for the first task
-    first_task_config = template_data["workflow"]["tasks"][0]["task_config"]
-    assert first_task_config[0]["value"] is False
-    assert first_task_config[1]["value"] is True
-
-    # Check the updated values for the second task
-    second_task_config = template_data["workflow"]["tasks"][1]["task_config"]
-    assert second_task_config[0]["value"] is False
-    assert second_task_config[1]["value"] is True
-
-
-def test_update_with_missing_param_name(template_data):
-    """
-    Tests that update_task_config_values gracefully handles a missing param_name in the parameters.
-    """
-    add_unique_parameter_names(template_data)
-
-    parameters = {
-        "utf16le_0": False,
-        "ascii_0": True,
+def test_update_task_config_values():
+    """Test update_task_config_values updates values correctly."""
+    data = {
+        "task_config": [
+            {"param_name": "param_1", "value": "old_value_1"},
+            {"param_name": "param_2", "value": "old_value_2"},
+        ],
+        "sub_item": {
+            "task_config": [
+                {
+                    "param_name": "param_1",
+                    "value": "old_value_3",
+                },  # Same param_name, updates too
+            ]
+        },
     }
 
-    # Update the values with a subset of parameters
-    update_task_config_values(template_data, parameters)
+    parameters = {
+        "param_1": "new_value_1",
+        "param_2": "new_value_2",
+    }
 
-    # Check that the specified values are updated
-    first_task_config = template_data["workflow"]["tasks"][0]["task_config"]
-    assert first_task_config[0]["value"] is False
-    assert first_task_config[1]["value"] is True
+    update_task_config_values(data, parameters)
 
-    # Check that the second task's values remain unchanged because their param_names weren't in the parameters dict
-    second_task_config = template_data["workflow"]["tasks"][1]["task_config"]
-    assert second_task_config[0]["value"] is True
-    assert second_task_config[1]["value"] is False
+    assert data["task_config"][0]["value"] == "new_value_1"
+    assert data["task_config"][1]["value"] == "new_value_2"
+    assert data["sub_item"]["task_config"][0]["value"] == "new_value_1"
+
+
+def test_update_task_config_values_list():
+    """Test update_task_config_values with a list of items."""
+    data = [
+        {"task_config": [{"param_name": "param_1", "value": "old"}]},
+        {"task_config": [{"param_name": "param_1", "value": "old"}]},
+    ]
+
+    parameters = {"param_1": "new"}
+
+    update_task_config_values(data, parameters)
+
+    assert data[0]["task_config"][0]["value"] == "new"
+    assert data[1]["task_config"][0]["value"] == "new"
+
+
+def test_add_unique_parameter_names():
+    """Test add_unique_parameter_names generates unique names."""
+    data = {
+        "task_config": [
+            {"name": "Parameter One"},
+            {"name": "Parameter One"},
+            {"name": "Parameter Two"},
+        ],
+        "sub_item": {
+            "task_config": [
+                {"name": "Parameter One"},
+            ]
+        },
+    }
+
+    add_unique_parameter_names(data)
+
+    assert data["task_config"][0]["param_name"] == "parameter_one_0"
+    assert data["task_config"][1]["param_name"] == "parameter_one_1"
+    assert data["task_config"][2]["param_name"] == "parameter_two_0"
+    assert data["sub_item"]["task_config"][0]["param_name"] == "parameter_one_2"
+
+
+def test_add_unique_parameter_names_no_name():
+    """Test add_unique_parameter_names ignores items without name."""
+    data = {
+        "task_config": [
+            {"value": "only value"},
+        ]
+    }
+
+    add_unique_parameter_names(data)
+
+    assert "param_name" not in data["task_config"][0]

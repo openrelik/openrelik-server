@@ -18,6 +18,7 @@ from contextlib import asynccontextmanager
 from celery.app import Celery
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from openrelik_common import telemetry
 from sqlalchemy import not_, or_, text
 from sqlalchemy.exc import ProgrammingError
 from starlette.middleware.sessions import SessionMiddleware
@@ -30,12 +31,15 @@ from api.v1 import metrics as metrics_v1
 from api.v1 import schemas
 from api.v1 import taskqueue as taskqueue_v1
 from api.v1 import users as users_v1
-from api.v1 import websockets as websockets_v1
 from api.v1 import workflows as workflows_v1
 from auth import common as common_auth
 from auth import google as google_auth
 from auth import local as local_auth
 from config import config
+
+if config.get("auth", {}).get("oidc"):
+    from auth import oidc as oidc_auth
+
 from datastores.sql.crud.group import (
     add_user_to_group,
     create_group_in_db,
@@ -46,8 +50,6 @@ from datastores.sql.models.group import Group
 from datastores.sql.models.user import User
 from healthz import router as healthz_router
 from lib import celery_utils
-
-from openrelik_common import telemetry
 
 # Allow Frontend origin to make API calls.
 origins = config["server"]["allowed_origins"]
@@ -90,12 +92,9 @@ async def lifespan(app: FastAPI):
     pass
 
 
-telemetry.setup_telemetry("openrelik-server")
-
 # Create the main app
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(SessionMiddleware, secret_key=config["auth"]["secret_session_key"])
-
 
 # Create app for API version 1
 api_v1 = FastAPI()
@@ -123,6 +122,8 @@ api_v1.add_middleware(
 app.include_router(common_auth.router)
 app.include_router(local_auth.router)
 app.include_router(google_auth.router)
+if config.get("auth", {}).get("oidc"):
+    app.include_router(oidc_auth.router)
 app.include_router(healthz_router)
 
 # Routes
@@ -207,19 +208,10 @@ api_v1.include_router(
         Depends(common_auth.verify_csrf),
     ],
 )
-api_v1.include_router(
-    websockets_v1.router,
-    prefix="/websockets",
-    tags=["websockets"],
-    dependencies=[
-        Depends(common_auth.websocket_get_current_active_user),
-    ],
-)
 
 # Setup the queues. This function take all registered tasks on the celery task queue
 # and generate the task queue config automatically.
 redis_url = os.getenv("REDIS_URL")
 celery = Celery(broker=redis_url, backend=redis_url)
-telemetry.instrument_fast_api(api_v1)
-telemetry.instrument_celery_app(celery)
+telemetry.instrument_fast_api(api_v1, excluded_urls='/files/*/download_stream,/files/upload')
 celery_utils.update_task_queues(celery)
