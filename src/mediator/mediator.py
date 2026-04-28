@@ -223,16 +223,20 @@ def process_successful_task(
     task_files = result_dict.get("task_files", [])
     file_reports = result_dict.get("file_reports", [])
     task_report = result_dict.get("task_report", {})
+    skip_file_creation = result_dict.get("skip_file_creation", False)
 
-    # Create files from the resulting output files
-    for file_data in output_files:
-        new_file = create_file_in_database(db, file_data, result_dict, db_task)
+    # Create files from the resulting output files. Workers can opt out by
+    # setting `skip_file_creation=True` in their task result when they produce
+    # a large number of intermediate files that shouldn't get per-file DB rows.
+    if not skip_file_creation:
+        for file_data in output_files:
+            new_file = create_file_in_database(db, file_data, result_dict, db_task)
 
-        # Process any pending reports that are waiting for this file
-        process_pending_file_reports(db, file_data.get("uuid"))
+            # Process any pending reports that are waiting for this file
+            process_pending_file_reports(db, file_data.get("uuid"))
 
-        # TODO: Move this to a celery task to run in the background
-        generate_hashes(new_file.id)
+            # TODO: Move this to a celery task to run in the background
+            generate_hashes(new_file.id)
 
     # Create files from task log files
     for task_file_data in task_files:
