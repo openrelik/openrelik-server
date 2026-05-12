@@ -213,5 +213,5 @@ api_v1.include_router(
 # and generate the task queue config automatically.
 redis_url = os.getenv("REDIS_URL")
 celery = Celery(broker=redis_url, backend=redis_url)
-telemetry.instrument_fast_api(api_v1, excluded_urls='/files/*/download_stream,/files/upload')
+telemetry.instrument_fast_api(api_v1, excluded_urls='/files/*/download_stream,/files/*/download,/files/upload')
 celery_utils.update_task_queues(celery)
