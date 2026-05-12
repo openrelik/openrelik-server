@@ -56,6 +56,8 @@ from datastores.sql.models.role import Role
 from lib.investigation_utils import generate_initial_state
 from lib.stream_manager import stream_manager
 
+from openrelik_common import telemetry
+
 from . import schemas
 
 router = APIRouter()
@@ -150,6 +152,7 @@ def get_subfolders(
     Raises:
         HTTPException: If the parent folder does not exist or the user does not have permission to access it.
     """
+    telemetry.add_attribute_to_current_span('folder_id', folder_id)
     return get_subfolders_from_db(db, parent_folder_id=folder_id)
 
 
@@ -175,6 +178,7 @@ def get_folder(
         HTTPException: If the folder does not exist or the user does not have
         permission to access it.
     """
+    telemetry.add_attribute_to_current_span('folder_id', folder_id)
     if not folder_id:
         raise HTTPException(status_code=404, detail="Folder not found.")
     try:
@@ -231,6 +235,7 @@ def create_subfolder(
     Returns:
         Folder: folder
     """
+    telemetry.add_attribute_to_current_span('folder_id', folder_id)
     return create_subfolder_in_db(db, folder_id, new_folder_request, current_user)
 
 
@@ -257,6 +262,8 @@ async def update_folder(
     Raises:
         HTTPException: If the user does not have permission to update it.
     """
+    telemetry.add_attribute_to_current_span('folder_id', folder_id)
+
     folder_from_db = get_folder_from_db(db, folder_id)
     folder_model = schemas.FolderCreate(**folder_from_db.__dict__)
 
@@ -275,6 +282,7 @@ def get_folder_files(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> List[schemas.FileResponseCompactList]:
+    telemetry.add_attribute_to_current_span('folder_id', folder_id)
     return get_files_from_db(db, folder_id)
 
 
@@ -286,6 +294,7 @@ def delete_folder(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ):
+    telemetry.add_attribute_to_current_span('folder_id', folder_id)
     delete_folder_from_db(db, folder_id)
 
 
@@ -321,6 +330,7 @@ def share_folder(
             - 409 Conflict: If a user or group already has the specified role
                             on the folder.
     """
+    telemetry.add_attribute_to_current_span('folder_id', folder_id)
     folder_to_share = get_folder_from_db(db, folder_id)
     # @require_access handles folder not found, but this is an explicit check.
     if not folder_to_share:
@@ -430,6 +440,7 @@ def get_my_folder_role(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ):
+    telemetry.add_attribute_to_current_span('folder_id', folder_id)
     try:
         folder = get_folder_from_db(db, folder_id)
         return check_user_access(
@@ -450,6 +461,8 @@ def delete_group_role(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ):
+    telemetry.add_attribute_to_current_span('folder_id', folder_id)
+    telemetry.add_attribute_to_current_span('role_id', role_id)
     delete_group_role_from_db(db, role_id)
 
 
@@ -461,6 +474,8 @@ def delete_user_role(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ):
+    telemetry.add_attribute_to_current_span('folder_id', folder_id)
+    telemetry.add_attribute_to_current_span('role_id', role_id)
     delete_user_role_from_db(db, role_id)
 
 
@@ -473,6 +488,7 @@ async def create_adk_session(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.AgentSessionResponse:
+    telemetry.add_attribute_to_current_span('folder_id', folder_id)
     ADK_BASE_URL = config.config.get("experiments", {}).get("agents", {}).get("adk_server_url")
 
     # Ensure the ADK server URL is configured.
@@ -556,6 +572,7 @@ async def start_investigation(
         db (Session): The database session.
         current_user (schemas.User): The currently authenticated user.
     """
+    telemetry.add_attribute_to_current_span('folder_id', folder_id)
 
     ADK_BASE_URL = config.config.get("experiments", {}).get("agents", {}).get("adk_server_url")
 
@@ -726,6 +743,8 @@ async def get_adk_sse_session(
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> EventSourceResponse:
     WAIT_TIME = 5
+    telemetry.add_attribute_to_current_span('folder_id', folder_id)
+    telemetry.add_attribute_to_current_span('session_id', session_id)
 
     async def _get_session(session_id: str):
         ADK_BASE_URL = config.config.get("experiments", {}).get("agents", {}).get("adk_server_url")
