@@ -224,8 +224,13 @@ def process_successful_task(
     file_reports = result_dict.get("file_reports", [])
     task_report = result_dict.get("task_report", {})
 
-    # Create files from the resulting output files
+    # Create files from the resulting output files. Individual files can opt
+    # out of DB registration by setting `register_in_db=False`; defaults to
+    # True so existing workers keep the current behavior.
     for file_data in output_files:
+        if not file_data.get("register_in_db", True):
+            continue
+
         new_file = create_file_in_database(db, file_data, result_dict, db_task)
 
         # Process any pending reports that are waiting for this file
