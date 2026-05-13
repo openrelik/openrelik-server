@@ -19,7 +19,7 @@ from unittest import mock
 
 from lib.workflow_utils import (
     TemplateNotFoundError,
-    create_workflow_from_template,
+    create_workflow,
     replace_uuids,
     run_workflow,
     update_task_config_values,
@@ -90,7 +90,7 @@ def _make_user(user_id=42):
     return user
 
 
-def test_create_workflow_from_template_with_template(mocker):
+def test_create_workflow_with_template(mocker):
     mock_template = mock.Mock()
     mock_template.id = 7
     mock_template.display_name = "My Template"
@@ -113,7 +113,7 @@ def test_create_workflow_from_template_with_template(mocker):
         "lib.workflow_utils.create_workflow_in_db", return_value=mock_workflow
     )
 
-    result = create_workflow_from_template(
+    result = create_workflow(
         db=mock.Mock(),
         folder_id=3,
         file_ids=[1, 2],
@@ -133,7 +133,7 @@ def test_create_workflow_from_template_with_template(mocker):
     assert created_schema.display_name == "My Template"
 
 
-def test_create_workflow_from_template_without_template(mocker):
+def test_create_workflow_without_template(mocker):
     mock_folder = mock.Mock(id=99)
     mock_workflow = mock.Mock()
     mocker.patch("lib.workflow_utils.create_subfolder_in_db", return_value=mock_folder)
@@ -141,7 +141,7 @@ def test_create_workflow_from_template_without_template(mocker):
         "lib.workflow_utils.create_workflow_in_db", return_value=mock_workflow
     )
 
-    result = create_workflow_from_template(
+    result = create_workflow(
         db=mock.Mock(),
         folder_id=3,
         file_ids=[],
@@ -156,10 +156,10 @@ def test_create_workflow_from_template_without_template(mocker):
     assert created_schema.template_id is None
 
 
-def test_create_workflow_from_template_raises_when_template_missing(mocker):
+def test_create_workflow_raises_when_template_missing(mocker):
     mocker.patch("lib.workflow_utils.get_workflow_template_from_db", return_value=None)
     with pytest.raises(TemplateNotFoundError):
-        create_workflow_from_template(
+        create_workflow(
             db=mock.Mock(),
             folder_id=3,
             file_ids=[],
