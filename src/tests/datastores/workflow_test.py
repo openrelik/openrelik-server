@@ -258,7 +258,7 @@ def test_create_task_report_in_db(mocker):
 def test_get_workflow_templates_from_db(mocker):
     """Test get_workflow_templates_from_db."""
     mock_add_unique_params = mocker.patch(
-        "datastores.sql.crud.workflow.workflow_utils.add_unique_parameter_names"
+        "datastores.sql.crud.workflow.add_unique_parameter_names"
     )
     mock_db = mocker.MagicMock()
 

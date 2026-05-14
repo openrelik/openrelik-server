@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from api.v1 import schemas
 from datastores.sql.crud.file import get_file_from_db
 from datastores.sql.models.workflow import Task, TaskReport, Workflow, WorkflowTemplate
-from lib import workflow_utils
+from lib.workflow_spec_utils import add_unique_parameter_names
 
 
 def get_file_workflows_from_db(db: Session, file_id: int) -> list[Workflow]:
@@ -185,7 +185,7 @@ def get_workflow_templates_from_db(db: Session) -> list[WorkflowTemplate]:
                 try:
                     # Parse the JSON and add the param_name
                     spec_json_dict = json.loads(template.spec_json)
-                    workflow_utils.add_unique_parameter_names(spec_json_dict)
+                    add_unique_parameter_names(spec_json_dict)
 
                     # Update the database record
                     template.spec_json = json.dumps(spec_json_dict)

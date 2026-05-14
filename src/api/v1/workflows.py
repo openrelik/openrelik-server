@@ -15,16 +15,8 @@
 import asyncio
 import functools
 import json
-import os
 from typing import List
-from uuid import uuid4
 
-from celery import chain as celery_chain
-from celery import chord as celery_chord
-from celery import group as celery_group
-from celery import signature
-from celery.app import Celery
-from celery.canvas import Signature
 from fastapi import APIRouter, Depends, HTTPException, status
 from openrelik_ai_common.providers import manager
 from sqlalchemy.orm import Session
@@ -34,7 +26,6 @@ from config import get_active_llm
 from datastores.sql.crud.authz import require_access
 from datastores.sql.crud.folder import create_subfolder_in_db
 from datastores.sql.crud.workflow import (
-    create_task_in_db,
     create_workflow_in_db,
     create_workflow_template_in_db,
     delete_workflow_from_db,
@@ -47,222 +38,19 @@ from datastores.sql.crud.workflow import (
 )
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.role import Role
-from datastores.sql.models.workflow import Task
 from lib import workflow_utils
 from lib.reporting_utils import create_workflow_report
+from lib.workflow_utils import TemplateNotFoundError, replace_uuids
 
 from datastores.sql.crud.authz import check_user_access
 
 from . import schemas
-
-redis_url = os.getenv("REDIS_URL")
-celery = Celery(broker=redis_url, backend=redis_url)
 
 # Workflows in a folder context.
 router = APIRouter()
 
 # Router for resources that live under /workflows, i.e. outside of a folder context.
 router_root = APIRouter()
-
-
-def get_task_signature(
-    db: Session,
-    current_user: schemas.User,
-    task_data: dict,
-    input_files: list,
-    output_path: str,
-    workflow: schemas.Workflow,
-) -> Signature:
-    """Returns a Celery task signature for a given task.
-
-    Args:
-        db (Session): The database session.
-        current_user (schemas.User): The current user.
-        task_data (dict): The task data.
-        input_files (list): A list of input files.
-        output_path (str): The output path.
-        workflow (schemas.Workflow): The workflow.
-
-    Returns:
-        Signature: The Celery task signature.
-    """
-    task_uuid = task_data.get("uuid", uuid4().hex)
-    task_config = {
-        option["name"]: option.get("value") for option in task_data.get("task_config", {})
-    }
-
-    # Create a new DB task
-    new_task_db = Task(
-        display_name=task_data.get("display_name"),
-        description=task_data.get("description"),
-        config=json.dumps(task_config),
-        uuid=task_uuid,
-        user=current_user,
-        workflow=workflow,
-    )
-    create_task_in_db(db, new_task_db)
-
-    task_signature = signature(
-        task_data.get("task_name"),
-        kwargs={
-            "input_files": input_files,
-            "output_path": output_path,
-            "workflow_id": workflow.id,
-            "task_config": task_config,
-        },
-        queue=task_data.get("queue_name"),
-        task_id=task_uuid,
-    )
-    return task_signature
-
-
-def create_workflow_signature(
-    db: Session,
-    current_user: schemas.User,
-    task_data: dict,
-    input_files: list,
-    output_path: str,
-    workflow: schemas.Workflow,
-) -> Signature:
-    """Creates a Celery workflow signature for a given task definition
-
-    This function recursively constructs a Celery workflow signature based on the
-    provided `task_data`, which represents a structured description of tasks and their
-    dependencies. It supports two primary task types: 'chain' and 'task'.
-
-    chain: Represents a sequence of tasks executed in order.
-        -   If the chain contains multiple tasks, a Celery `celery_group` is created to
-            execute them concurrently. celery_group allows multiple tasks to be run
-            in parallel.
-        -   If only one task is present, a Celery `celery_chain` is created to execute
-            it *serially*. `celery_chain` ensures tasks are executed one after another,
-            ith the output of one task becoming the input of the next.
-
-    task: Represents a single, executable task.
-        - It retrieves the corresponding Celery task signature using get_task_signature.
-        - If the task has sub-tasks, they are incorporated into the workflow using
-          Celery `celery_chain` and `celery_group` constructs, depending on the number
-          of sub-tasks. The primary task is chained with the subtasks.
-
-    The function effectively translates a hierarchical task description into a Celery
-    workflow that can be executed asynchronously. This allows for complex workflows to
-    be defined and executed in a distributed manner.
-
-    Args:
-        db (Session): The database session.
-        current_user (schemas.User): The current user.
-        task_data (dict): The task data.
-        input_files (list): A list of input files.
-        output_path (str): The output path.
-        workflow (schemas.Workflow): The workflow.
-
-    Returns:
-        Signature: The Celery workflow signature.
-
-    Raises:
-        ValueError: If the task type is not supported.
-    """
-    if task_data["type"] == "chain":
-        if len(task_data["tasks"]) > 1:
-            return celery_group(
-                create_workflow_signature(
-                    db, current_user, task, input_files, output_path, workflow
-                )
-                for task in task_data["tasks"]
-            )
-        else:
-            return celery_chain(
-                create_workflow_signature(
-                    db,
-                    current_user,
-                    task_data["tasks"][0],
-                    input_files,
-                    output_path,
-                    workflow,
-                )
-            )
-
-    elif task_data["type"] == "chord":
-        header_tasks = [
-            create_workflow_signature(db, current_user, t, input_files, output_path, workflow)
-            for t in task_data.get("tasks", [])
-        ]
-
-        callback_task_data = task_data.get("callback")
-        if not callback_task_data:
-            raise ValueError("Chord definition requires a 'callback' task.")
-
-        callback_signature = create_workflow_signature(
-            db, current_user, callback_task_data, input_files, output_path, workflow
-        )
-
-        return celery_chord(header_tasks, callback_signature)
-
-    elif task_data["type"] == "task":
-        task_signature = get_task_signature(
-            db, current_user, task_data, input_files, output_path, workflow
-        )
-        if task_data["tasks"]:
-            if len(task_data["tasks"]) > 1:
-                return celery_chain(
-                    task_signature,
-                    celery_group(
-                        create_workflow_signature(
-                            db, current_user, t, input_files, output_path, workflow
-                        )
-                        for t in task_data["tasks"]
-                    ),
-                )
-            else:
-                return celery_chain(
-                    task_signature,
-                    create_workflow_signature(
-                        db,
-                        current_user,
-                        task_data["tasks"][0],
-                        input_files,
-                        output_path,
-                        workflow,
-                    ),
-                )
-        else:
-            return task_signature
-    else:
-        raise ValueError(f"Unsupported task type: {task_data['type']}")
-
-
-def replace_uuids(data: dict | list, replace_with: str = None) -> dict | list:
-    """Recursively replaces UUID keys within a dictionary or list structure.
-
-    This function traverses the provided `data` structure (which can be a dictionary or
-    list) and replaces any dictionary keys named "uuid" with a new value.
-
-    If `replace_with` is not provided (or is None), a newly generated UUID is used as
-    the replacement. If `replace_with` is provided, that value is used as the
-    replacement for all "uuid" keys.
-
-    This is needed when modifying workflow specifications that contain UUIDs, ensuring
-    that each instance has unique identifiers.
-
-    Args:
-        data (dict | list): The dictionary or list to traverse and modify.
-        replace_with (str, optional): The value to replace UUIDs with. Defaults to None.
-
-    Returns:
-        dict | list: The modified dictionary or list with UUIDs replaced.
-    """
-    if isinstance(data, dict):
-        for key, value in data.items():
-            if key == "uuid":
-                if not replace_with:
-                    data[key] = uuid4().hex
-                else:
-                    data[key] = replace_with
-            else:
-                replace_uuids(value)
-    elif isinstance(data, list):
-        for item in data:
-            replace_uuids(item)
 
 
 # Create workflow
@@ -294,40 +82,20 @@ async def create_workflow(
     Returns:
         schemas.WorkflowResponse: The created workflow.
     """
-    default_workflow_display_name = "Untitled workflow"
-    default_spec_json = None
-
-    from_template = None
-
-    if request_body.template_id:
-        from_template = get_workflow_template_from_db(db, request_body.template_id)
-        default_workflow_display_name = from_template.display_name
-        spec_json = json.loads(from_template.spec_json)
-        # Replace UUIDs with placeholder value for the template
-        replace_uuids(spec_json)
-        # Add parameter values to task_config items
-        if request_body.template_params:
-            workflow_utils.update_task_config_values(spec_json, request_body.template_params)
-
-        default_spec_json = json.dumps(spec_json)
-
-    # Create new folder for workflow results
-    new_folder = schemas.FolderCreateRequest(
-        display_name=default_workflow_display_name, parent_id=request_body.folder_id
-    )
-    new_workflow_folder = create_subfolder_in_db(db, folder_id, new_folder, current_user)
-
-    # Create new workflow
-    new_workflow_db = schemas.Workflow(
-        display_name=default_workflow_display_name,
-        user_id=current_user.id,
-        spec_json=default_spec_json,
-        file_ids=request_body.file_ids,
-        folder_id=new_workflow_folder.id,
-        template_id=from_template.id if from_template else None,
-    )
-    new_workflow = create_workflow_in_db(db, new_workflow_db)
-    return new_workflow
+    try:
+        return workflow_utils.create_workflow(
+            db,
+            folder_id=folder_id,
+            file_ids=request_body.file_ids,
+            template_id=request_body.template_id,
+            template_params=request_body.template_params,
+            user=current_user,
+        )
+    except TemplateNotFoundError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e),
+        )
 
 
 # Get all workflows for a folder
@@ -534,44 +302,13 @@ async def run_workflow(
     Returns:
         schemas.WorkflowResponse: The workflow.
     """
-    workflow_spec = request_body.workflow_spec
-    workflow_spec_json = json.dumps(workflow_spec)
     workflow = get_workflow_from_db(db, workflow_id)
-    # Update workflow spec
-    workflow.spec_json = workflow_spec_json
-
-    input_files = [
-        {
-            "id": file.id,
-            "uuid": file.uuid.hex,
-            "display_name": file.display_name,
-            "extension": file.extension,
-            "data_type": file.data_type,
-            "mime_type": file.magic_mime,
-            "path": file.path,
-        }
-        for file in workflow.files
-    ]
-
-    output_path = workflow.folder.path
-    if not os.path.exists(output_path):
-        os.makedirs(output_path)
-
-    celery_workflow = create_workflow_signature(
+    return workflow_utils.run_workflow(
         db,
-        current_user,
-        workflow_spec.get("workflow"),
-        input_files,
-        output_path,
-        workflow,
+        workflow=workflow,
+        workflow_spec=request_body.workflow_spec,
+        user=current_user,
     )
-    celery_workflow.apply_async()
-
-    db.add(workflow)
-    db.commit()
-    db.refresh(workflow)
-
-    return workflow
 
 
 # Get workflow status

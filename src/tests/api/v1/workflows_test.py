@@ -36,15 +36,15 @@ async def test_create_workflow(
     """Test create workflow route."""
     folder_id = 1
     mock_get_workflow_template_from_db = mocker.patch(
-        "api.v1.workflows.get_workflow_template_from_db"
+        "lib.workflow_utils.get_workflow_template_from_db"
     )
     mock_get_workflow_template_from_db.return_value = workflow_schema_mock
     mock_create_subfolder_in_db = mocker.patch(
-        "api.v1.workflows.create_subfolder_in_db"
+        "lib.workflow_utils.create_subfolder_in_db"
     )
     mock_create_subfolder_in_db.return_value = folder_db_model
 
-    mock_create_workflow_in_db = mocker.patch("api.v1.workflows.create_workflow_in_db")
+    mock_create_workflow_in_db = mocker.patch("lib.workflow_utils.create_workflow_in_db")
     mock_create_workflow_in_db.return_value = workflow_response
 
     request = {"template_id": 1, "folder_id": folder_id, "file_ids": [1, 2]}
@@ -62,10 +62,10 @@ async def test_create_workflow_no_template(
     """Test create workflow route with no template."""
 
     mock_create_subfolder_in_db = mocker.patch(
-        "api.v1.workflows.create_subfolder_in_db"
+        "lib.workflow_utils.create_subfolder_in_db"
     )
     mock_create_subfolder_in_db.return_value = folder_db_model
-    mock_create_workflow_in_db = mocker.patch("api.v1.workflows.create_workflow_in_db")
+    mock_create_workflow_in_db = mocker.patch("lib.workflow_utils.create_workflow_in_db")
     mock_create_workflow_in_db.return_value = workflow_response
 
     folder_id = 1
@@ -90,15 +90,15 @@ async def test_create_workflow_no_template_no_files(
     """Test create workflow route with no template and no files."""
     folder_id = 1
     mock_get_workflow_template_from_db = mocker.patch(
-        "api.v1.workflows.get_workflow_template_from_db"
+        "lib.workflow_utils.get_workflow_template_from_db"
     )
     mock_get_workflow_template_from_db.return_value = workflow_schema_mock
     mock_create_subfolder_in_db = mocker.patch(
-        "api.v1.workflows.create_subfolder_in_db"
+        "lib.workflow_utils.create_subfolder_in_db"
     )
     mock_create_subfolder_in_db.return_value = folder_db_model
 
-    mock_create_workflow_in_db = mocker.patch("api.v1.workflows.create_workflow_in_db")
+    mock_create_workflow_in_db = mocker.patch("lib.workflow_utils.create_workflow_in_db")
     mock_create_workflow_in_db.return_value = workflow_response
     folder_id = 1
     request = {"folder_id": folder_id}
@@ -214,7 +214,7 @@ async def test_run_workflow(
     )
     mock_get_workflow_from_db = mocker.patch("api.v1.workflows.get_workflow_from_db")
     mock_get_workflow_from_db.return_value = workflow_db_model
-    mock_create_workflow = mocker.patch("api.v1.workflows.create_workflow_signature")
+    mock_create_workflow = mocker.patch("lib.workflow_utils.create_workflow_signature")
     mock_create_workflow.return_value.apply_async.return_value = mocker.ANY
     mock_makedirs = mocker.patch("os.makedirs")
     mocker.patch("os.path.exists", return_value=False)  # Path doesn't exist
@@ -271,7 +271,7 @@ async def test_run_workflow_nested_tasks(
     )
     mock_get_workflow_from_db = mocker.patch("api.v1.workflows.get_workflow_from_db")
     mock_get_workflow_from_db.return_value = workflow_db_model
-    mock_create_workflow = mocker.patch("api.v1.workflows.create_workflow_signature")
+    mock_create_workflow = mocker.patch("lib.workflow_utils.create_workflow_signature")
     mock_create_workflow.return_value.apply_async.return_value = mocker.ANY
     mock_makedirs = mocker.patch("os.makedirs")
     mocker.patch("os.path.exists", return_value=False)  # Path doesn't exist
@@ -462,7 +462,7 @@ def test_create_workflow_signature_invalid_type(
     input_files = []
     output_path = ""
     with pytest.raises(ValueError):
-        from api.v1.workflows import create_workflow_signature
+        from lib.workflow_utils import create_workflow_signature
 
         create_workflow_signature(
             db, regular_user, task_data, input_files, output_path, workflow_schema_mock
@@ -471,7 +471,7 @@ def test_create_workflow_signature_invalid_type(
 
 def test_replace_uuids_dict(mocker):
     data = {"uuid": "old_uuid", "nested": {"uuid": "nested_old_uuid"}}
-    from api.v1.workflows import replace_uuids
+    from lib.workflow_utils import replace_uuids
 
     replace_uuids(data)
 
@@ -483,7 +483,7 @@ def test_replace_uuids_dict(mocker):
 
 def test_replace_uuids_list(mocker):
     data = [{"uuid": "old_uuid"}, {"uuid": "another_old_uuid"}]
-    from api.v1.workflows import replace_uuids
+    from lib.workflow_utils import replace_uuids
 
     replace_uuids(data)
     assert data[0]["uuid"] != "old_uuid"
@@ -497,7 +497,7 @@ def test_replace_uuids_replace_with(mocker):
     data = {"uuid": "old_uuid"}
     replace_value = "new_uuid"
 
-    from api.v1.workflows import replace_uuids
+    from lib.workflow_utils import replace_uuids
 
     replace_uuids(data, replace_with=replace_value)
     assert data["uuid"] == replace_value
@@ -508,7 +508,7 @@ def test_get_task_signature(
 ):
     """Test get_task_signature function."""
 
-    mock_create_task_in_db = mocker.patch("api.v1.workflows.create_task_in_db")
+    mock_create_task_in_db = mocker.patch("lib.workflow_utils.create_task_in_db")
     mock_create_task_in_db.return_value = task_response
     task_data = {
         "task_name": "test_task",
@@ -519,7 +519,7 @@ def test_get_task_signature(
     input_files = []
     output_path = "/tmp/output"
 
-    from api.v1.workflows import get_task_signature
+    from lib.workflow_utils import get_task_signature
 
     task_signature = get_task_signature(
         db, user_db_model, task_data, input_files, output_path, workflow_db_model
@@ -560,13 +560,13 @@ def test_create_workflow_signature_chain_multiple(
     input_files = []
     output_path = ""
 
-    mock_get_task_signature = mocker.patch("api.v1.workflows.get_task_signature")
+    mock_get_task_signature = mocker.patch("lib.workflow_utils.get_task_signature")
     mock_get_task_signature.return_value = mocker.MagicMock(spec=Signature)
 
     # Mock celery_group to consume the generator
-    mocker.patch("api.v1.workflows.celery_group", side_effect=lambda x: list(x))
+    mocker.patch("lib.workflow_utils.celery_group", side_effect=lambda x: list(x))
 
-    from api.v1.workflows import create_workflow_signature
+    from lib.workflow_utils import create_workflow_signature
 
     sig = create_workflow_signature(
         db,
@@ -607,10 +607,10 @@ def test_create_workflow_signature_chord(
     input_files = []
     output_path = ""
 
-    mock_get_task_signature = mocker.patch("api.v1.workflows.get_task_signature")
+    mock_get_task_signature = mocker.patch("lib.workflow_utils.get_task_signature")
     mock_get_task_signature.return_value = mocker.MagicMock(spec=Signature)
 
-    from api.v1.workflows import create_workflow_signature
+    from lib.workflow_utils import create_workflow_signature
 
     sig = create_workflow_signature(
         db,
