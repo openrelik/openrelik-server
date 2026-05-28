@@ -1,11 +1,9 @@
 import pytest
-import sys
 from unittest.mock import MagicMock, patch
 from sqlalchemy.exc import ProgrammingError
 from fastapi import FastAPI
 from datastores.sql.models.user import User
 from datastores.sql.models.group import Group
-import api.v1.schemas as schemas
 
 # Mock celery_utils before importing main to prevent network requests during tests.
 with patch("lib.celery_utils.update_task_queues"):
@@ -26,7 +24,6 @@ async def test_populate_everyone_group_new_group(mocker):
     # Mocking query chain
     query_mock = MagicMock()
     filter_mock = MagicMock()
-    all_mock = MagicMock()
 
     db_mock.query.return_value = query_mock
     query_mock.filter.return_value = filter_mock
@@ -64,7 +61,7 @@ async def test_populate_everyone_group_existing_group(mocker):
 async def test_lifespan_success(mocker):
     app = FastAPI()
     db_mock = MagicMock()
-    session_local_mock = mocker.patch("main.SessionLocal", return_value=db_mock)
+    _ = mocker.patch("main.SessionLocal", return_value=db_mock)
     populate_mock = mocker.patch("main.populate_everyone_group")
 
     async with lifespan(app):
@@ -80,7 +77,7 @@ async def test_lifespan_programming_error(mocker):
     app = FastAPI()
     db_mock = MagicMock()
     db_mock.execute.side_effect = ProgrammingError("statement", "params", "orig")
-    session_local_mock = mocker.patch("main.SessionLocal", return_value=db_mock)
+    _ = mocker.patch("main.SessionLocal", return_value=db_mock)
     populate_mock = mocker.patch("main.populate_everyone_group")
 
     async with lifespan(app):
