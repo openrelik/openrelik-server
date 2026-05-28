@@ -19,26 +19,24 @@ from starlette.responses import RedirectResponse
 from authlib.integrations.starlette_client import OAuthError
 
 # Mock config before importing google
-try:
-    from config import config
-
-    config["auth"] = {
-        "google": {
-            "client_id": "test_id",
-            "client_secret": "test_secret",
-            "allowlist": [],
-            "public_access": False,
-            "workspace_domain": False,
-            "allowed_robot_accounts": [],
-            "extra_audiences": [],
-        },
-        "jwt_cookie_refresh_expire_minutes": 60,
-        "jwt_cookie_access_expire_minutes": 15,
-    }
-except:
-    pass
+from config import config
 
 import auth.google as google_auth
+
+if "auth" not in config:
+    config["auth"] = {}
+
+config["auth"]["google"] = {
+    "client_id": "test_id",
+    "client_secret": "test_secret",
+    "allowlist": [],
+    "public_access": False,
+    "workspace_domain": False,
+    "allowed_robot_accounts": [],
+    "extra_audiences": [],
+}
+config["auth"]["jwt_cookie_refresh_expire_minutes"] = 60
+config["auth"]["jwt_cookie_access_expire_minutes"] = 15
 
 
 def test_validate_user_info_robot():
