@@ -20,18 +20,18 @@ from authlib.integrations.starlette_client import OAuthError
 try:
     from config import config
 
-    config["auth"] = {
-        "oidc": {
-            "client_id": "test_id",
-            "client_secret": "test_secret",
-            "discovery_url": "https://test.discovery.url",
-            "allowlist": [],
-            "public_access": False,
-            "redirect_uri": None,
-        },
-        "jwt_cookie_refresh_expire_minutes": 60,
-        "jwt_cookie_access_expire_minutes": 15,
+    if "auth" not in config:
+        config["auth"] = {}
+    config["auth"]["oidc"] = {
+        "client_id": "test_id",
+        "client_secret": "test_secret",
+        "discovery_url": "https://test.discovery.url",
+        "allowlist": [],
+        "public_access": False,
+        "redirect_uri": None,
     }
+    config["auth"]["jwt_cookie_refresh_expire_minutes"] = 60
+    config["auth"]["jwt_cookie_access_expire_minutes"] = 15
 except ImportError:
     pass
 
