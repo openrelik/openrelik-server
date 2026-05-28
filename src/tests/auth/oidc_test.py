@@ -144,6 +144,9 @@ async def test_oidc_auth_new_user(mocker):
         "auth.oidc.oauth.oidc.authorize_access_token"
     )
     mock_get_user = mocker.patch("auth.oidc.get_user_by_email_from_db")
+    _ = mocker.patch(
+        "auth.oidc._validate_user_info"
+    )  # Needed to bypass list of allowed users
     mock_create_user = mocker.patch("auth.oidc.create_user_in_db")
     mock_create_jwt = mocker.patch("auth.oidc.create_jwt_token")
     mock_generate_csrf = mocker.patch("auth.oidc.generate_csrf_token")
