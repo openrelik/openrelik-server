@@ -4,6 +4,12 @@ from sqlalchemy.exc import ProgrammingError
 from fastapi import FastAPI
 from datastores.sql.models.user import User
 from datastores.sql.models.group import Group
+from config import config
+
+if "auth" not in config:
+    config["auth"] = {}
+if "secret_session_key" not in config["auth"]:
+    config["auth"]["secret_session_key"] = "test_secret_key"
 
 # Mock celery_utils before importing main to prevent network requests during tests.
 with patch("lib.celery_utils.update_task_queues"):

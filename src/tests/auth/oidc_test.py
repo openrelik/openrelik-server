@@ -38,28 +38,28 @@ except ImportError:
 import auth.oidc as oidc_auth
 
 
-def test_validate_user_info_public_access():
+def test_validate_user_info_public_access(mocker):
     """Test public access allowed."""
-    oidc_auth.OIDC_PUBLIC_ACCESS = True
-    oidc_auth.OIDC_ALLOW_LIST = []
+    mocker.patch("auth.oidc.OIDC_PUBLIC_ACCESS", True)
+    mocker.patch("auth.oidc.OIDC_ALLOW_LIST", [])
     user_info = {"email": "user@any.com"}
     # Should not raise any exception
     oidc_auth._validate_user_info(user_info)
 
 
-def test_validate_user_info_allowlist_ok():
+def test_validate_user_info_allowlist_ok(mocker):
     """Test user in allowlist."""
-    oidc_auth.OIDC_PUBLIC_ACCESS = False
-    oidc_auth.OIDC_ALLOW_LIST = ["user@allowed.com"]
+    mocker.patch("auth.oidc.OIDC_PUBLIC_ACCESS", False)
+    mocker.patch("auth.oidc.OIDC_ALLOW_LIST", ["user@allowed.com"])
     user_info = {"email": "user@allowed.com"}
     # Should not raise any exception
     oidc_auth._validate_user_info(user_info)
 
 
-def test_validate_user_info_allowlist_fail():
+def test_validate_user_info_allowlist_fail(mocker):
     """Test user not in allowlist."""
-    oidc_auth.OIDC_PUBLIC_ACCESS = False
-    oidc_auth.OIDC_ALLOW_LIST = ["user@allowed.com"]
+    mocker.patch("auth.oidc.OIDC_PUBLIC_ACCESS", False)
+    mocker.patch("auth.oidc.OIDC_ALLOW_LIST", ["user@allowed.com"])
     user_info = {"email": "user@notallowed.com"}
     with pytest.raises(HTTPException) as excinfo:
         oidc_auth._validate_user_info(user_info)
@@ -75,7 +75,7 @@ async def test_login(mocker):
     mock_request.url_for.return_value = "http://test/auth/oidc"
     mock_authorize_redirect.return_value = "mock_redirect"
 
-    oidc_auth.OIDC_REDIRECT_URI = None
+    mocker.patch("auth.oidc.OIDC_REDIRECT_URI", None)
 
     response = await oidc_auth.login(mock_request)
 
@@ -92,7 +92,7 @@ async def test_login_with_redirect_uri(mocker):
     mock_request = mocker.MagicMock()
     mock_authorize_redirect.return_value = "mock_redirect"
 
-    oidc_auth.OIDC_REDIRECT_URI = "http://custom/redirect"
+    mocker.patch("auth.oidc.OIDC_REDIRECT_URI", "http://custom/redirect")
 
     response = await oidc_auth.login(mock_request)
 
