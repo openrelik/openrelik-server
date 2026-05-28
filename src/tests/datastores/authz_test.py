@@ -13,8 +13,8 @@
 # limitations under the License.
 
 import pytest
-from unittest.mock import MagicMock
 from fastapi import HTTPException
+from unittest.mock import MagicMock
 
 from datastores.sql.crud.authz import (
     check_user_access,
