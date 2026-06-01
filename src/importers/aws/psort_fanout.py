@@ -153,7 +153,43 @@ def _find_psort_parent(node, parent_list=None):
     return None
 
 
-def fan_out_psort(spec: dict, filters: list[str]) -> dict:
+def _should_export(export_slices: str, slice_idx: int, total: int) -> bool:
+    """Decide whether the clone at ``slice_idx`` keeps its downstream branch.
+
+    Clones are ordered oldest window first, so ``slice_idx == total - 1`` is the
+    newest slice.
+
+    Args:
+        export_slices: Selection mode — ``"all"`` (every clone exports),
+            ``"latest"`` (only the newest), or a 1-based slice number as a
+            string (e.g. ``"2"`` = the 2nd-oldest slice only). Unrecognized
+            values fall back to ``"all"`` (logged) so a config typo never
+            silently drops every export.
+        slice_idx: Zero-based index of this clone in oldest-first order.
+        total: Total number of clones.
+
+    Returns:
+        True if this clone should keep its export branch.
+    """
+    mode = (export_slices or "all").strip().lower()
+    if mode == "all":
+        return True
+    if mode == "latest":
+        return slice_idx == total - 1
+    try:
+        wanted = int(mode)  # 1-based slice number
+    except ValueError:
+        logger.warning(
+            "fan_out_psort: unrecognized export_slices=%r; exporting all slices",
+            export_slices,
+        )
+        return True
+    return slice_idx == wanted - 1
+
+
+def fan_out_psort(
+    spec: dict, filters: list[str], export_slices: str = "all"
+) -> dict:
     """Replace the psort node in ``spec`` with one clone per filter, in place.
 
     Each clone is a deep copy of the entire psort subtree — including any nested
@@ -174,9 +210,20 @@ def fan_out_psort(spec: dict, filters: list[str]) -> dict:
         author pinned an explicit window, so the importer honors it instead of
         fanning out (logged).
 
+    Slice selection for export: every clone runs psort and registers its output
+    in OpenRelik, but only the clones chosen by ``export_slices`` keep the
+    template's downstream branch (e.g. an export-to-Splunk/S3 task nested under
+    the psort node's ``tasks``). Non-selected clones have their ``tasks`` removed
+    so they are processed but not exported. Has no effect if the psort node has
+    no nested ``tasks`` to begin with.
+
     Args:
         spec: The workflow spec dict (as parsed from ``workflow.spec_json``).
-        filters: Opaque psort filter strings, one per desired psort clone.
+        filters: Opaque psort filter strings, one per desired psort clone,
+            ordered oldest window first (as ``compute_slice_filters`` emits).
+        export_slices: Which clones keep their export branch — ``"all"``
+            (default), ``"latest"`` (newest slice only), or a 1-based slice
+            number as a string (e.g. ``"2"``). See ``_should_export``.
 
     Returns:
         The same ``spec`` dict, mutated in place.
@@ -205,10 +252,15 @@ def fan_out_psort(spec: dict, filters: list[str]) -> dict:
         )
         return spec
 
+    total = len(filters)
     clones = []
-    for filter_expr in filters:
+    for slice_idx, filter_expr in enumerate(filters):
         clone = copy.deepcopy(template_node)
         _set_filter(clone, filter_expr)
+        # Drop the downstream (export) branch on slices we don't want exported;
+        # the clone still runs psort and registers its output.
+        if not _should_export(export_slices, slice_idx, total):
+            clone["tasks"] = []
         # Each clone needs unique identifiers: the source node was already
         # UUID-stamped by create_workflow, so copies would otherwise share its
         # UUIDs, which key the Task rows and Celery task_ids.

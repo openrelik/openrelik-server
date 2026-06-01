@@ -85,6 +85,12 @@ AWS_IMPORT_PSORT_MONTHS_PER_SLICE: int | None = parse_positive_int_env(
     "AWS_IMPORT_PSORT_MONTHS_PER_SLICE",
     os.environ.get("AWS_IMPORT_PSORT_MONTHS_PER_SLICE"),
 )
+# Which fanned-out slices keep their export branch: "all" (default), "latest"
+# (newest slice only), or a 1-based slice number (e.g. "2"). All slices still
+# run psort and register their output; this only controls which ones export.
+AWS_IMPORT_PSORT_EXPORT_SLICES: str = (
+    os.environ.get("AWS_IMPORT_PSORT_EXPORT_SLICES") or "all"
+)
 
 # Files above this size are not hashed.
 HASH_SIZE_LIMIT = 10 * 1024 * 1024
@@ -324,7 +330,7 @@ def _run_template_workflow(
             AWS_IMPORT_PSORT_MONTHS_PER_SLICE or 3,
             datetime.now(timezone.utc),
         )
-        fan_out_psort(spec, filters)
+        fan_out_psort(spec, filters, export_slices=AWS_IMPORT_PSORT_EXPORT_SLICES)
 
     workflow_utils.run_workflow(
         db,

@@ -272,3 +272,55 @@ class TestFanOutPsort:
             assert "parser is 'winreg'" in value
             assert date_filter in value
             assert " AND " in value
+
+
+class TestExportSlices:
+    """fan_out_psort export_slices controls which clones keep their export branch."""
+
+    @staticmethod
+    def _psort_nodes(spec):
+        return spec["workflow"]["tasks"][0]["tasks"]
+
+    def test_all_default_every_clone_keeps_export(self):
+        spec = _spec()
+        fan_out_psort(spec, ["F1", "F2", "F3"])  # export_slices defaults to "all"
+        nodes = self._psort_nodes(spec)
+        assert len(nodes) == 3
+        # Every clone still has its nested export branch.
+        assert all(len(n["tasks"]) == 1 for n in nodes)
+
+    def test_latest_only_newest_keeps_export(self):
+        spec = _spec()
+        fan_out_psort(spec, ["F1", "F2", "F3"], export_slices="latest")
+        nodes = self._psort_nodes(spec)
+        # All three psort runs survive (all process + register)...
+        assert len(nodes) == 3
+        # ...but only the last (newest) keeps its export branch.
+        assert nodes[0]["tasks"] == []
+        assert nodes[1]["tasks"] == []
+        assert len(nodes[2]["tasks"]) == 1
+
+    def test_explicit_slice_number_keeps_only_that_export(self):
+        spec = _spec()
+        fan_out_psort(spec, ["F1", "F2", "F3"], export_slices="2")
+        nodes = self._psort_nodes(spec)
+        assert len(nodes) == 3
+        # 1-based: only the 2nd-oldest slice exports.
+        assert nodes[0]["tasks"] == []
+        assert len(nodes[1]["tasks"]) == 1
+        assert nodes[2]["tasks"] == []
+
+    def test_unrecognized_mode_falls_back_to_all(self):
+        spec = _spec()
+        fan_out_psort(spec, ["F1", "F2"], export_slices="bogus")
+        nodes = self._psort_nodes(spec)
+        assert all(len(n["tasks"]) == 1 for n in nodes)
+
+    def test_non_exported_clones_still_have_unique_uuids(self):
+        """Stripping the export branch must not affect UUID freshness."""
+        spec = _spec()
+        fan_out_psort(spec, ["F1", "F2", "F3"], export_slices="latest")
+        nodes = self._psort_nodes(spec)
+        uuids = [n["uuid"] for n in nodes]
+        assert len(set(uuids)) == 3  # all distinct
+        assert "psort-uuid" not in uuids  # source UUID was replaced
