@@ -30,6 +30,7 @@ import logging
 import os
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict
 from urllib.parse import unquote_plus
 
@@ -40,6 +41,7 @@ from datastores.sql import database
 from datastores.sql.crud.user import get_user_from_db
 from datastores.sql.crud.workflow import get_workflow_template_from_db
 from datastores.sql.models.user import User
+from importers.aws.psort_fanout import compute_slice_filters, fan_out_psort
 from importers.importer_utils import (
     create_file_record,
     get_or_create_root_folder,
@@ -69,6 +71,19 @@ AWS_IMPORT_TEMPLATE_ID: int | None = parse_positive_int_env(
 # set, and are passed through to the workflow template as-is.
 AWS_IMPORT_TEMPLATE_PARAMS: Dict[str, Any] = parse_template_params(
     os.environ.get("AWS_IMPORT_TEMPLATE_PARAMS", "")
+)
+
+# Optional psort time-slicing. When AWS_IMPORT_PSORT_SLICES > 1, the importer
+# duplicates the template's psort node into that many parallel siblings, each
+# filtered to a trailing window of AWS_IMPORT_PSORT_MONTHS_PER_SLICE months.
+# Slice <= 1 (default) leaves the template untouched (a single psort run).
+# (Interim env config; will move to per-route importer config once that lands.)
+AWS_IMPORT_PSORT_SLICES: int | None = parse_positive_int_env(
+    "AWS_IMPORT_PSORT_SLICES", os.environ.get("AWS_IMPORT_PSORT_SLICES")
+)
+AWS_IMPORT_PSORT_MONTHS_PER_SLICE: int | None = parse_positive_int_env(
+    "AWS_IMPORT_PSORT_MONTHS_PER_SLICE",
+    os.environ.get("AWS_IMPORT_PSORT_MONTHS_PER_SLICE"),
 )
 
 # Files above this size are not hashed.
@@ -290,7 +305,7 @@ def _run_template_workflow(
             subfolder.
         user: The user under which the workflow is created and run.
     """
-    workflow = workflow_utils.create_workflow_from_template(
+    workflow = workflow_utils.create_workflow(
         db,
         folder_id=folder_id,
         file_ids=[file_id],
@@ -299,10 +314,22 @@ def _run_template_workflow(
         user=user,
         display_name=display_name,
     )
+
+    spec = json.loads(workflow.spec_json)
+    # Optionally fan the template's single psort node out into N parallel
+    # slice runs, each with its own trailing-window date filter pinned now.
+    if AWS_IMPORT_PSORT_SLICES and AWS_IMPORT_PSORT_SLICES > 1:
+        filters = compute_slice_filters(
+            AWS_IMPORT_PSORT_SLICES,
+            AWS_IMPORT_PSORT_MONTHS_PER_SLICE or 3,
+            datetime.now(timezone.utc),
+        )
+        fan_out_psort(spec, filters)
+
     workflow_utils.run_workflow(
         db,
         workflow=workflow,
-        workflow_spec=json.loads(workflow.spec_json),
+        workflow_spec=spec,
         user=user,
     )
     logger.info(

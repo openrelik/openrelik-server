@@ -83,7 +83,7 @@ async def create_workflow(
         schemas.WorkflowResponse: The created workflow.
     """
     try:
-        return workflow_utils.create_workflow_from_template(
+        return workflow_utils.create_workflow(
             db,
             folder_id=folder_id,
             file_ids=request_body.file_ids,

@@ -273,10 +273,10 @@ def replace_uuids(data: dict | list, replace_with: str = None) -> dict | list:
 
 
 class TemplateNotFoundError(ValueError):
-    """Raised when ``create_workflow_from_template`` cannot resolve a template id."""
+    """Raised when ``create_workflow`` cannot resolve a template id."""
 
 
-def create_workflow_from_template(
+def create_workflow(
     db: Session,
     *,
     display_name: Optional[str] = None,
