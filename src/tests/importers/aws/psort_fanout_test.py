@@ -19,15 +19,19 @@ import pytest
 
 from importers.aws.psort_fanout import (
     PSORT_TASK_NAME,
+    SPLUNK_EXPORT_TASK_NAME,
     compute_slice_filters,
     fan_out_psort,
 )
+
+_S3_TASK_NAME = "openrelik-worker-export-s3.tasks.upload"
 
 _DT_RE = re.compile(r"DATETIME\('([^']+)'\)")
 
 
 def _psort_node(uuid="psort-uuid"):
-    """A psort node with a nested export branch, as a template would carry it."""
+    """A psort node with two sibling export tasks (S3 + Splunk), as a template
+    would carry it."""
     return {
         "type": "task",
         "task_name": PSORT_TASK_NAME,
@@ -36,13 +40,25 @@ def _psort_node(uuid="psort-uuid"):
         "tasks": [
             {
                 "type": "task",
-                "task_name": "openrelik-worker-export-splunk.tasks.export",
-                "uuid": "export-uuid",
+                "task_name": "openrelik-worker-export-s3.tasks.upload",
+                "uuid": "s3-uuid",
                 "task_config": [],
                 "tasks": [],
-            }
+            },
+            {
+                "type": "task",
+                "task_name": SPLUNK_EXPORT_TASK_NAME,
+                "uuid": "splunk-uuid",
+                "task_config": [],
+                "tasks": [],
+            },
         ],
     }
+
+
+def _export_task_names(psort_node):
+    """Task names of the export tasks directly under a psort clone."""
+    return {t["task_name"] for t in psort_node["tasks"]}
 
 
 def _spec(psort_node=None):
@@ -182,11 +198,8 @@ class TestFanOutPsort:
         fan_out_psort(spec, ["F1", "F2"])
 
         for node in spec["workflow"]["tasks"][0]["tasks"]:
-            assert len(node["tasks"]) == 1
-            assert (
-                node["tasks"][0]["task_name"]
-                == "openrelik-worker-export-splunk.tasks.export"
-            )
+            # Default "all": each clone keeps both export tasks.
+            assert _export_task_names(node) == {_S3_TASK_NAME, SPLUNK_EXPORT_TASK_NAME}
 
     def test_all_uuids_unique_across_clones(self):
         spec = _spec()
@@ -281,43 +294,53 @@ class TestExportSlices:
     def _psort_nodes(spec):
         return spec["workflow"]["tasks"][0]["tasks"]
 
-    def test_all_default_every_clone_keeps_export(self):
+    def test_all_default_every_clone_keeps_both_exports(self):
         spec = _spec()
         fan_out_psort(spec, ["F1", "F2", "F3"])  # export_slices defaults to "all"
         nodes = self._psort_nodes(spec)
         assert len(nodes) == 3
-        # Every clone still has its nested export branch.
-        assert all(len(n["tasks"]) == 1 for n in nodes)
+        # Every clone keeps both export tasks.
+        for n in nodes:
+            assert _export_task_names(n) == {_S3_TASK_NAME, SPLUNK_EXPORT_TASK_NAME}
 
-    def test_latest_only_newest_keeps_export(self):
+    def test_latest_prunes_splunk_but_keeps_s3_on_older_slices(self):
         spec = _spec()
         fan_out_psort(spec, ["F1", "F2", "F3"], export_slices="latest")
         nodes = self._psort_nodes(spec)
-        # All three psort runs survive (all process + register)...
         assert len(nodes) == 3
-        # ...but only the last (newest) keeps its export branch.
-        assert nodes[0]["tasks"] == []
-        assert nodes[1]["tasks"] == []
-        assert len(nodes[2]["tasks"]) == 1
+        # Older slices: Splunk pruned, S3 always kept.
+        assert _export_task_names(nodes[0]) == {_S3_TASK_NAME}
+        assert _export_task_names(nodes[1]) == {_S3_TASK_NAME}
+        # Newest slice: both exports.
+        assert _export_task_names(nodes[2]) == {_S3_TASK_NAME, SPLUNK_EXPORT_TASK_NAME}
 
-    def test_explicit_slice_number_keeps_only_that_export(self):
+    def test_explicit_slice_number_keeps_only_that_splunk_export(self):
         spec = _spec()
         fan_out_psort(spec, ["F1", "F2", "F3"], export_slices="2")
         nodes = self._psort_nodes(spec)
         assert len(nodes) == 3
-        # 1-based: only the 2nd-oldest slice exports.
-        assert nodes[0]["tasks"] == []
-        assert len(nodes[1]["tasks"]) == 1
-        assert nodes[2]["tasks"] == []
+        # 1-based: only the 2nd-oldest slice keeps Splunk; all keep S3.
+        assert _export_task_names(nodes[0]) == {_S3_TASK_NAME}
+        assert _export_task_names(nodes[1]) == {_S3_TASK_NAME, SPLUNK_EXPORT_TASK_NAME}
+        assert _export_task_names(nodes[2]) == {_S3_TASK_NAME}
 
     def test_unrecognized_mode_falls_back_to_all(self):
         spec = _spec()
         fan_out_psort(spec, ["F1", "F2"], export_slices="bogus")
         nodes = self._psort_nodes(spec)
-        assert all(len(n["tasks"]) == 1 for n in nodes)
+        for n in nodes:
+            assert _export_task_names(n) == {_S3_TASK_NAME, SPLUNK_EXPORT_TASK_NAME}
+
+    def test_s3_always_exported_on_every_slice(self):
+        """The S3 archive upload must survive on every slice regardless of mode."""
+        for mode in ("all", "latest", "1", "2", "3"):
+            spec = _spec()
+            fan_out_psort(spec, ["F1", "F2", "F3"], export_slices=mode)
+            for n in self._psort_nodes(spec):
+                assert _S3_TASK_NAME in _export_task_names(n)
 
     def test_non_exported_clones_still_have_unique_uuids(self):
-        """Stripping the export branch must not affect UUID freshness."""
+        """Pruning the Splunk task must not affect UUID freshness."""
         spec = _spec()
         fan_out_psort(spec, ["F1", "F2", "F3"], export_slices="latest")
         nodes = self._psort_nodes(spec)

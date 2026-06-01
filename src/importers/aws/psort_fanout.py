@@ -48,8 +48,33 @@ def _is_date_filter(filter_expr: str) -> bool:
 
 PSORT_TASK_NAME = "openrelik-worker-plaso.tasks.psort"
 
+# The slice-selective export task. Slices not chosen by ``export_slices`` have
+# only this task pruned from their downstream branch; every other export (e.g.
+# the S3 archive upload) still runs on every slice.
+SPLUNK_EXPORT_TASK_NAME = "openrelik-worker-export-splunk.tasks.upload"
+
 # ISO 8601 (second precision) — accepted by plaso's DATETIME() filter helper.
 _FILTER_DT_FMT = "%Y-%m-%dT%H:%M:%S"
+
+
+def _prune_task(node: dict, task_name: str) -> None:
+    """Remove every occurrence of ``task_name`` from ``node``'s subtree, in place.
+
+    Walks the nested ``tasks`` lists and drops any matching node. A pruned
+    node's own children are dropped with it (they were downstream of the removed
+    task); sibling tasks — and the rest of the branch — are left intact.
+    """
+    tasks = node.get("tasks")
+    if not isinstance(tasks, list):
+        return
+    kept = []
+    for child in tasks:
+        if isinstance(child, dict) and child.get("task_name") == task_name:
+            continue  # drop this task (and its downstream children)
+        if isinstance(child, dict):
+            _prune_task(child, task_name)
+        kept.append(child)
+    node["tasks"] = kept
 
 
 def compute_slice_filters(
@@ -210,18 +235,17 @@ def fan_out_psort(
         author pinned an explicit window, so the importer honors it instead of
         fanning out (logged).
 
-    Slice selection for export: every clone runs psort and registers its output
-    in OpenRelik, but only the clones chosen by ``export_slices`` keep the
-    template's downstream branch (e.g. an export-to-Splunk/S3 task nested under
-    the psort node's ``tasks``). Non-selected clones have their ``tasks`` removed
-    so they are processed but not exported. Has no effect if the psort node has
-    no nested ``tasks`` to begin with.
+    Slice selection for Splunk export: every clone runs psort, registers its
+    output, and keeps the rest of its downstream branch (notably the S3 archive
+    upload — all slices are always archived). Only the clones chosen by
+    ``export_slices`` keep the Splunk export task (``SPLUNK_EXPORT_TASK_NAME``);
+    on the others it is pruned from the subtree, leaving sibling exports intact.
 
     Args:
         spec: The workflow spec dict (as parsed from ``workflow.spec_json``).
         filters: Opaque psort filter strings, one per desired psort clone,
             ordered oldest window first (as ``compute_slice_filters`` emits).
-        export_slices: Which clones keep their export branch — ``"all"``
+        export_slices: Which clones keep the Splunk export task — ``"all"``
             (default), ``"latest"`` (newest slice only), or a 1-based slice
             number as a string (e.g. ``"2"``). See ``_should_export``.
 
@@ -257,10 +281,12 @@ def fan_out_psort(
     for slice_idx, filter_expr in enumerate(filters):
         clone = copy.deepcopy(template_node)
         _set_filter(clone, filter_expr)
-        # Drop the downstream (export) branch on slices we don't want exported;
-        # the clone still runs psort and registers its output.
+        # On slices not selected for export, prune only the Splunk export task;
+        # every other downstream task (e.g. the S3 archive upload) still runs,
+        # so all slices are always archived to S3 and only selected slices are
+        # sent to Splunk.
         if not _should_export(export_slices, slice_idx, total):
-            clone["tasks"] = []
+            _prune_task(clone, SPLUNK_EXPORT_TASK_NAME)
         # Each clone needs unique identifiers: the source node was already
         # UUID-stamped by create_workflow, so copies would otherwise share its
         # UUIDs, which key the Task rows and Celery task_ids.
