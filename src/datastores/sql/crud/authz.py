@@ -16,7 +16,7 @@ import asyncio
 from functools import wraps
 from typing import Callable
 
-from fastapi import HTTPException
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from datastores.sql.models.file import File
@@ -134,7 +134,14 @@ def require_access(allowed_roles: list, http_exception: bool = True, error_messa
             file_id = kwargs.get("file_id")
             current_user = kwargs.get("current_user")
 
-            if folder_id:
+            if folder_id is not None:
+                try:
+                    folder_id = int(folder_id)
+                except (ValueError, TypeError):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Invalid folder ID format.",
+                    )
                 folder = db.get(Folder, folder_id)
                 if not folder:
                     raise HTTPException(status_code=404, detail="Folder not found.")
@@ -143,7 +150,14 @@ def require_access(allowed_roles: list, http_exception: bool = True, error_messa
                         http_exception, error_message or "No access to folder"
                     )
 
-            if file_id:
+            if file_id is not None:
+                try:
+                    file_id = int(file_id)
+                except (ValueError, TypeError):
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="Invalid file ID format.",
+                    )
                 file = db.get(File, file_id)
                 if not file:
                     raise HTTPException(status_code=404, detail="File not found.")
