@@ -857,4 +857,4 @@ async def test_get_adk_sse_session_success(mocker):
 def test_get_folder_invalid_id_format(fastapi_test_client):
     """Test get_folder with non-integer folder ID format (e.g. 'None')."""
     response = fastapi_test_client.get("/folders/None")
-    assert response.status_code == 422
+    assert response.status_code == 400
