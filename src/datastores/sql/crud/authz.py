@@ -134,7 +134,7 @@ def require_access(allowed_roles: list, http_exception: bool = True, error_messa
             file_id = kwargs.get("file_id")
             current_user = kwargs.get("current_user")
 
-            if folder_id is not None:
+            if folder_id:
                 try:
                     folder_id = int(folder_id)
                 except (ValueError, TypeError):
