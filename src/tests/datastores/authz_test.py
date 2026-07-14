@@ -194,7 +194,33 @@ def test_require_access_decorator_access_denied(db, authz):
     user = User(id=1, groups=[])
     file = File(id=1, folder=Folder(id=1))
     db.get.return_value = file
-    
+
     with pytest.raises(HTTPException) as exc_info:
         dummy_endpoint(db=db, file_id=1, current_user=user)
     assert exc_info.value.status_code == 403
+
+
+def test_require_access_decorator_invalid_folder_id(db, authz):
+    @require_access([Role.VIEWER])
+    def dummy_endpoint(db, folder_id, current_user):
+        return True
+
+    user = User(id=1, groups=[])
+
+    with pytest.raises(HTTPException) as exc_info:
+        dummy_endpoint(db=db, folder_id="None", current_user=user)
+    assert exc_info.value.status_code == 400
+    assert "Invalid folder ID format" in exc_info.value.detail
+
+
+def test_require_access_decorator_invalid_file_id(db, authz):
+    @require_access([Role.VIEWER])
+    def dummy_endpoint(db, file_id, current_user):
+        return True
+
+    user = User(id=1, groups=[])
+
+    with pytest.raises(HTTPException) as exc_info:
+        dummy_endpoint(db=db, file_id="invalid", current_user=user)
+    assert exc_info.value.status_code == 400
+    assert "Invalid file ID format" in exc_info.value.detail
