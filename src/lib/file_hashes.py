@@ -13,9 +13,39 @@
 # limitations under the License.
 
 import hashlib
+import logging
+import os
 
+from config import config
 from datastores.sql import database
 from datastores.sql.crud.file import get_file_from_db
+
+logger = logging.getLogger(__name__)
+
+# Default maximum size (in bytes) of a file we will attempt to hash. Files larger
+# than this are skipped so we never read a very large file (e.g. multi-GB disk
+# images served over a storage gateway) into the hashing process. Defaults to 5 GB.
+DEFAULT_HASH_MAX_FILE_SIZE_BYTES = 5 * 1024**3
+
+
+def _get_max_file_size_bytes():
+    """Resolve the maximum file size (bytes) allowed for hashing.
+
+    Resolution order: ``HASH_MAX_FILE_SIZE_BYTES`` environment variable, then the
+    ``server.hashing.max_file_size`` setting, then the 5 GB default.
+
+    Returns:
+        int: The maximum file size in bytes.
+    """
+    env_value = os.getenv("HASH_MAX_FILE_SIZE_BYTES")
+    if env_value:
+        return int(env_value)
+
+    configured = config.get("server", {}).get("hashing", {}).get("max_file_size")
+    if configured:
+        return int(configured)
+
+    return DEFAULT_HASH_MAX_FILE_SIZE_BYTES
 
 
 def _calculate_file_hashes(file_path):
@@ -54,6 +84,19 @@ def generate_hashes(file_id):
     """
     db = database.SessionLocal()
     file = get_file_from_db(db, file_id)
+
+    # Skip hashing for files larger than the configured maximum. Read the actual
+    # on-disk size, as the stored `filesize` may be unset for some files.
+    max_file_size = _get_max_file_size_bytes()
+    file_size = os.path.getsize(file.path)
+    if file_size > max_file_size:
+        logger.warning(
+            "Skipping hashing for file %s (%s bytes), exceeds maximum of %s bytes",
+            file_id,
+            file_size,
+            max_file_size,
+        )
+        return
 
     # Calculate the hashes for the file.
     md5_hash, sha1_hash, sha256_hash = _calculate_file_hashes(file.path)

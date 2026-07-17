@@ -42,6 +42,8 @@ def test_generate_hashes(mocker, db):
     mocker.patch("lib.file_hashes.database.SessionLocal", return_value=db)
     mock_get_file = mocker.patch("lib.file_hashes.get_file_from_db")
     mock_calc_hashes = mocker.patch("lib.file_hashes._calculate_file_hashes")
+    # File is well under the size limit.
+    mocker.patch("lib.file_hashes.os.path.getsize", return_value=1024)
 
     mock_file = mocker.MagicMock()
     mock_file.path = "/dummy/path"
@@ -59,3 +61,40 @@ def test_generate_hashes(mocker, db):
     assert mock_file.hash_sha256 == "sha256sum"
 
     db.commit.assert_called_once()
+
+
+def test_generate_hashes_skips_oversized_file(mocker, db):
+    """Files larger than the max size are skipped without hashing or errors."""
+    mocker.patch("lib.file_hashes.database.SessionLocal", return_value=db)
+    mock_get_file = mocker.patch("lib.file_hashes.get_file_from_db")
+    mock_calc_hashes = mocker.patch("lib.file_hashes._calculate_file_hashes")
+    mocker.patch("lib.file_hashes._get_max_file_size_bytes", return_value=1024)
+    # File is larger than the (mocked) 1 KB limit.
+    mocker.patch("lib.file_hashes.os.path.getsize", return_value=2048)
+
+    mock_file = mocker.MagicMock()
+    mock_file.path = "/dummy/path"
+    mock_get_file.return_value = mock_file
+
+    generate_hashes(file_id=1)
+
+    # Hashing must not run, and no hashes committed.
+    mock_calc_hashes.assert_not_called()
+    db.commit.assert_not_called()
+
+
+def test_get_max_file_size_bytes_from_env(mocker):
+    """The env var overrides config and the default."""
+    from lib import file_hashes
+
+    mocker.patch.dict("os.environ", {"HASH_MAX_FILE_SIZE_BYTES": "12345"})
+    assert file_hashes._get_max_file_size_bytes() == 12345
+
+
+def test_get_max_file_size_bytes_default(mocker):
+    """With no env var or config, the 5 GB default is used."""
+    from lib import file_hashes
+
+    mocker.patch.dict("os.environ", {}, clear=True)
+    mocker.patch.object(file_hashes, "config", {})
+    assert file_hashes._get_max_file_size_bytes() == file_hashes.DEFAULT_HASH_MAX_FILE_SIZE_BYTES

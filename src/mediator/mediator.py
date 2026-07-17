@@ -44,7 +44,8 @@ from datastores.sql.crud.workflow import (
 )
 from datastores.sql.models.file import File
 from datastores.sql.models.workflow import Task
-from lib.file_hashes import generate_hashes
+from tasks.file_hashes_tasks import QUEUE_NAME as HASHING_QUEUE_NAME
+from tasks.file_hashes_tasks import TASK_NAME as HASHING_TASK_NAME
 
 # Number of times to retry database lookups
 MAX_DATABASE_LOOKUP_RETRIES = 10
@@ -236,14 +237,16 @@ def process_successful_task(
         # Process any pending reports that are waiting for this file
         process_pending_file_reports(db, file_data.get("uuid"))
 
-        # TODO: Move this to a celery task to run in the background
-        generate_hashes(new_file.id)
+        # Dispatch hashing to the background worker so it does not block the
+        # mediator's sequential event loop.
+        celery_app.send_task(HASHING_TASK_NAME, args=[new_file.id], queue=HASHING_QUEUE_NAME)
 
     # Create files from task log files
     for task_file_data in task_files:
         new_log_file = create_file_in_database(db, task_file_data, result_dict, db_task)
-        # TODO: Move this to a celery task to run in the background
-        generate_hashes(new_log_file.id)
+        # Dispatch hashing to the background worker so it does not block the
+        # mediator's sequential event loop.
+        celery_app.send_task(HASHING_TASK_NAME, args=[new_log_file.id], queue=HASHING_QUEUE_NAME)
 
     for file_report in file_reports:
         create_or_defer_file_report(db, file_report, db_task.id)

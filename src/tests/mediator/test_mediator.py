@@ -50,23 +50,28 @@ def fake_dependencies(monkeypatch):
         mediator, "create_file_in_database", _fake_create_file_in_database
     )
     monkeypatch.setattr(mediator, "process_pending_file_reports", mock.Mock())
-    monkeypatch.setattr(mediator, "generate_hashes", mock.Mock())
     monkeypatch.setattr(mediator, "create_task_report_in_db", mock.Mock())
 
     return created
 
 
 def _run_process_successful_task(monkeypatch, encoded_result):
-    """Invoke process_successful_task with the given encoded Celery result."""
+    """Invoke process_successful_task with the given encoded Celery result.
+
+    Returns:
+        The mock Celery app so callers can assert on task dispatch.
+    """
     mock_async_result = mock.Mock()
     mock_async_result.get.return_value = encoded_result
     monkeypatch.setattr(mediator, "AsyncResult", lambda *a, **kw: mock_async_result)
 
     celery_task = mock.Mock(uuid="task-uuid")
     db_task = mock.Mock()
+    celery_app = mock.Mock()
     mediator.process_successful_task(
-        db=mock.Mock(), celery_task=celery_task, db_task=db_task, celery_app=mock.Mock()
+        db=mock.Mock(), celery_task=celery_task, db_task=db_task, celery_app=celery_app
     )
+    return celery_app
 
 
 def test_output_file_with_register_in_db_false_is_skipped(
@@ -274,3 +279,22 @@ def test_create_or_defer_file_report_deferred(monkeypatch):
 
     assert mediator.PENDING_FILE_REPORTS["uuid-1"] == [(file_report, 123)]
     assert mediator.PENDING_FILE_REPORTS["uuid-2"] == [(file_report, 123)]
+
+
+def test_hashing_is_dispatched_as_background_task(monkeypatch, fake_dependencies):
+    """Hashing must be dispatched to the background queue, not run inline."""
+    output_files = [{"uuid": "a", "register_in_db": True}]
+    task_files = [{"uuid": "log"}]
+
+    celery_app = _run_process_successful_task(
+        monkeypatch, _encoded_result(output_files, task_files=task_files)
+    )
+
+    # One dispatch for the output file (id 1) and one for the log file (id 2).
+    # File ids come from the fake_dependencies fixture (len(created)).
+    assert celery_app.send_task.call_count == 2
+    dispatched_ids = [call.kwargs["args"][0] for call in celery_app.send_task.call_args_list]
+    assert dispatched_ids == [1, 2]
+    for call in celery_app.send_task.call_args_list:
+        assert call.args[0] == mediator.HASHING_TASK_NAME
+        assert call.kwargs["queue"] == mediator.HASHING_QUEUE_NAME
