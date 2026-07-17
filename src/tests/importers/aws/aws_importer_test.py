@@ -423,12 +423,15 @@ def test_process_s3_record_runs_workflow_when_template_id_set(importer_lib, mock
     )
 
     patches["create"].assert_called_once()
+    # Static params are merged with the per-import identifier (the
+    # uploaded filename minus its extension) so exporters can reconstruct the
+    # original artifact name.
     mock_create.assert_called_once_with(
         mock_db,
         folder_id=patches["folder"].id,
         file_ids=[patches["file_db"].id],
         template_id=7,
-        template_params={"my_param_0": "value"},
+        template_params={"my_param_0": "value", "identifier": "file"},
         user=robot_user,
         display_name="file.txt.workflow",
     )
@@ -519,70 +522,6 @@ def test_process_s3_record_workflow_error_logs_at_warning_with_traceback(
         and "workflow auto-run failed" in r.getMessage()
         for r in info_records
     ), "expected INFO 'Imported ... workflow auto-run failed' follow-up"
-
-
-def test_process_s3_record_fans_out_psort_when_slices_configured(
-    importer_lib, mocker
-):
-    """With slicing configured, the spec handed to run_workflow has one psort
-    node per slice, each carrying its own filter, each keeping its nested
-    export branch."""
-    _patch_successful_dependencies(mocker)
-
-    from importers.aws import importer as aws_importer
-
-    psort_name = "openrelik-worker-plaso.tasks.psort"
-    export_name = "openrelik-worker-export-splunk.tasks.export"
-    template_spec = {
-        "workflow": {
-            "type": "chain",
-            "tasks": [
-                {
-                    "type": "task",
-                    "task_name": psort_name,
-                    "uuid": "psort-uuid",
-                    "task_config": [],
-                    "tasks": [
-                        {
-                            "type": "task",
-                            "task_name": export_name,
-                            "uuid": "export-uuid",
-                            "task_config": [],
-                            "tasks": [],
-                        }
-                    ],
-                }
-            ],
-        }
-    }
-    mock_workflow = mocker.MagicMock(id=42, spec_json=json.dumps(template_spec))
-    mocker.patch("lib.workflow_utils.create_workflow", return_value=mock_workflow)
-    mock_run = mocker.patch("lib.workflow_utils.run_workflow")
-
-    mocker.patch.object(aws_importer, "AWS_IMPORT_TEMPLATE_ID", 7)
-    mocker.patch.object(aws_importer, "AWS_IMPORT_PSORT_SLICES", 3)
-    mocker.patch.object(aws_importer, "AWS_IMPORT_PSORT_MONTHS_PER_SLICE", 3)
-
-    importer_lib["process_s3_record"](
-        mocker.MagicMock(),
-        _make_s3_record(key="users/case1/data/file.txt"),
-        mocker.MagicMock(),
-        _make_robot_user(mocker),
-    )
-
-    spec = mock_run.call_args.kwargs["workflow_spec"]
-    # psort is the chain's first task, so its clones replace it in-place there.
-    psort_nodes = spec["workflow"]["tasks"]
-    assert len(psort_nodes) == 3
-    filters = [
-        next(i["value"] for i in n["task_config"] if i["name"] == "filter")
-        for n in psort_nodes
-    ]
-    assert all("DATETIME(" in f for f in filters)
-    assert len(set(filters)) == 3  # each slice a distinct window
-    # Each slice keeps its own export branch.
-    for node in psort_nodes:
-        assert node["tasks"][0]["task_name"] == export_name
 
 
 def _stub_sqs_message_deps(mocker):

@@ -30,7 +30,6 @@ import logging
 import os
 import time
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Dict
 from urllib.parse import unquote_plus
 
@@ -41,7 +40,6 @@ from datastores.sql import database
 from datastores.sql.crud.user import get_user_from_db
 from datastores.sql.crud.workflow import get_workflow_template_from_db
 from datastores.sql.models.user import User
-from importers.aws.psort_fanout import compute_slice_filters, fan_out_psort
 from importers.importer_utils import (
     create_file_record,
     get_or_create_root_folder,
@@ -71,25 +69,6 @@ AWS_IMPORT_TEMPLATE_ID: int | None = parse_positive_int_env(
 # set, and are passed through to the workflow template as-is.
 AWS_IMPORT_TEMPLATE_PARAMS: Dict[str, Any] = parse_template_params(
     os.environ.get("AWS_IMPORT_TEMPLATE_PARAMS", "")
-)
-
-# Optional psort time-slicing. When AWS_IMPORT_PSORT_SLICES > 1, the importer
-# duplicates the template's psort node into that many parallel siblings, each
-# filtered to a trailing window of AWS_IMPORT_PSORT_MONTHS_PER_SLICE months.
-# Slice <= 1 (default) leaves the template untouched (a single psort run).
-# (Interim env config; will move to per-route importer config once that lands.)
-AWS_IMPORT_PSORT_SLICES: int | None = parse_positive_int_env(
-    "AWS_IMPORT_PSORT_SLICES", os.environ.get("AWS_IMPORT_PSORT_SLICES")
-)
-AWS_IMPORT_PSORT_MONTHS_PER_SLICE: int | None = parse_positive_int_env(
-    "AWS_IMPORT_PSORT_MONTHS_PER_SLICE",
-    os.environ.get("AWS_IMPORT_PSORT_MONTHS_PER_SLICE"),
-)
-# Which fanned-out slices keep their export branch: "all" (default), "latest"
-# (newest slice only), or a 1-based slice number (e.g. "2"). All slices still
-# run psort and register their output; this only controls which ones export.
-AWS_IMPORT_PSORT_EXPORT_SLICES: str = (
-    os.environ.get("AWS_IMPORT_PSORT_EXPORT_SLICES") or "all"
 )
 
 # Files above this size are not hashed.
@@ -264,6 +243,19 @@ def process_s3_record(
             logger.exception("Hashing failed for file %s", new_file_db.id)
 
     if AWS_IMPORT_TEMPLATE_ID is not None:
+        # Carry the original artifact's name (sans extension) into the auto-run
+        # workflow out-of-band. By the time the exporters run, the pipeline has
+        # fanned the IZE out into many files and collapsed them back into
+        # UUID-named plaso/psort output, so no per-file field still holds the
+        # source name. The exporters substitute this into their name patterns'
+        # generic {identifier} placeholder; template authors add the
+        # per-task distinguisher (e.g. a slice suffix) around it, so this stays
+        # correct even when a template fans out into multiple psort/export tasks.
+        identifier = os.path.splitext(filename)[0]
+        template_params = {
+            **AWS_IMPORT_TEMPLATE_PARAMS,
+            "identifier": identifier,
+        }
         try:
             _run_template_workflow(
                 db,
@@ -271,6 +263,7 @@ def process_s3_record(
                 file_id=new_file_db.id,
                 display_name=f"{filename}.workflow",
                 user=robot_user,
+                template_params=template_params,
             )
         except Exception:
             # Currently these failures will result in the file being imported
@@ -299,6 +292,7 @@ def _run_template_workflow(
     file_id: int,
     display_name: str,
     user: User,
+    template_params: Dict[str, Any],
 ) -> None:
     """Create a workflow from the configured template and dispatch it, in-process.
 
@@ -310,32 +304,24 @@ def _run_template_workflow(
         display_name: Display name for the new workflow and its results
             subfolder.
         user: The user under which the workflow is created and run.
+        template_params: Parameter values applied to the template's task
+            configs by ``param_name`` (the static ``AWS_IMPORT_TEMPLATE_PARAMS``
+            merged with per-import values such as ``identifier``).
     """
     workflow = workflow_utils.create_workflow(
         db,
         folder_id=folder_id,
         file_ids=[file_id],
         template_id=AWS_IMPORT_TEMPLATE_ID,
-        template_params=AWS_IMPORT_TEMPLATE_PARAMS,
+        template_params=template_params,
         user=user,
         display_name=display_name,
     )
 
-    spec = json.loads(workflow.spec_json)
-    # Optionally fan the template's single psort node out into N parallel
-    # slice runs, each with its own trailing-window date filter pinned now.
-    if AWS_IMPORT_PSORT_SLICES and AWS_IMPORT_PSORT_SLICES > 1:
-        filters = compute_slice_filters(
-            AWS_IMPORT_PSORT_SLICES,
-            AWS_IMPORT_PSORT_MONTHS_PER_SLICE or 3,
-            datetime.now(timezone.utc),
-        )
-        fan_out_psort(spec, filters, export_slices=AWS_IMPORT_PSORT_EXPORT_SLICES)
-
     workflow_utils.run_workflow(
         db,
         workflow=workflow,
-        workflow_spec=spec,
+        workflow_spec=json.loads(workflow.spec_json),
         user=user,
     )
     logger.info(
