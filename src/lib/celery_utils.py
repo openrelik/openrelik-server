@@ -41,7 +41,14 @@ def get_registered_tasks(celery_instance):
             # This regular expression captures the entire dictionary using curly braces as delimiters.
             # group(0) retrieves the full match, i.e., the dictionary string.
             # ast.literal_eval() safely converts the dictionary string into an actual Python dictionary object.
-            metadata = ast.literal_eval(re.search("({.+})", task).group(0))
+            metadata_match = re.search("({.+})", task)
+            # The embedded metadata dict is what marks a task as a worker/workflow
+            # task. Internal tasks (e.g. the mediator's background hashing task) are
+            # registered without metadata; skip them so they don't appear in the task
+            # registry/UI and don't break parsing.
+            if not metadata_match:
+                continue
+            metadata = ast.literal_eval(metadata_match.group(0))
             if task_name in registered_task_names:
                 continue
 
