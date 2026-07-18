@@ -37,9 +37,9 @@ def _get_max_file_size_bytes():
     Returns:
         int: The maximum file size in bytes.
     """
-    configured = config.get("server", {}).get("hashing", {}).get("max_file_size")
-    if configured:
-        return int(configured)
+    max_file_size = config.get("server", {}).get("hashing", {}).get("max_file_size")
+    if max_file_size is not None:
+        return int(max_file_size)
 
     return DEFAULT_HASH_MAX_FILE_SIZE_BYTES
 
