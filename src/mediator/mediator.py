@@ -44,8 +44,8 @@ from datastores.sql.crud.workflow import (
 )
 from datastores.sql.models.file import File
 from datastores.sql.models.workflow import Task
-from tasks.file_hashes_tasks import QUEUE_NAME as HASHING_QUEUE_NAME
-from tasks.file_hashes_tasks import TASK_NAME as HASHING_TASK_NAME
+from tasks.hashing.file_hashes_tasks import QUEUE_NAME as HASHING_QUEUE_NAME
+from tasks.hashing.file_hashes_tasks import TASK_NAME as HASHING_TASK_NAME
 
 # Number of times to retry database lookups
 MAX_DATABASE_LOOKUP_RETRIES = 10

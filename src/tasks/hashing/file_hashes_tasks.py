@@ -38,7 +38,7 @@ REDIS_URL = os.getenv("REDIS_URL") or "redis://localhost:6379/0"
 celery = Celery(
     broker=REDIS_URL,
     backend=REDIS_URL,
-    include=["tasks.file_hashes_tasks"],
+    include=["tasks.hashing.file_hashes_tasks"],
 )
 
 telemetry.instrument_celery_app(celery)

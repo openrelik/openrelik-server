@@ -31,16 +31,12 @@ DEFAULT_HASH_MAX_FILE_SIZE_BYTES = 5 * 1024**3
 def _get_max_file_size_bytes():
     """Resolve the maximum file size (bytes) allowed for hashing.
 
-    Resolution order: ``HASH_MAX_FILE_SIZE_BYTES`` environment variable, then the
-    ``server.hashing.max_file_size`` setting, then the 5 GB default.
+    Read from the ``server.hashing.max_file_size`` setting, falling back to the
+    5 GB default.
 
     Returns:
         int: The maximum file size in bytes.
     """
-    env_value = os.getenv("HASH_MAX_FILE_SIZE_BYTES")
-    if env_value:
-        return int(env_value)
-
     configured = config.get("server", {}).get("hashing", {}).get("max_file_size")
     if configured:
         return int(configured)

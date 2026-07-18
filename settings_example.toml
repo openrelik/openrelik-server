@@ -50,7 +50,6 @@ mode = "rw"
 # Maximum file size (in bytes) that the background hashing worker will attempt to
 # hash. Files larger than this are skipped so we never read a very large file
 # (e.g. multi-GB disk images) into the hashing process. Defaults to 5 GB.
-# Can be overridden per deployment with the HASH_MAX_FILE_SIZE_BYTES env var.
 # max_file_size = 5368709120
 
 [datastores.sqlalchemy]
