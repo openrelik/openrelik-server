@@ -111,6 +111,30 @@ public_access = false
 # Example: https://openrelik.example.com/auth/oidc
 # redirect_uri = ""
 
+[auth.iap]
+# Google Cloud Identity-Aware Proxy (IAP) authentication.
+# For deployments where IAP fronts the server, this validates the signed
+# X-Goog-IAP-JWT-Assertion header that IAP adds to every proxied request:
+# https://cloud.google.com/iap/docs/signed-headers-howto
+#
+# The expected audience for the assertion. For a backend service this is
+# /projects/PROJECT_NUMBER/global/backendServices/SERVICE_ID and it is shown
+# in the IAP console under "Signed Header JWT Audience".
+# audience = ""
+
+# Allow only these users (email address) to access the server.
+# allowlist = ["<REPLACE_WITH_USER_EMAIL>"]
+
+# Allow anyone with a valid IAP assertion to access the server. Unlike the
+# google/oidc public_access options this does not expose the server publicly:
+# only identities that IAP itself has authenticated and authorized can carry a
+# valid assertion, so access control can be fully delegated to IAP policy.
+# public_access = false
+
+# Override the URL for IAP's public verification keys. Only useful for
+# testing against locally minted assertions; leave unset in production.
+# certs_url = ""
+
 [ui]
 # data_types that will be rendered using unescaped HTML in a sandboxed iframe in the
 # frontend UI.
