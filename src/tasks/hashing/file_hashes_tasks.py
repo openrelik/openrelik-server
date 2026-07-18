@@ -14,11 +14,12 @@
 
 """Celery task for generating file hashes in the background.
 
-This runs in the dedicated ``openrelik-hashing`` worker (built from the server
-image) so that callers such as the mediator can offload the blocking, potentially
-long-running hashing work instead of computing hashes inline. Callers dispatch the
-task with an explicit ``queue="openrelik-hashing"`` and the worker consumes that
-same queue (``-Q openrelik-hashing``).
+This runs in the dedicated ``openrelik-hashing`` Celery worker (built from the
+server image) so that callers such as the mediator can offload the blocking,
+potentially long-running hashing work instead of computing hashes inline.
+
+Callers dispatch the task with an explicit ``queue="openrelik-hashing"`` and the
+worker consumes that same queue (``-Q openrelik-hashing``).
 """
 
 import os
