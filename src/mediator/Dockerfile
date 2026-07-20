@@ -15,8 +15,7 @@ WORKDIR /mediator
 COPY pyproject.toml uv.lock ./
 
 # Install dependencies (without dev groups)
-RUN --mount=type=cache,target=/tmp/uv_cache \
-    uv sync --frozen --no-dev
+RUN uv sync --frozen --no-dev
 
 # The runtime image
 FROM python:3.12-slim-bookworm AS runtime
