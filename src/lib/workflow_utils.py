@@ -104,6 +104,7 @@ def get_task_signature(
         uuid=task_uuid,
         user=current_user,
         workflow=workflow,
+        status_short="PENDING",
     )
     create_task_in_db(db, new_task_db)
 
