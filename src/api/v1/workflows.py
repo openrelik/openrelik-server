@@ -323,29 +323,30 @@ async def get_workflow_status(
 ) -> schemas.WorkflowStatus:
     """Get a workflow status by ID."""
     workflow = get_workflow_from_db(db, workflow_id)
-    workflow_status = "PENDING"
 
-    # Flags to track different task statuses
-    has_running_tasks = False
-    has_failed_tasks = False
+    # Terminal task states where a task is considered finished
+    TERMINAL_TASK_STATES = {"SUCCESS", "FAILURE", "REVOKED", "REJECTED"}
+    FAILED_TASK_STATES = {"FAILURE", "REJECTED"}
+
     has_any_tasks = False
+    has_failed_tasks = False
+    has_non_terminal_tasks = False
 
     for task in workflow.tasks:
         has_any_tasks = True
-        if task.status_short in ["STARTED", "PROGRESS", "RECEIVED"]:
-            has_running_tasks = True
-        elif task.status_short == "FAILURE":
+        if task.status_short in FAILED_TASK_STATES:
             has_failed_tasks = True
+        if task.status_short not in TERMINAL_TASK_STATES:
+            has_non_terminal_tasks = True
 
     # Logic for determining workflow status
     if not has_any_tasks:
         workflow_status = "PENDING"  # Explicitly set to PENDING if no tasks
-    elif has_running_tasks:
+    elif has_non_terminal_tasks:
         workflow_status = "RUNNING"
     elif has_failed_tasks:
         workflow_status = "COMPLETE_WITH_FAILURES"
     else:
-        # If there are tasks, but none are running or failed, then it's complete
         workflow_status = "COMPLETE"
 
     return {

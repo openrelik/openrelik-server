@@ -531,6 +531,7 @@ def test_get_task_signature(
     assert created_task.display_name is None
     assert created_task.description is None
     assert created_task.uuid == "test_uuid"
+    assert created_task.status_short == "PENDING"
     assert json.loads(created_task.config) == {"param1": "value1"}
 
 
@@ -625,11 +626,9 @@ def test_create_workflow_signature_chord(
     assert mock_get_task_signature.call_count == 2
 
 
-def test_get_workflow_status_running(fastapi_test_client, mocker):
-    """Test get_workflow_status returns RUNNING."""
-    mock_workflow = mocker.MagicMock()
+def _create_mock_task(mocker, status_short):
     mock_task = mocker.MagicMock()
-    mock_task.status_short = "STARTED"
+    mock_task.status_short = status_short
     mock_task.display_name = "Mock Task"
     mock_task.description = "Mock Description"
     mock_task.uuid = "3fa85f64-5717-4562-b3fc-2c963f66afa7"
@@ -641,6 +640,13 @@ def test_get_workflow_status_running(fastapi_test_client, mocker):
     mock_user.uuid = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
 
     mock_task.user = mock_user
+    return mock_task
+
+
+def test_get_workflow_status_running(fastapi_test_client, mocker):
+    """Test get_workflow_status returns RUNNING for STARTED status."""
+    mock_workflow = mocker.MagicMock()
+    mock_task = _create_mock_task(mocker, "STARTED")
     mock_workflow.tasks = [mock_task]
 
     mocker.patch("api.v1.workflows.get_workflow_from_db", return_value=mock_workflow)
@@ -648,3 +654,84 @@ def test_get_workflow_status_running(fastapi_test_client, mocker):
     response = fastapi_test_client.get("/folders/1/workflows/1/status")
     assert response.status_code == 200
     assert response.json()["status"] == "RUNNING"
+
+
+def test_get_workflow_status_pending(fastapi_test_client, mocker):
+    """Test get_workflow_status returns PENDING when there are no tasks."""
+    mock_workflow = mocker.MagicMock()
+    mock_workflow.tasks = []
+
+    mocker.patch("api.v1.workflows.get_workflow_from_db", return_value=mock_workflow)
+
+    response = fastapi_test_client.get("/folders/1/workflows/1/status")
+    assert response.status_code == 200
+    assert response.json()["status"] == "PENDING"
+
+
+def test_get_workflow_status_none_task_status(fastapi_test_client, mocker):
+    """Test get_workflow_status returns RUNNING when a task has status_short None (e.g. mediator delay)."""
+    mock_workflow = mocker.MagicMock()
+    mock_task = _create_mock_task(mocker, None)
+    mock_workflow.tasks = [mock_task]
+
+    mocker.patch("api.v1.workflows.get_workflow_from_db", return_value=mock_workflow)
+
+    response = fastapi_test_client.get("/folders/1/workflows/1/status")
+    assert response.status_code == 200
+    assert response.json()["status"] == "RUNNING"
+
+
+def test_get_workflow_status_mixed_success_and_none(fastapi_test_client, mocker):
+    """Test get_workflow_status returns RUNNING when 1 task is SUCCESS and 1 task is None."""
+    mock_workflow = mocker.MagicMock()
+    task1 = _create_mock_task(mocker, "SUCCESS")
+    task2 = _create_mock_task(mocker, None)
+    mock_workflow.tasks = [task1, task2]
+
+    mocker.patch("api.v1.workflows.get_workflow_from_db", return_value=mock_workflow)
+
+    response = fastapi_test_client.get("/folders/1/workflows/1/status")
+    assert response.status_code == 200
+    assert response.json()["status"] == "RUNNING"
+
+
+def test_get_workflow_status_complete(fastapi_test_client, mocker):
+    """Test get_workflow_status returns COMPLETE when all tasks are SUCCESS."""
+    mock_workflow = mocker.MagicMock()
+    task1 = _create_mock_task(mocker, "SUCCESS")
+    task2 = _create_mock_task(mocker, "SUCCESS")
+    mock_workflow.tasks = [task1, task2]
+
+    mocker.patch("api.v1.workflows.get_workflow_from_db", return_value=mock_workflow)
+
+    response = fastapi_test_client.get("/folders/1/workflows/1/status")
+    assert response.status_code == 200
+    assert response.json()["status"] == "COMPLETE"
+
+
+def test_get_workflow_status_complete_with_failures(fastapi_test_client, mocker):
+    """Test get_workflow_status returns COMPLETE_WITH_FAILURES when all tasks are finished and at least 1 failed."""
+    mock_workflow = mocker.MagicMock()
+    task1 = _create_mock_task(mocker, "SUCCESS")
+    task2 = _create_mock_task(mocker, "FAILURE")
+    mock_workflow.tasks = [task1, task2]
+
+    mocker.patch("api.v1.workflows.get_workflow_from_db", return_value=mock_workflow)
+
+    response = fastapi_test_client.get("/folders/1/workflows/1/status")
+    assert response.status_code == 200
+    assert response.json()["status"] == "COMPLETE_WITH_FAILURES"
+
+
+def test_get_workflow_status_revoked(fastapi_test_client, mocker):
+    """Test get_workflow_status returns COMPLETE when tasks are SUCCESS or REVOKED."""
+    mock_workflow = mocker.MagicMock()
+    task1 = _create_mock_task(mocker, "SUCCESS")
+    task2 = _create_mock_task(mocker, "REVOKED")
+    mock_workflow.tasks = [task1, task2]
+
+    mocker.patch("api.v1.workflows.get_workflow_from_db", return_value=mock_workflow)
+
+    response = fastapi_test_client.get("/folders/1/workflows/1/status")
+    assert response.status_code == 200
+    assert response.json()["status"] == "COMPLETE"
