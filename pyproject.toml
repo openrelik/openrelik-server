@@ -5,7 +5,7 @@ description = "Digital Forensic Workflow System"
 authors = [{name = "Johan Berggren", email = "jberggren@gmail.com"}]
 license = {text = "Apache-2.0"}
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.12,<4.0"
 dependencies = [
     "fastapi>=0.115.11,<0.116.0",
     "uvicorn>=0.34.0,<0.35.0",
