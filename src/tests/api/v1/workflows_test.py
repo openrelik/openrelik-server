@@ -648,3 +648,37 @@ def test_get_workflow_status_running(fastapi_test_client, mocker):
     response = fastapi_test_client.get("/folders/1/workflows/1/status")
     assert response.status_code == 200
     assert response.json()["status"] == "RUNNING"
+
+
+def test_get_workflow_status_pending_task_running(fastapi_test_client, mocker):
+    """Test get_workflow_status returns RUNNING when there are pending tasks."""
+    mock_workflow = mocker.MagicMock()
+
+    mock_user = mocker.MagicMock()
+    mock_user.display_name = "Mock User"
+    mock_user.username = "mockuser"
+    mock_user.profile_picture_url = "http://localhost/profile/pic"
+    mock_user.uuid = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+
+    mock_task_success = mocker.MagicMock()
+    mock_task_success.status_short = "SUCCESS"
+    mock_task_success.display_name = "Success Task"
+    mock_task_success.description = "Success Description"
+    mock_task_success.uuid = "3fa85f64-5717-4562-b3fc-2c963f66afa7"
+    mock_task_success.user = mock_user
+
+    mock_task_pending = mocker.MagicMock()
+    mock_task_pending.status_short = None
+    mock_task_pending.display_name = "Pending Task"
+    mock_task_pending.description = "Pending Description"
+    mock_task_pending.uuid = "3fa85f64-5717-4562-b3fc-2c963f66afa8"
+    mock_task_pending.user = mock_user
+
+    mock_workflow.tasks = [mock_task_success, mock_task_pending]
+
+    mocker.patch("api.v1.workflows.get_workflow_from_db", return_value=mock_workflow)
+
+    response = fastapi_test_client.get("/folders/1/workflows/1/status")
+    assert response.status_code == 200
+    assert response.json()["status"] == "RUNNING"
+

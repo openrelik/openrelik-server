@@ -329,6 +329,7 @@ async def get_workflow_status(
     has_running_tasks = False
     has_failed_tasks = False
     has_any_tasks = False
+    has_non_terminal_tasks = False
 
     for task in workflow.tasks:
         has_any_tasks = True
@@ -337,11 +338,20 @@ async def get_workflow_status(
         elif task.status_short == "FAILURE":
             has_failed_tasks = True
 
+        if task.status_short not in ["SUCCESS", "FAILURE", "REVOKED"]:
+            has_non_terminal_tasks = True
+
     # Logic for determining workflow status
     if not has_any_tasks:
         workflow_status = "PENDING"  # Explicitly set to PENDING if no tasks
     elif has_running_tasks:
         workflow_status = "RUNNING"
+    elif has_non_terminal_tasks:
+        is_started = any(t.status_short not in [None, "PENDING"] for t in workflow.tasks)
+        if is_started:
+            workflow_status = "RUNNING"
+        else:
+            workflow_status = "PENDING"
     elif has_failed_tasks:
         workflow_status = "COMPLETE_WITH_FAILURES"
     else:
