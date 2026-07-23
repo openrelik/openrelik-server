@@ -12,11 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import json
-import logging
 import os
 import uuid
 
 from google.cloud import pubsub_v1, storage
+from openrelik_common import logging
 
 from datastores.sql import database
 from datastores.sql.crud.folder import get_folder_from_db
@@ -29,8 +29,7 @@ ROBOT_ACCOUNT_USER_ID = os.environ.get("ROBOT_ACCOUNT_USER_ID")
 HASH_SIZE_LIMIT = 10485760  # 10MB
 
 # Initialize logger
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = logging.Logger().get_logger(__name__)
 
 
 def download_file_from_gcs(
