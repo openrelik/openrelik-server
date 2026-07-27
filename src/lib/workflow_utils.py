@@ -97,9 +97,9 @@ def get_task_signature(
         valid_tasks = get_registered_tasks(celery_app)
     except kombu.exceptions.OperationalError:
         valid_tasks = []
-        
+
     task_name = task_data.get("task_name")
-    
+
     task_info = None
     for task in valid_tasks:
         if task.get("task_name") == task_name:
@@ -107,7 +107,7 @@ def get_task_signature(
             break
     if not task_info:
         raise ValueError(f"Task name {task_name} is not allowed or not registered.")
-    
+
     task_uuid = uuid4().hex
     task_data["uuid"] = task_uuid
     queue_name = task_info.get("queue_name")
