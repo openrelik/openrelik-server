@@ -518,7 +518,7 @@ def test_get_task_signature(
     mock_create_task_in_db = mocker.patch("lib.workflow_utils.create_task_in_db")
     mock_create_task_in_db.return_value = task_response
 
-    mock_get_registered_tasks = mocker.patch("lib.workflow_utils.get_registered_tasks")
+    mock_get_registered_tasks = mocker.patch("lib.celery_utils.get_registered_tasks")
     mock_get_registered_tasks.return_value = [
         {"task_name": "test_task", "queue_name": "server_queue"}
     ]
