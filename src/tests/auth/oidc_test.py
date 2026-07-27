@@ -42,7 +42,7 @@ def test_validate_user_info_public_access(mocker):
     """Test public access allowed."""
     mocker.patch("auth.oidc.OIDC_PUBLIC_ACCESS", True)
     mocker.patch("auth.oidc.OIDC_ALLOW_LIST", [])
-    user_info = {"email": "user@any.com"}
+    user_info = {"email": "user@any.com", "email_verified": True}
     # Should not raise any exception
     oidc_auth._validate_user_info(user_info)
 
@@ -51,7 +51,7 @@ def test_validate_user_info_allowlist_ok(mocker):
     """Test user in allowlist."""
     mocker.patch("auth.oidc.OIDC_PUBLIC_ACCESS", False)
     mocker.patch("auth.oidc.OIDC_ALLOW_LIST", ["user@allowed.com"])
-    user_info = {"email": "user@allowed.com"}
+    user_info = {"email": "user@allowed.com", "email_verified": True}
     # Should not raise any exception
     oidc_auth._validate_user_info(user_info)
 
@@ -60,7 +60,7 @@ def test_validate_user_info_allowlist_fail(mocker):
     """Test user not in allowlist."""
     mocker.patch("auth.oidc.OIDC_PUBLIC_ACCESS", False)
     mocker.patch("auth.oidc.OIDC_ALLOW_LIST", ["user@allowed.com"])
-    user_info = {"email": "user@notallowed.com"}
+    user_info = {"email": "user@notallowed.com", "email_verified": True}
     with pytest.raises(HTTPException) as excinfo:
         oidc_auth._validate_user_info(user_info)
     assert excinfo.value.status_code == 401
@@ -134,7 +134,7 @@ async def test_oidc_auth_success(mocker):
     assert isinstance(response, RedirectResponse)
     assert response.status_code == 307
     mock_validate_user_info.assert_called_once()
-    mock_get_user.assert_called_once_with(mock_db, email="user@example.com")
+    mock_get_user.assert_called_once_with(mock_db, email="user@example.com", auth_method="oidc")
 
 
 @pytest.mark.asyncio

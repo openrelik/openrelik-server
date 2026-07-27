@@ -42,7 +42,7 @@ config["auth"]["jwt_cookie_access_expire_minutes"] = 15
 def test_validate_user_info_robot():
     """Test allowed robot accounts bypass checks."""
     google_auth.GOOGLE_ALLOWED_ROBOT_ACCOUNTS = ["robot@example.com"]
-    user_info = {"email": "robot@example.com"}
+    user_info = {"email": "robot@example.com", "email_verified": True}
     # Should not raise any exception
     google_auth._validate_user_info(user_info)
 
@@ -52,7 +52,7 @@ def test_validate_user_info_workspace_ok():
     google_auth.GOOGLE_WORKSPACE_DOMAIN = "example.com"
     google_auth.GOOGLE_PUBLIC_ACCESS = True
     google_auth.GOOGLE_ALLOWED_ROBOT_ACCOUNTS = []
-    user_info = {"email": "user@example.com", "hd": "example.com"}
+    user_info = {"email": "user@example.com", "hd": "example.com", "email_verified": True}
     # Should not raise any exception
     google_auth._validate_user_info(user_info)
 
@@ -61,7 +61,7 @@ def test_validate_user_info_workspace_fail():
     """Test invalid workspace domain."""
     google_auth.GOOGLE_WORKSPACE_DOMAIN = "example.com"
     google_auth.GOOGLE_ALLOWED_ROBOT_ACCOUNTS = []
-    user_info = {"email": "user@gmail.com", "hd": "gmail.com"}
+    user_info = {"email": "user@gmail.com", "hd": "gmail.com", "email_verified": True}
     with pytest.raises(HTTPException) as excinfo:
         google_auth._validate_user_info(user_info)
     assert excinfo.value.status_code == 401
@@ -73,7 +73,7 @@ def test_validate_user_info_public_access():
     google_auth.GOOGLE_WORKSPACE_DOMAIN = False
     google_auth.GOOGLE_PUBLIC_ACCESS = True
     google_auth.GOOGLE_ALLOWED_ROBOT_ACCOUNTS = []
-    user_info = {"email": "user@any.com"}
+    user_info = {"email": "user@any.com", "email_verified": True}
     # Should not raise any exception
     google_auth._validate_user_info(user_info)
 
@@ -84,7 +84,7 @@ def test_validate_user_info_allowlist_ok():
     google_auth.GOOGLE_PUBLIC_ACCESS = False
     google_auth.GOOGLE_ALLOW_LIST = ["user@allowed.com"]
     google_auth.GOOGLE_ALLOWED_ROBOT_ACCOUNTS = []
-    user_info = {"email": "user@allowed.com"}
+    user_info = {"email": "user@allowed.com", "email_verified": True}
     # Should not raise any exception
     google_auth._validate_user_info(user_info)
 
@@ -95,7 +95,7 @@ def test_validate_user_info_allowlist_fail():
     google_auth.GOOGLE_PUBLIC_ACCESS = False
     google_auth.GOOGLE_ALLOW_LIST = ["user@allowed.com"]
     google_auth.GOOGLE_ALLOWED_ROBOT_ACCOUNTS = []
-    user_info = {"email": "user@notallowed.com"}
+    user_info = {"email": "user@notallowed.com", "email_verified": True}
     with pytest.raises(HTTPException) as excinfo:
         google_auth._validate_user_info(user_info)
     assert excinfo.value.status_code == 401
