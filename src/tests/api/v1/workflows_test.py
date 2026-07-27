@@ -507,9 +507,14 @@ def test_get_task_signature(
     mocker, db, user_db_model, task_response, workflow_db_model
 ):
     """Test get_task_signature function."""
+    import pytest
 
     mock_create_task_in_db = mocker.patch("lib.workflow_utils.create_task_in_db")
     mock_create_task_in_db.return_value = task_response
+    
+    mock_get_registered_tasks = mocker.patch("lib.workflow_utils.get_registered_tasks")
+    mock_get_registered_tasks.return_value = [{"task_name": "test_task", "queue_name": "server_queue"}]
+
     task_data = {
         "task_name": "test_task",
         "queue_name": "test_queue",
@@ -526,13 +531,22 @@ def test_get_task_signature(
     )
 
     assert isinstance(task_signature, Signature)
+    assert task_signature.options.get("queue") == "server_queue"
+    
     mock_create_task_in_db.assert_called_once()
     created_task = mock_create_task_in_db.call_args[0][1]
     assert created_task.display_name is None
     assert created_task.description is None
-    assert created_task.uuid == "test_uuid"
+    assert created_task.uuid != "test_uuid"
+    assert len(created_task.uuid) == 32
     assert created_task.status_short == "PENDING"
     assert json.loads(created_task.config) == {"param1": "value1"}
+
+    task_data["task_name"] = "malicious_task"
+    with pytest.raises(ValueError):
+        get_task_signature(
+            db, user_db_model, task_data, input_files, output_path, workflow_db_model
+        )
 
 
 def test_create_workflow_signature_chain_multiple(
