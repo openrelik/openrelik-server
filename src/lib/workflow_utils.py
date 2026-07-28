@@ -25,6 +25,7 @@ from celery import group as celery_group
 from celery import signature
 from celery.app import Celery
 from celery.canvas import Signature
+import kombu.exceptions
 from sqlalchemy.orm import Session
 
 from api.v1 import schemas
@@ -35,6 +36,7 @@ from datastores.sql.crud.workflow import (
     get_workflow_template_from_db,
 )
 from datastores.sql.models.workflow import Task, Workflow
+from lib.celery_utils import get_registered_tasks
 
 # Redis URL and Celery app initialization.
 _redis_url = os.getenv("REDIS_URL")
@@ -90,8 +92,6 @@ def get_task_signature(
     Returns:
         Signature: The Celery task signature.
     """
-    from lib.celery_utils import get_registered_tasks
-    import kombu.exceptions
 
     try:
         valid_tasks = get_registered_tasks(celery_app)
@@ -105,6 +105,7 @@ def get_task_signature(
         if task.get("task_name") == task_name:
             task_info = task
             break
+
     if not task_info:
         raise ValueError(f"Task name {task_name} is not allowed or not registered.")
 
