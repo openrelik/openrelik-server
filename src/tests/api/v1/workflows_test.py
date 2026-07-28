@@ -24,6 +24,8 @@ from sqlalchemy.orm import Session
 from api.v1 import schemas
 from datastores.sql.models.workflow import Workflow
 
+from lib.workflow_utils import get_task_signature
+
 
 @pytest.mark.asyncio
 async def test_create_workflow(
@@ -513,12 +515,11 @@ def test_get_task_signature(
     mocker, db, user_db_model, task_response, workflow_db_model
 ):
     """Test get_task_signature function."""
-    import pytest
 
     mock_create_task_in_db = mocker.patch("lib.workflow_utils.create_task_in_db")
     mock_create_task_in_db.return_value = task_response
 
-    mock_get_registered_tasks = mocker.patch("lib.celery_utils.get_registered_tasks")
+    mock_get_registered_tasks = mocker.patch("lib.workflow_utils.get_registered_tasks")
     mock_get_registered_tasks.return_value = [
         {"task_name": "test_task", "queue_name": "server_queue"}
     ]
@@ -532,7 +533,6 @@ def test_get_task_signature(
     input_files = []
     output_path = "/tmp/output"
 
-    from lib.workflow_utils import get_task_signature
 
     task_signature = get_task_signature(
         db, user_db_model, task_data, input_files, output_path, workflow_db_model
