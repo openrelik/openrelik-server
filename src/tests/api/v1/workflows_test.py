@@ -24,6 +24,8 @@ from sqlalchemy.orm import Session
 from api.v1 import schemas
 from datastores.sql.models.workflow import Workflow
 
+from lib.workflow_utils import get_task_signature
+
 
 @pytest.mark.asyncio
 async def test_create_workflow(
@@ -44,7 +46,9 @@ async def test_create_workflow(
     )
     mock_create_subfolder_in_db.return_value = folder_db_model
 
-    mock_create_workflow_in_db = mocker.patch("lib.workflow_utils.create_workflow_in_db")
+    mock_create_workflow_in_db = mocker.patch(
+        "lib.workflow_utils.create_workflow_in_db"
+    )
     mock_create_workflow_in_db.return_value = workflow_response
 
     request = {"template_id": 1, "folder_id": folder_id, "file_ids": [1, 2]}
@@ -65,7 +69,9 @@ async def test_create_workflow_no_template(
         "lib.workflow_utils.create_subfolder_in_db"
     )
     mock_create_subfolder_in_db.return_value = folder_db_model
-    mock_create_workflow_in_db = mocker.patch("lib.workflow_utils.create_workflow_in_db")
+    mock_create_workflow_in_db = mocker.patch(
+        "lib.workflow_utils.create_workflow_in_db"
+    )
     mock_create_workflow_in_db.return_value = workflow_response
 
     folder_id = 1
@@ -98,7 +104,9 @@ async def test_create_workflow_no_template_no_files(
     )
     mock_create_subfolder_in_db.return_value = folder_db_model
 
-    mock_create_workflow_in_db = mocker.patch("lib.workflow_utils.create_workflow_in_db")
+    mock_create_workflow_in_db = mocker.patch(
+        "lib.workflow_utils.create_workflow_in_db"
+    )
     mock_create_workflow_in_db.return_value = workflow_response
     folder_id = 1
     request = {"folder_id": folder_id}
@@ -510,6 +518,12 @@ def test_get_task_signature(
 
     mock_create_task_in_db = mocker.patch("lib.workflow_utils.create_task_in_db")
     mock_create_task_in_db.return_value = task_response
+
+    mock_get_registered_tasks = mocker.patch("lib.workflow_utils.get_registered_tasks")
+    mock_get_registered_tasks.return_value = [
+        {"task_name": "test_task", "queue_name": "server_queue"}
+    ]
+
     task_data = {
         "task_name": "test_task",
         "queue_name": "test_queue",
@@ -519,20 +533,28 @@ def test_get_task_signature(
     input_files = []
     output_path = "/tmp/output"
 
-    from lib.workflow_utils import get_task_signature
 
     task_signature = get_task_signature(
         db, user_db_model, task_data, input_files, output_path, workflow_db_model
     )
 
     assert isinstance(task_signature, Signature)
+    assert task_signature.options.get("queue") == "server_queue"
+
     mock_create_task_in_db.assert_called_once()
     created_task = mock_create_task_in_db.call_args[0][1]
     assert created_task.display_name is None
     assert created_task.description is None
-    assert created_task.uuid == "test_uuid"
+    assert created_task.uuid != "test_uuid"
+    assert len(created_task.uuid) == 32
     assert created_task.status_short == "PENDING"
     assert json.loads(created_task.config) == {"param1": "value1"}
+
+    task_data["task_name"] = "malicious_task"
+    with pytest.raises(ValueError):
+        get_task_signature(
+            db, user_db_model, task_data, input_files, output_path, workflow_db_model
+        )
 
 
 def test_create_workflow_signature_chain_multiple(
