@@ -55,7 +55,7 @@ DATABASE_LOOKUP_RETRY_DELAY_SECONDS = 1
 # How long to cache the openrelik-hashing worker availability check. Detecting the
 # worker requires a ~1s Celery inspect() broadcast, so we cache it to avoid running
 # that on every task event in the mediator's single-threaded loop.
-HASHING_WORKER_CHECK_TTL_SECONDS = 60
+HASHING_WORKER_CHECK_TTL_SECONDS = 3600
 _hashing_worker_cache = {"available": False, "checked_at": None}
 
 # A dictionary where the key is the UUID of any MISSING file needed for a file report.
@@ -302,8 +302,6 @@ def process_successful_task(
     # Create files from task log files
     for task_file_data in task_files:
         new_log_file = create_file_in_database(db, task_file_data, result_dict, db_task)
-        # Dispatch hashing to the background worker (or hash inline if it is not
-        # available) so it does not block the mediator's sequential event loop.
         hash_file(celery_app, new_log_file.id)
 
     for file_report in file_reports:
