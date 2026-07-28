@@ -14,11 +14,12 @@
 
 """Celery task for generating file hashes in the background.
 
-This runs in the dedicated ``openrelik-hashing`` worker (built from the server
-image) so that callers such as the mediator can offload the blocking, potentially
-long-running hashing work instead of computing hashes inline. The queue name is
-derived by the server's dynamic routing from the task name prefix
-(see ``lib/celery_utils.py``), so the task name must start with the queue name.
+This runs in the dedicated ``openrelik-hashing`` Celery worker (built from the
+server image) so that callers such as the mediator can offload the blocking,
+potentially long-running hashing work instead of computing hashes inline.
+
+Callers dispatch the task with an explicit ``queue="openrelik-hashing"`` and the
+worker consumes that same queue (``-Q openrelik-hashing``).
 """
 
 import os
@@ -28,8 +29,6 @@ from openrelik_common import telemetry
 
 from lib.file_hashes import generate_hashes
 
-# The task name prefix (before the first ".") is used by the server to route the
-# task to the matching queue, so it must equal the queue the worker consumes.
 QUEUE_NAME = "openrelik-hashing"
 TASK_NAME = f"{QUEUE_NAME}.tasks.generate_hashes"
 
@@ -38,7 +37,7 @@ REDIS_URL = os.getenv("REDIS_URL") or "redis://localhost:6379/0"
 celery = Celery(
     broker=REDIS_URL,
     backend=REDIS_URL,
-    include=["tasks.file_hashes_tasks"],
+    include=["tasks.hashing.file_hashes_tasks"],
 )
 
 telemetry.instrument_celery_app(celery)

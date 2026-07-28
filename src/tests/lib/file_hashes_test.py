@@ -83,18 +83,19 @@ def test_generate_hashes_skips_oversized_file(mocker, db):
     db.commit.assert_not_called()
 
 
-def test_get_max_file_size_bytes_from_env(mocker):
-    """The env var overrides config and the default."""
+def test_get_max_file_size_bytes_from_config(mocker):
+    """The setting is read from server.hashing.max_file_size."""
     from lib import file_hashes
 
-    mocker.patch.dict("os.environ", {"HASH_MAX_FILE_SIZE_BYTES": "12345"})
+    mocker.patch.object(
+        file_hashes, "config", {"server": {"hashing": {"max_file_size": 12345}}}
+    )
     assert file_hashes._get_max_file_size_bytes() == 12345
 
 
 def test_get_max_file_size_bytes_default(mocker):
-    """With no env var or config, the 5 GB default is used."""
+    """With no config value, the 5 GB default is used."""
     from lib import file_hashes
 
-    mocker.patch.dict("os.environ", {}, clear=True)
     mocker.patch.object(file_hashes, "config", {})
     assert file_hashes._get_max_file_size_bytes() == file_hashes.DEFAULT_HASH_MAX_FILE_SIZE_BYTES

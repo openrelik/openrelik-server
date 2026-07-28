@@ -14,12 +14,12 @@
 
 """Tests for the background file hashing Celery task."""
 
-from tasks import file_hashes_tasks
+from tasks.hashing import file_hashes_tasks
 
 
 def test_generate_hashes_task_delegates(mocker):
     """The task delegates to lib.file_hashes.generate_hashes with the file id."""
-    mock_generate_hashes = mocker.patch("tasks.file_hashes_tasks.generate_hashes")
+    mock_generate_hashes = mocker.patch("tasks.hashing.file_hashes_tasks.generate_hashes")
 
     file_hashes_tasks.generate_hashes_task(42)
 

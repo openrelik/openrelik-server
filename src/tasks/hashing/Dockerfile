@@ -9,7 +9,7 @@ ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     UV_CACHE_DIR=/tmp/uv_cache
 
-WORKDIR /metrics
+WORKDIR /hashing
 
 # Copy files needed to build
 COPY pyproject.toml uv.lock ./
@@ -21,16 +21,20 @@ RUN --mount=type=cache,target=/tmp/uv_cache \
 # The runtime image
 FROM python:3.12-slim-bookworm AS runtime
 
+# libmagic is needed for python-magic package
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libmagic1 \
+  && rm -rf /var/lib/apt/lists/*
+
 # Set variables to point to the built virtualenv
-ENV VIRTUAL_ENV=/metrics/.venv PATH="/metrics/.venv/bin:$PATH"
+ENV VIRTUAL_ENV=/hashing/.venv PATH="/hashing/.venv/bin:$PATH"
 
 # Copy python virtualenv from the build step
-WORKDIR /metrics
+WORKDIR /hashing
 COPY --from=builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
 
 # Copy needed files
 COPY src ./openrelik_server
-COPY src/metrics/exporter.py ./openrelik_server/exporter.py
 
-# Set workdir for the server to function
-WORKDIR /metrics/openrelik_server
+# Set workdir for the worker to function
+WORKDIR /hashing/openrelik_server
