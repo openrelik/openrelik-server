@@ -61,6 +61,32 @@ def test_get_registered_tasks(mock_celery):
     assert tasks[1]["display_name"] == "Task 2"
 
 
+def test_get_registered_tasks_skips_tasks_without_metadata(mock_celery):
+    """Tasks without embedded metadata (e.g. the internal hashing task) are skipped.
+
+    The hashing worker shares the broker and replies to inspect().registered(), but it
+    registers its task without a metadata dict. Such tasks must be excluded rather than
+    crashing the endpoint.
+    """
+    mock_inspect = mock_celery.control.inspect.return_value
+
+    mock_inspect.registered.return_value = {
+        "worker1": [
+            "task.name.1 {'display_name': 'Task 1'}",
+        ],
+        "openrelik-hashing-worker": [
+            # No metadata dict — internal mediator-dispatched task.
+            "openrelik-hashing.tasks.generate_hashes",
+        ],
+    }
+
+    tasks = get_registered_tasks(mock_celery)
+
+    # Only the metadata-carrying worker task is returned; no exception raised.
+    assert len(tasks) == 1
+    assert tasks[0]["task_name"] == "task.name.1"
+
+
 def test_get_registered_tasks_empty(mock_celery):
     """Test get_registered_tasks when no tasks are registered."""
     mock_inspect = mock_celery.control.inspect.return_value

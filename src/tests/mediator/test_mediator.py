@@ -50,23 +50,31 @@ def fake_dependencies(monkeypatch):
         mediator, "create_file_in_database", _fake_create_file_in_database
     )
     monkeypatch.setattr(mediator, "process_pending_file_reports", mock.Mock())
-    monkeypatch.setattr(mediator, "generate_hashes", mock.Mock())
     monkeypatch.setattr(mediator, "create_task_report_in_db", mock.Mock())
+    # Stub hashing so tests that don't exercise it never touch the real DB or
+    # broker. Tests that assert on hashing behavior override these.
+    monkeypatch.setattr(mediator, "generate_hashes", mock.Mock())
 
     return created
 
 
 def _run_process_successful_task(monkeypatch, encoded_result):
-    """Invoke process_successful_task with the given encoded Celery result."""
+    """Invoke process_successful_task with the given encoded Celery result.
+
+    Returns:
+        The mock Celery app so callers can assert on task dispatch.
+    """
     mock_async_result = mock.Mock()
     mock_async_result.get.return_value = encoded_result
     monkeypatch.setattr(mediator, "AsyncResult", lambda *a, **kw: mock_async_result)
 
     celery_task = mock.Mock(uuid="task-uuid")
     db_task = mock.Mock()
+    celery_app = mock.Mock()
     mediator.process_successful_task(
-        db=mock.Mock(), celery_task=celery_task, db_task=db_task, celery_app=mock.Mock()
+        db=mock.Mock(), celery_task=celery_task, db_task=db_task, celery_app=celery_app
     )
+    return celery_app
 
 
 def test_output_file_with_register_in_db_false_is_skipped(
@@ -274,3 +282,93 @@ def test_create_or_defer_file_report_deferred(monkeypatch):
 
     assert mediator.PENDING_FILE_REPORTS["uuid-1"] == [(file_report, 123)]
     assert mediator.PENDING_FILE_REPORTS["uuid-2"] == [(file_report, 123)]
+
+
+@pytest.fixture(autouse=True)
+def _reset_hashing_worker_cache():
+    """Clear the cached hashing-worker availability between tests."""
+    mediator._hashing_worker_cache["available"] = False
+    mediator._hashing_worker_cache["checked_at"] = None
+    yield
+
+
+def test_hashing_is_dispatched_when_worker_available(monkeypatch, fake_dependencies):
+    """When the hashing worker is available, hashing is dispatched, not run inline."""
+    monkeypatch.setattr(mediator, "is_hashing_worker_available", lambda celery_app: True)
+    mock_generate_hashes = mock.Mock()
+    monkeypatch.setattr(mediator, "generate_hashes", mock_generate_hashes)
+
+    output_files = [{"uuid": "a", "register_in_db": True}]
+    task_files = [{"uuid": "log"}]
+
+    celery_app = _run_process_successful_task(
+        monkeypatch, _encoded_result(output_files, task_files=task_files)
+    )
+
+    # One dispatch for the output file (id 1) and one for the log file (id 2).
+    # File ids come from the fake_dependencies fixture (len(created)).
+    assert celery_app.send_task.call_count == 2
+    dispatched_ids = [call.kwargs["args"][0] for call in celery_app.send_task.call_args_list]
+    assert dispatched_ids == [1, 2]
+    for call in celery_app.send_task.call_args_list:
+        assert call.args[0] == mediator.HASHING_TASK_NAME
+        assert call.kwargs["queue"] == mediator.HASHING_QUEUE_NAME
+    # Nothing hashed inline.
+    mock_generate_hashes.assert_not_called()
+
+
+def test_hashing_falls_back_to_inline_when_worker_unavailable(monkeypatch, fake_dependencies):
+    """Without the hashing worker, hashing runs inline (backwards compatible)."""
+    monkeypatch.setattr(mediator, "is_hashing_worker_available", lambda celery_app: False)
+    mock_generate_hashes = mock.Mock()
+    monkeypatch.setattr(mediator, "generate_hashes", mock_generate_hashes)
+
+    output_files = [{"uuid": "a", "register_in_db": True}]
+    task_files = [{"uuid": "log"}]
+
+    celery_app = _run_process_successful_task(
+        monkeypatch, _encoded_result(output_files, task_files=task_files)
+    )
+
+    # Hashed inline for the output file (id 1) and the log file (id 2).
+    assert [c.args[0] for c in mock_generate_hashes.call_args_list] == [1, 2]
+    # Nothing dispatched to the background worker.
+    celery_app.send_task.assert_not_called()
+
+
+def test_is_hashing_worker_available_detects_queue(monkeypatch):
+    """Returns True when a worker consumes the hashing queue, False otherwise."""
+    celery_app = mock.Mock()
+    inspect = celery_app.control.inspect.return_value
+
+    inspect.active_queues.return_value = {
+        "celery@hasher": [{"name": mediator.HASHING_QUEUE_NAME}],
+    }
+    assert mediator.is_hashing_worker_available(celery_app) is True
+
+    # Reset cache so the next check actually re-inspects.
+    mediator._hashing_worker_cache["checked_at"] = None
+    inspect.active_queues.return_value = {"celery@other": [{"name": "some-other-queue"}]}
+    assert mediator.is_hashing_worker_available(celery_app) is False
+
+
+def test_is_hashing_worker_available_uses_cache(monkeypatch):
+    """A cached result within the TTL avoids a second inspect() broadcast."""
+    celery_app = mock.Mock()
+    inspect = celery_app.control.inspect.return_value
+    inspect.active_queues.return_value = {
+        "celery@hasher": [{"name": mediator.HASHING_QUEUE_NAME}],
+    }
+
+    assert mediator.is_hashing_worker_available(celery_app) is True
+    # Second call within TTL should not inspect again.
+    assert mediator.is_hashing_worker_available(celery_app) is True
+    inspect.active_queues.assert_called_once()
+
+
+def test_is_hashing_worker_available_handles_inspect_failure(monkeypatch):
+    """If inspect() raises, availability is False (fall back to inline hashing)."""
+    celery_app = mock.Mock()
+    celery_app.control.inspect.return_value.active_queues.side_effect = Exception("boom")
+
+    assert mediator.is_hashing_worker_available(celery_app) is False

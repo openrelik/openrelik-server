@@ -45,10 +45,18 @@ from datastores.sql.crud.workflow import (
 from datastores.sql.models.file import File
 from datastores.sql.models.workflow import Task
 from lib.file_hashes import generate_hashes
+from tasks.hashing.file_hashes_tasks import QUEUE_NAME as HASHING_QUEUE_NAME
+from tasks.hashing.file_hashes_tasks import TASK_NAME as HASHING_TASK_NAME
 
 # Number of times to retry database lookups
 MAX_DATABASE_LOOKUP_RETRIES = 10
 DATABASE_LOOKUP_RETRY_DELAY_SECONDS = 1
+
+# How long to cache the openrelik-hashing worker availability check. Detecting the
+# worker requires a ~1s Celery inspect() broadcast, so we cache it to avoid running
+# that on every task event in the mediator's single-threaded loop.
+HASHING_WORKER_CHECK_TTL_SECONDS = 3600
+_hashing_worker_cache = {"available": False, "checked_at": None}
 
 # A dictionary where the key is the UUID of any MISSING file needed for a file report.
 PENDING_FILE_REPORTS = {}
@@ -204,6 +212,57 @@ def process_task_progress_event(
     update_database(db, db_task)
 
 
+def is_hashing_worker_available(celery_app: Celery) -> bool:
+    """Return True if a worker is consuming the openrelik-hashing queue.
+
+    The result is cached for HASHING_WORKER_CHECK_TTL_SECONDS to avoid a ~1s
+    inspect() broadcast on every task event.
+
+    Args:
+        celery_app: The Celery application.
+
+    Returns:
+        True if the openrelik-hashing worker is available, otherwise False.
+    """
+    now = time.monotonic()
+    checked_at = _hashing_worker_cache["checked_at"]
+    if checked_at is not None and (now - checked_at) < HASHING_WORKER_CHECK_TTL_SECONDS:
+        return _hashing_worker_cache["available"]
+
+    available = False
+    try:
+        active_queues = celery_app.control.inspect().active_queues() or {}
+        available = any(
+            queue.get("name") == HASHING_QUEUE_NAME
+            for queues in active_queues.values()
+            for queue in queues
+        )
+    except Exception:
+        # Broker/inspect failure: be safe and fall back to inline hashing.
+        available = False
+
+    _hashing_worker_cache["available"] = available
+    _hashing_worker_cache["checked_at"] = now
+    return available
+
+
+def hash_file(celery_app: Celery, file_id: int) -> None:
+    """Hash a file, using the background worker when available.
+
+    Dispatches to the dedicated openrelik-hashing worker if it is available,
+    otherwise falls back to the original blocking inline hashing so that files
+    still get hashed on deployments without the hashing worker.
+
+    Args:
+        celery_app: The Celery application.
+        file_id: The ID of the file to hash.
+    """
+    if is_hashing_worker_available(celery_app):
+        celery_app.send_task(HASHING_TASK_NAME, args=[file_id], queue=HASHING_QUEUE_NAME)
+    else:
+        generate_hashes(file_id)
+
+
 def process_successful_task(
     db: Session, celery_task: CeleryEventTask, db_task: Task, celery_app: Celery
 ) -> None:
@@ -236,14 +295,14 @@ def process_successful_task(
         # Process any pending reports that are waiting for this file
         process_pending_file_reports(db, file_data.get("uuid"))
 
-        # TODO: Move this to a celery task to run in the background
-        generate_hashes(new_file.id)
+        # Dispatch hashing to the background worker (or hash inline if it is not
+        # available) so it does not block the mediator's sequential event loop.
+        hash_file(celery_app, new_file.id)
 
     # Create files from task log files
     for task_file_data in task_files:
         new_log_file = create_file_in_database(db, task_file_data, result_dict, db_task)
-        # TODO: Move this to a celery task to run in the background
-        generate_hashes(new_log_file.id)
+        hash_file(celery_app, new_log_file.id)
 
     for file_report in file_reports:
         create_or_defer_file_report(db, file_report, db_task.id)
