@@ -74,8 +74,13 @@ def _validate_google_token(token: str, expected_audiences: List[str]) -> dict[st
 
 
 def _validate_user_info(user_info: dict[str, Any]) -> None:
+    if user_info.get("email_verified") is not True:
+        raise HTTPException(status_code=401, detail="Unauthorized. Email not verified.")
+
+    user_email = user_info.get("email", "").strip().lower()
+
     # Allow robot accounts to login regardless of domain.
-    if user_info.get("email", "") in GOOGLE_ALLOWED_ROBOT_ACCOUNTS:
+    if user_email in [acc.strip().lower() for acc in GOOGLE_ALLOWED_ROBOT_ACCOUNTS]:
         return
 
     # Restrict logins to Google Workspace Domain if configured.
@@ -85,7 +90,7 @@ def _validate_user_info(user_info: dict[str, Any]) -> None:
     # Check if the user is allowed to login.
     if GOOGLE_PUBLIC_ACCESS:
         pass  # Let everyone in.
-    elif user_info.get("email", "") not in GOOGLE_ALLOW_LIST:
+    elif user_email not in [acc.strip().lower() for acc in GOOGLE_ALLOW_LIST]:
         raise HTTPException(status_code=401, detail="Unauthorized. Not in allowlist.")
 
 
@@ -117,7 +122,7 @@ async def auth_header_token(
     _validate_user_info(user_info)
 
     user_email = user_info.get("email", "")
-    db_user = get_user_by_email_from_db(db, email=user_email)
+    db_user = get_user_by_email_from_db(db, email=user_email, auth_method="google")
     if not db_user:
         new_user = schemas.UserCreate(
             display_name=user_info.get("name", ""),
@@ -203,7 +208,7 @@ async def auth(request: Request, db: Session = Depends(get_db_connection)) -> Re
 
     _validate_user_info(user_info)
 
-    db_user = get_user_by_email_from_db(db, email=user_email)
+    db_user = get_user_by_email_from_db(db, email=user_email, auth_method="google")
     if not db_user:
         new_user = schemas.UserCreate(
             display_name=user_info.get("name", ""),

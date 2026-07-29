@@ -57,10 +57,14 @@ def _validate_user_info(user_info: dict[str, Any]) -> None:
     Raises:
         HTTPException: If the user is not allowed to access the server.
     """
+    if user_info.get("email_verified") is not True:
+        raise HTTPException(status_code=401, detail="Unauthorized. Email not verified.")
+
     if OIDC_PUBLIC_ACCESS:
         return  # Let everyone in.
 
-    if user_info.get("email", "") not in OIDC_ALLOW_LIST:
+    user_email = user_info.get("email", "").strip().lower()
+    if user_email not in [acc.strip().lower() for acc in OIDC_ALLOW_LIST]:
         raise HTTPException(status_code=401, detail="Unauthorized. Not in allowlist.")
 
 
@@ -104,7 +108,7 @@ async def oidc_auth(request: Request, db: Session = Depends(get_db_connection)) 
     _validate_user_info(user_info)
 
     user_email = user_info.get("email", "")
-    db_user = get_user_by_email_from_db(db, email=user_email)
+    db_user = get_user_by_email_from_db(db, email=user_email, auth_method="oidc")
     if not db_user:
         new_user = schemas.UserCreate(
             display_name=user_info.get("name", ""),

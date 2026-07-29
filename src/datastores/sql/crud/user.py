@@ -45,7 +45,7 @@ def get_user_from_db(db: Session, user_id: int):
     return db.query(User).filter(User.id == user_id).first()
 
 
-def get_user_by_email_from_db(db: Session, email: str):
+def get_user_by_email_from_db(db: Session, email: str, auth_method: str | None = None):
     """Get a user by email.
 
     Args:
@@ -55,7 +55,10 @@ def get_user_by_email_from_db(db: Session, email: str):
     Returns:
         User object
     """
-    return db.query(User).filter(User.email == email).first()
+    query = db.query(User).filter(User.email == email)
+    if auth_method:
+        query = query.filter(User.auth_method == auth_method)
+    return query.first()
 
 
 def get_user_by_uuid_from_db(db: Session, uuid: str):
