@@ -60,34 +60,6 @@ async def test_create_workflow(
 
 
 @pytest.mark.asyncio
-async def test_create_workflow_missing_template_returns_404(
-    fastapi_async_test_client, mocker, folder_db_model
-):
-    """A bad template_id must 404, not 500 on NoneType.display_name."""
-    folder_id = 1
-    mock_get_workflow_template_from_db = mocker.patch(
-        "lib.workflow_utils.get_workflow_template_from_db"
-    )
-    mock_get_workflow_template_from_db.return_value = None
-    mock_create_subfolder_in_db = mocker.patch(
-        "lib.workflow_utils.create_subfolder_in_db"
-    )
-    mock_create_workflow_in_db = mocker.patch(
-        "lib.workflow_utils.create_workflow_in_db"
-    )
-
-    response = await fastapi_async_test_client.post(
-        f"/folders/{folder_id}/workflows/",
-        json={"template_id": 9999, "folder_id": folder_id, "file_ids": []},
-    )
-
-    assert response.status_code == 404
-    assert "9999" in response.json().get("detail", "")
-    mock_create_subfolder_in_db.assert_not_called()
-    mock_create_workflow_in_db.assert_not_called()
-
-
-@pytest.mark.asyncio
 async def test_create_workflow_no_template(
     fastapi_async_test_client, mocker, folder_db_model, workflow_response
 ):

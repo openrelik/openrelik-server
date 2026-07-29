@@ -20,7 +20,7 @@ from openrelik_common import logging
 
 from datastores.sql import database
 from datastores.sql.crud.folder import get_folder_from_db
-from importers.importer_utils import create_file_record, extract_file_info
+from importers.gcp.file_utils import create_file_record, extract_file_info
 from lib.file_hashes import generate_hashes
 
 PROJECT_ID = os.environ.get("GOOGLE_CLOUD_PROJECT")
