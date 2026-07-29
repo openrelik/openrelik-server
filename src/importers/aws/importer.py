@@ -11,26 +11,13 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""AWS S3/SQS importer: polls SQS for object-create events and ingests files.
-
-TODO(importer-bucket-isolation): folder mirroring uses path_parts[0] as the
-root folder and ignores bucket_name, so the same key from two different
-buckets collides in one folder tree. When multi-bucket deployments are in
-play, prepend bucket_name as the root and walk every path_parts segment as
-a subfolder. Tracked separately.
-
-TODO(importer-dedup): SQS is at-least-once; a crash between create_file_record
-and sqs.delete_message causes duplicate ingestion of the same (bucket, key,
-version) on redelivery. Needs a dedup check against a source-identity attribute
-on File (or a dedicated table with a unique constraint). Tracked separately.
-"""
+"""AWS S3/SQS importer: polls SQS for object-create events and ingests files."""
 
 import json
 import logging
 import os
 import time
 import uuid
-from datetime import datetime, timezone
 from typing import Any, Dict
 from urllib.parse import unquote_plus
 
@@ -41,13 +28,12 @@ from datastores.sql import database
 from datastores.sql.crud.user import get_user_from_db
 from datastores.sql.crud.workflow import get_workflow_template_from_db
 from datastores.sql.models.user import User
-from importers.aws.psort_fanout import compute_slice_filters, fan_out_psort
 from importers.importer_utils import (
     create_file_record,
     get_or_create_root_folder,
     get_or_create_subfolder,
     parse_positive_int_env,
-    parse_template_params
+    parse_template_params,
 )
 from lib import workflow_utils
 from lib.file_hashes import generate_hashes
@@ -73,23 +59,10 @@ AWS_IMPORT_TEMPLATE_PARAMS: Dict[str, Any] = parse_template_params(
     os.environ.get("AWS_IMPORT_TEMPLATE_PARAMS", "")
 )
 
-# Optional psort time-slicing. When AWS_IMPORT_PSORT_SLICES > 1, the importer
-# duplicates the template's psort node into that many parallel siblings, each
-# filtered to a trailing window of AWS_IMPORT_PSORT_MONTHS_PER_SLICE months.
-# Slice <= 1 (default) leaves the template untouched (a single psort run).
-# (Interim env config; will move to per-route importer config once that lands.)
-AWS_IMPORT_PSORT_SLICES: int | None = parse_positive_int_env(
-    "AWS_IMPORT_PSORT_SLICES", os.environ.get("AWS_IMPORT_PSORT_SLICES")
-)
-AWS_IMPORT_PSORT_MONTHS_PER_SLICE: int | None = parse_positive_int_env(
-    "AWS_IMPORT_PSORT_MONTHS_PER_SLICE",
-    os.environ.get("AWS_IMPORT_PSORT_MONTHS_PER_SLICE"),
-)
-
 # Files above this size are not hashed.
 HASH_SIZE_LIMIT = 10 * 1024 * 1024
 
-# SQS caps MaxNumberOfMessages at 10 and WaitTimeSeconds at 20; 
+# SQS caps MaxNumberOfMessages at 10 and WaitTimeSeconds at 20;
 # the receive-error backoff avoids busy-looping on transient errors.
 SQS_MAX_MESSAGES = 10
 SQS_WAIT_TIME_SECONDS = 20
@@ -258,6 +231,11 @@ def process_s3_record(
             logger.exception("Hashing failed for file %s", new_file_db.id)
 
     if AWS_IMPORT_TEMPLATE_ID is not None:
+        identifier = os.path.splitext(filename)[0]
+        template_params = {
+            **AWS_IMPORT_TEMPLATE_PARAMS,
+            "identifier": identifier,
+        }
         try:
             _run_template_workflow(
                 db,
@@ -265,6 +243,7 @@ def process_s3_record(
                 file_id=new_file_db.id,
                 display_name=f"{filename}.workflow",
                 user=robot_user,
+                template_params=template_params,
             )
         except Exception:
             # Currently these failures will result in the file being imported
@@ -293,6 +272,7 @@ def _run_template_workflow(
     file_id: int,
     display_name: str,
     user: User,
+    template_params: Dict[str, Any],
 ) -> None:
     """Create a workflow from the configured template and dispatch it, in-process.
 
@@ -304,32 +284,24 @@ def _run_template_workflow(
         display_name: Display name for the new workflow and its results
             subfolder.
         user: The user under which the workflow is created and run.
+        template_params: Parameter values applied to the template's task
+            configs by ``param_name`` (the static ``AWS_IMPORT_TEMPLATE_PARAMS``
+            merged with per-import values such as ``identifier``).
     """
     workflow = workflow_utils.create_workflow(
         db,
         folder_id=folder_id,
         file_ids=[file_id],
         template_id=AWS_IMPORT_TEMPLATE_ID,
-        template_params=AWS_IMPORT_TEMPLATE_PARAMS,
+        template_params=template_params,
         user=user,
         display_name=display_name,
     )
 
-    spec = json.loads(workflow.spec_json)
-    # Optionally fan the template's single psort node out into N parallel
-    # slice runs, each with its own trailing-window date filter pinned now.
-    if AWS_IMPORT_PSORT_SLICES and AWS_IMPORT_PSORT_SLICES > 1:
-        filters = compute_slice_filters(
-            AWS_IMPORT_PSORT_SLICES,
-            AWS_IMPORT_PSORT_MONTHS_PER_SLICE or 3,
-            datetime.now(timezone.utc),
-        )
-        fan_out_psort(spec, filters)
-
     workflow_utils.run_workflow(
         db,
         workflow=workflow,
-        workflow_spec=spec,
+        workflow_spec=json.loads(workflow.spec_json),
         user=user,
     )
     logger.info(
@@ -479,9 +451,6 @@ def main() -> None:
             try:
                 sqs.delete_message(QueueUrl=SQS_QUEUE_URL, ReceiptHandle=receipt_handle)
             except Exception:
-                # Delete failure means the message will be redelivered; the
-                # per-record dedup TODO above is the guard against duplicate
-                # ingestion.
                 logger.exception("Error deleting SQS message")
 
 
