@@ -394,6 +394,22 @@ def test_process_s3_record_no_workflow_when_template_id_unset(importer_lib, mock
     mock_run.assert_not_called()
 
 
+def _template_spec_with_identifier_fields(*param_names):
+    """Build a minimal spec_json string with one task_config identifier field
+    per given param_name, matching the shape _find_identifier_param_names
+    walks (a task's task_config list, nested under "tasks")."""
+    name_by_param = {
+        "s3_identifier_0": "s3_identifier",
+        "splunk_identifier_0": "splunk_identifier",
+    }
+    task_config = [
+        {"name": name_by_param.get(p, p), "param_name": p} for p in param_names
+    ]
+    return json.dumps(
+        {"workflow": {"type": "task", "task_config": task_config, "tasks": []}}
+    )
+
+
 def test_process_s3_record_runs_workflow_when_template_id_set(importer_lib, mocker):
     patches = _patch_successful_dependencies(mocker)
 
@@ -402,6 +418,18 @@ def test_process_s3_record_runs_workflow_when_template_id_set(importer_lib, mock
     mocker.patch.object(aws_importer, "AWS_IMPORT_TEMPLATE_ID", 7)
     mocker.patch.object(
         aws_importer, "AWS_IMPORT_TEMPLATE_PARAMS", {"my_param_0": "value"}
+    )
+
+    # The template has one S3 export task and one Splunk export task, each
+    # with its own identifier field (real param_names carry a _N suffix).
+    mock_template = mocker.MagicMock(
+        spec_json=_template_spec_with_identifier_fields(
+            "s3_identifier_0", "splunk_identifier_0"
+        )
+    )
+    mocker.patch(
+        "importers.aws.importer.get_workflow_template_from_db",
+        return_value=mock_template,
     )
 
     # Stub the new in-process helpers.
@@ -423,15 +451,19 @@ def test_process_s3_record_runs_workflow_when_template_id_set(importer_lib, mock
     )
 
     patches["create"].assert_called_once()
-    # Static params are merged with the per-import identifier (the
-    # uploaded filename minus its extension) so exporters can reconstruct the
-    # original artifact name.
+    # Static params are merged with the per-import identifier (the uploaded
+    # filename minus its extension), targeted at each exporter's own
+    # identifier param_name so no exporter's field can clobber another's.
     mock_create.assert_called_once_with(
         mock_db,
         folder_id=patches["folder"].id,
         file_ids=[patches["file_db"].id],
         template_id=7,
-        template_params={"my_param_0": "value", "identifier": "file"},
+        template_params={
+            "my_param_0": "value",
+            "s3_identifier_0": "file",
+            "splunk_identifier_0": "file",
+        },
         user=robot_user,
         display_name="file.txt.workflow",
     )
@@ -844,3 +876,94 @@ def test_main_skips_template_lookup_when_disabled(importer_lib, mocker):
         importer_lib["main"]()
 
     mock_template_lookup.assert_not_called()
+
+
+def test_find_identifier_param_names_single_task(importer_lib):
+    from importers.aws.importer import _find_identifier_param_names
+
+    spec = _template_spec_with_identifier_fields("s3_identifier_0")
+    assert _find_identifier_param_names(spec) == ["s3_identifier_0"]
+
+
+def test_find_identifier_param_names_nested_chord_and_callback(importer_lib):
+    """Fields must be found regardless of nesting depth, including inside a
+    chord's header tasks and its callback — the same shapes a real template
+    (extraction -> psort -> chord{S3, Splunk} -> cleanup) actually uses."""
+    from importers.aws.importer import _find_identifier_param_names
+
+    spec = json.dumps(
+        {
+            "workflow": {
+                "type": "chain",
+                "tasks": [
+                    {
+                        "type": "task",
+                        "task_config": [],
+                        "tasks": [
+                            {
+                                "type": "chord",
+                                "tasks": [
+                                    {
+                                        "type": "task",
+                                        "task_config": [
+                                            {
+                                                "name": "s3_identifier",
+                                                "param_name": "s3_identifier_0",
+                                            }
+                                        ],
+                                        "tasks": [],
+                                    },
+                                    {
+                                        "type": "task",
+                                        "task_config": [
+                                            {
+                                                "name": "splunk_identifier",
+                                                "param_name": "splunk_identifier_0",
+                                            }
+                                        ],
+                                        "tasks": [],
+                                    },
+                                ],
+                                "callback": {
+                                    "type": "task",
+                                    "task_config": [
+                                        {"name": "dry_run", "param_name": "dry_run_0"}
+                                    ],
+                                    "tasks": [],
+                                },
+                            }
+                        ],
+                    }
+                ],
+            }
+        }
+    )
+
+    result = _find_identifier_param_names(spec)
+    assert sorted(result) == ["s3_identifier_0", "splunk_identifier_0"]
+
+
+def test_find_identifier_param_names_no_matches(importer_lib):
+    """A template with no identifier-style field yields an empty list, not
+    an error — most templates won't have one."""
+    from importers.aws.importer import _find_identifier_param_names
+
+    spec = json.dumps(
+        {
+            "workflow": {
+                "type": "task",
+                "task_config": [{"name": "s3_bucket", "param_name": "s3_bucket_0"}],
+                "tasks": [],
+            }
+        }
+    )
+    assert _find_identifier_param_names(spec) == []
+
+
+def test_find_identifier_param_names_unparseable_spec_returns_empty(importer_lib):
+    """A malformed spec_json must not raise — the importer's per-file loop
+    keeps going even if the configured template turns out to be corrupt."""
+    from importers.aws.importer import _find_identifier_param_names
+
+    assert _find_identifier_param_names("not json") == []
+    assert _find_identifier_param_names(None) == []

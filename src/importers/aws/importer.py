@@ -247,14 +247,22 @@ def process_s3_record(
         # workflow out-of-band. By the time the exporters run, the pipeline has
         # fanned the IZE out into many files and collapsed them back into
         # UUID-named plaso/psort output, so no per-file field still holds the
-        # source name. The exporters substitute this into their name patterns'
-        # generic {identifier} placeholder; template authors add the
-        # per-task distinguisher (e.g. a slice suffix) around it, so this stays
-        # correct even when a template fans out into multiple psort/export tasks.
+        # source name. Each exporter has its own uniquely-named identifier field
+        # (e.g. export-s3's "s3_identifier", export-splunk's "splunk_identifier")
+        # so that setting one can never also (mis)populate a different
+        # exporter's identifier in the same template. This looks up every such
+        # field's actual param_name (which carries a template-specific _N
+        # suffix — see add_unique_parameter_names) and targets each explicitly,
+        # rather than relying on a single shared key that would clobber unless
+        # every exporter's field happened to share the same name.
         identifier = os.path.splitext(filename)[0]
+        template = get_workflow_template_from_db(db, AWS_IMPORT_TEMPLATE_ID)
+        identifier_param_names = (
+            _find_identifier_param_names(template.spec_json) if template else []
+        )
         template_params = {
             **AWS_IMPORT_TEMPLATE_PARAMS,
-            "identifier": identifier,
+            **{param_name: identifier for param_name in identifier_param_names},
         }
         try:
             _run_template_workflow(
@@ -283,6 +291,58 @@ def process_s3_record(
             return
 
     logger.info("Successfully processed s3://%s/%s", bucket_name, object_key)
+
+
+# Exporter task_config fields that accept an out-of-band identifier value, by
+# their pre-suffix "name" (see lib/workflow_spec_utils.add_unique_parameter_names
+# for how "name" becomes the "param_name" this searches by). Each exporter's
+# field is deliberately uniquely named so that setting one can never also
+# populate a different exporter's identifier field in the same template.
+_IDENTIFIER_FIELD_NAMES = frozenset({"s3_identifier", "splunk_identifier"})
+
+
+def _find_identifier_param_names(spec_json: str) -> list[str]:
+    """Find the param_name of every identifier field in a template spec.
+
+    Walks the template's task tree (chain/chord/task, same shape everywhere
+    in this codebase) and collects the param_name of every task_config entry
+    whose base "name" is one of _IDENTIFIER_FIELD_NAMES. A template that
+    fans out into multiple export tasks of the same kind yields multiple
+    param_names here — every one of them receives the same identifier value.
+
+    Args:
+        spec_json: The template's raw spec_json string.
+
+    Returns:
+        The param_name of every matching task_config field found, or an
+        empty list if the spec is unparseable or none match.
+    """
+    try:
+        spec = json.loads(spec_json)
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+    found: list[str] = []
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, dict):
+            for item in node.get("task_config") or []:
+                if (
+                    isinstance(item, dict)
+                    and item.get("name") in _IDENTIFIER_FIELD_NAMES
+                    and item.get("param_name")
+                ):
+                    found.append(item["param_name"])
+            for task in node.get("tasks") or []:
+                _walk(task)
+            if node.get("callback"):
+                _walk(node["callback"])
+        elif isinstance(node, list):
+            for item in node:
+                _walk(item)
+
+    _walk(spec.get("workflow", spec))
+    return found
 
 
 def _run_template_workflow(
