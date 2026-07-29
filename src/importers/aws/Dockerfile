@@ -1,21 +1,28 @@
 # The build image
 FROM python:3.12-slim-bookworm AS builder
 
-# Install and configure poetry
-RUN pip install poetry
-ENV POETRY_NO_INTERACTION=1 \
-    POETRY_VIRTUALENVS_IN_PROJECT=1 \
-    POETRY_VIRTUALENVS_CREATE=1 \
-    POETRY_CACHE_DIR=/tmp/poetry_cache
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Configure uv
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    UV_CACHE_DIR=/tmp/uv_cache
 
 WORKDIR /importers/aws
 
 # Copy files needed to build
-COPY pyproject.toml poetry.lock ./
-RUN touch README.md
+COPY pyproject.toml uv.lock ./
 
-# Install all dependencies
-RUN poetry install --without dev --no-root && rm -rf $POETRY_CACHE_DIR
+# Install dependencies (without dev groups)
+RUN --mount=type=cache,target=/tmp/uv_cache \
+    uv sync --frozen --no-dev
+
+# Install additional dependencies not in the server lockfile (AWS SDK + API client)
+# into the same virtualenv created by `uv sync`.
+ENV VIRTUAL_ENV=/importers/aws/.venv
+RUN --mount=type=cache,target=/tmp/uv_cache \
+    uv pip install boto3 openrelik-api-client
 
 # The runtime image
 FROM python:3.12-slim-bookworm AS runtime
@@ -31,9 +38,6 @@ ENV VIRTUAL_ENV=/importers/aws/.venv PATH="/importers/aws/.venv/bin:$PATH"
 # Copy python virtualenv from the build step
 WORKDIR /importers/aws
 COPY --from=builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
-
-# Install additional dependencies
-RUN pip install boto3 openrelik-api-client
 
 # Copy needed files
 COPY src ./openrelik_server
