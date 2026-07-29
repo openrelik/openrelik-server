@@ -707,3 +707,9 @@ async def test_create_file_chat_message_success(fastapi_async_test_client, mocke
 
     assert b"This is the LLM response" in content
     assert mock_create_file_chat_message_in_db.called
+
+
+def test_get_file_invalid_id_format(fastapi_test_client):
+    """Test get_file with non-integer file ID format (e.g. 'None')."""
+    response = fastapi_test_client.get("/files/None")
+    assert response.status_code == 400
