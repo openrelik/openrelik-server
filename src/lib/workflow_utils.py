@@ -109,6 +109,11 @@ def get_task_signature(
     if not task_info:
         raise ValueError(f"Task name {task_name} is not allowed or not registered.")
 
+    # Always generate the task/celery-task-id server-side -- task_data comes
+    # from a client-supplied workflow_spec (WorkflowRunRequest.workflow_spec
+    # has no schema/uuid validation), so trusting a caller-provided uuid here
+    # would let one tenant target another tenant's real, in-flight Celery
+    # task_id and collide with/overwrite its Redis result-backend entry.
     task_uuid = uuid4().hex
     task_data["uuid"] = task_uuid
     queue_name = task_info.get("queue_name")
@@ -386,8 +391,6 @@ def run_workflow(
     Returns:
         A Workflow instance representing the workflow that was run.
     """
-    workflow.spec_json = json.dumps(workflow_spec)
-
     input_files = [
         {
             "id": file.id,
@@ -413,6 +416,13 @@ def run_workflow(
         output_path,
         workflow,
     )
+    # create_workflow_signature() (via get_task_signature()) mutates each
+    # node's "uuid" in workflow_spec in place, assigning the server-generated
+    # task_id actually dispatched to Celery. Persist spec_json only after
+    # that walk, so the DB task rows' uuids match the spec tree the frontend
+    # matches them against -- serializing before this point would persist
+    # the pre-dispatch (client-supplied) uuids instead.
+    workflow.spec_json = json.dumps(workflow_spec)
     celery_workflow.apply_async()
 
     db.add(workflow)

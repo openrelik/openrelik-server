@@ -203,3 +203,46 @@ def test_run_workflow_persists_spec_and_dispatches(mocker, tmp_path):
     db.commit.assert_called_once()
     db.refresh.assert_called_once_with(workflow)
     assert result is workflow
+
+
+def test_run_workflow_persists_spec_after_uuid_assignment(mocker, tmp_path):
+    """spec_json must reflect the uuids actually dispatched to Celery.
+
+    create_workflow_signature() (via get_task_signature()) mutates each
+    task node's "uuid" in place, assigning the server-generated task_id.
+    spec_json must be serialized AFTER that mutation -- serializing before
+    would persist the pre-dispatch uuids, permanently diverging from the
+    DB task rows' uuids and breaking the frontend's uuid-based task lookup.
+    """
+    fake_file = mock.Mock()
+    fake_file.id = 1
+    fake_file.uuid.hex = "abc"
+    fake_file.display_name = "x"
+    fake_file.extension = ".txt"
+    fake_file.data_type = "dt"
+    fake_file.magic_mime = "text/plain"
+    fake_file.path = "/tmp/x"
+
+    workflow = mock.Mock()
+    workflow.files = [fake_file]
+    workflow.folder.path = str(tmp_path / "output")
+
+    task_node = {"type": "task", "uuid": "pre-dispatch-uuid", "tasks": []}
+    spec = {"workflow": task_node}
+
+    def fake_create_workflow_signature(db, user, task_data, *args, **kwargs):
+        # Simulate get_task_signature()'s real mutation: overwrite whatever
+        # uuid was there with a freshly generated one.
+        task_data["uuid"] = "server-generated-uuid"
+        return mock.Mock()
+
+    mocker.patch(
+        "lib.workflow_utils.create_workflow_signature",
+        side_effect=fake_create_workflow_signature,
+    )
+
+    db = mock.Mock()
+    run_workflow(db, workflow=workflow, workflow_spec=spec, user=_make_user())
+
+    persisted = json.loads(workflow.spec_json)
+    assert persisted["workflow"]["uuid"] == "server-generated-uuid"
