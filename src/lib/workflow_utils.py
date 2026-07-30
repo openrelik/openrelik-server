@@ -109,11 +109,6 @@ def get_task_signature(
     if not task_info:
         raise ValueError(f"Task name {task_name} is not allowed or not registered.")
 
-    # Always generate the task/celery-task-id server-side -- task_data comes
-    # from a client-supplied workflow_spec (WorkflowRunRequest.workflow_spec
-    # has no schema/uuid validation), so trusting a caller-provided uuid here
-    # would let one tenant target another tenant's real, in-flight Celery
-    # task_id and collide with/overwrite its Redis result-backend entry.
     task_uuid = uuid4().hex
     task_data["uuid"] = task_uuid
     queue_name = task_info.get("queue_name")
