@@ -528,7 +528,12 @@ def test_get_task_signature(
         "task_name": "test_task",
         "queue_name": "test_queue",
         "task_config": [{"name": "param1", "value": "value1"}],
-        "uuid": "test_uuid",
+        # A client-supplied uuid must never be trusted: task_data comes from
+        # WorkflowRunRequest.workflow_spec, an unvalidated client dict, and
+        # this value becomes the Celery task_id used as the Redis
+        # result-backend key. Trusting it would let one tenant collide with
+        # or overwrite another tenant's real, in-flight task result.
+        "uuid": "attacker-supplied-uuid",
     }
     input_files = []
     output_path = "/tmp/output"
@@ -545,10 +550,15 @@ def test_get_task_signature(
     created_task = mock_create_task_in_db.call_args[0][1]
     assert created_task.display_name is None
     assert created_task.description is None
-    assert created_task.uuid != "test_uuid"
+    # Always generated server-side, regardless of what task_data carried in.
+    assert created_task.uuid != "attacker-supplied-uuid"
     assert len(created_task.uuid) == 32
     assert created_task.status_short == "PENDING"
     assert json.loads(created_task.config) == {"param1": "value1"}
+    # The generated uuid is written back into task_data, so the caller's
+    # in-memory spec tree (and, once run_workflow() re-serializes it after
+    # dispatch) its persisted spec_json matches the DB task's uuid.
+    assert task_data["uuid"] == created_task.uuid
 
     task_data["task_name"] = "malicious_task"
     with pytest.raises(ValueError):
