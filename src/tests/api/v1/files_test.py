@@ -86,6 +86,41 @@ def test_get_file_content_markdown(
     assert "This is <strong>bold</strong> text." in response.text
 
 
+def test_get_file_content_markdown_sanitization(
+    fastapi_test_client,
+    mocker,
+    file_db_model,
+    setup_file_path_mock,
+):
+    """Test that get_file_content sanitizes dangerous HTML/Markdown payloads."""
+    file_db_model.extension = "md"
+    file_db_model.display_name = "malicious.md"
+    file_db_model.magic_mime = "text/markdown"
+
+    mock_get_file_from_db = mocker.patch("api.v1.files.get_file_from_db")
+    mock_get_file_from_db.return_value = file_db_model
+    file_content = (
+        "# Title\n\n"
+        "<script>alert('xss');</script>\n"
+        "<style>body { background: red; }</style>\n"
+        "<img src=x onerror=alert(1)>\n"
+        "[Dangerous](javascript:alert(1))"
+    )
+    mock_open = mocker.mock_open(read_data=file_content)
+    mocker.patch("builtins.open", mock_open)
+
+    response = fastapi_test_client.get(
+        f"/files/{file_db_model.id}/content?theme=light"
+    )
+
+    assert response.status_code == 200
+    assert "<h1>Title</h1>" in response.text
+    assert "<script>" not in response.text
+    assert "<style>body" not in response.text
+    assert "onerror" not in response.text
+    assert 'href="javascript:' not in response.text
+
+
 def test_get_file_content_file_not_found(
     fastapi_test_client, mocker, file_db_model, setup_file_path_mock
 ):

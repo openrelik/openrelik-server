@@ -21,6 +21,7 @@ from typing import List
 from uuid import uuid4
 
 import markdown
+import nh3
 import aiofiles
 import redis
 from fastapi import (
@@ -86,6 +87,29 @@ def get_file(
     return get_file_from_db(db, int(file_id))
 
 
+def sanitize_html(html_content: str) -> str:
+    """Sanitizes HTML content using nh3."""
+    return nh3.clean(
+        html_content,
+        tags={
+            "p", "div", "span", "br", "hr",
+            "h1", "h2", "h3", "h4", "h5", "h6",
+            "strong", "em", "b", "i", "code", "pre", "blockquote",
+            "ul", "ol", "li",
+            "table", "thead", "tbody", "tr", "th", "td",
+            "a", "img",
+        },
+        attributes={
+            "a": {"href", "title", "target"},
+            "img": {"src", "alt", "title"},
+            "code": {"class"},
+            "div": {"class"},
+        },
+        url_schemes={"http", "https", "mailto"},
+        link_rel="noopener noreferrer nofollow",
+    )
+
+
 # Get file content
 @router.get("/{file_id}/content", response_class=HTMLResponse)
 @require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
@@ -136,10 +160,11 @@ def get_file_content(
     csp_nonce = uuid4().hex
 
     if is_markdown:
-        rendered_md = markdown.markdown(
+        raw_md = markdown.markdown(
             content,
             extensions=["tables", "fenced_code", "nl2br", "sane_lists"]
         )
+        rendered_md = sanitize_html(raw_md)
         html_content = f"""
         <!DOCTYPE html>
         <html>
@@ -211,7 +236,7 @@ def get_file_content(
         html_source_content = html.escape(content)
         if unescaped:
             if file.data_type in ALLOWED_DATA_TYPES_PREVIEW:
-                html_source_content = content
+                html_source_content = sanitize_html(content)
 
         html_content = f"""
         <html style="background:{background_color}; scrollbar-color: {scrollbar_thumb_color} {scrollbar_track_color};">
@@ -220,7 +245,6 @@ def get_file_content(
             </body>
         </html>
         """
-    # return content
     return HTMLResponse(content=html_content, status_code=200)
 
 
