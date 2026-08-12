@@ -20,6 +20,7 @@ from datetime import datetime
 from typing import List
 from uuid import uuid4
 
+import markdown
 import aiofiles
 import redis
 from fastapi import (
@@ -119,18 +120,37 @@ def get_file_content(
         scrollbar_track_color = "#000"
         scrollbar_thumb_color = "#333"
 
-    html_source_content = html.escape(content)
-    if unescaped:
-        if file.data_type in ALLOWED_DATA_TYPES_PREVIEW:
-            html_source_content = content
+    is_markdown = (
+        (file.extension and file.extension.lower() in ["md", "markdown"])
+        or (file.display_name and file.display_name.lower().endswith((".md", ".markdown")))
+        or (file.magic_mime and file.magic_mime.lower() in ["text/markdown", "text/x-markdown"])
+    )
 
-    html_content = f"""
-    <html style="background:{background_color}; scrollbar-color: {scrollbar_thumb_color} {scrollbar_track_color};">
-        <body style="margin: 0;">
-            <pre style="color:{font_color};padding:10px;white-space: pre-wrap; margin: 0; padding: 0;">{html_source_content}</pre>
-        </body>
-    </html>
-    """
+    if is_markdown:
+        rendered_md = markdown.markdown(
+            content,
+            extensions=["tables", "fenced_code", "nl2br", "sane_lists"]
+        )
+        html_content = f"""
+        <html style="background:{background_color}; scrollbar-color: {scrollbar_thumb_color} {scrollbar_track_color};">
+            <body style="color:{font_color}; padding: 16px; margin: 0; font-family: sans-serif; line-height: 1.6;">
+                {rendered_md}
+            </body>
+        </html>
+        """
+    else:
+        html_source_content = html.escape(content)
+        if unescaped:
+            if file.data_type in ALLOWED_DATA_TYPES_PREVIEW:
+                html_source_content = content
+
+        html_content = f"""
+        <html style="background:{background_color}; scrollbar-color: {scrollbar_thumb_color} {scrollbar_track_color};">
+            <body style="margin: 0;">
+                <pre style="color:{font_color};padding:10px;white-space: pre-wrap; margin: 0; padding: 0;">{html_source_content}</pre>
+            </body>
+        </html>
+        """
     # return content
     return HTMLResponse(content=html_content, status_code=200)
 
