@@ -133,6 +133,8 @@ def get_file_content(
         or (file.magic_mime and file.magic_mime.lower() in ["text/markdown", "text/x-markdown"])
     )
 
+    csp_nonce = uuid4().hex
+
     if is_markdown:
         rendered_md = markdown.markdown(
             content,
@@ -140,9 +142,15 @@ def get_file_content(
         )
         html_content = f"""
         <!DOCTYPE html>
-        <html style="background:{background_color}; scrollbar-color: {scrollbar_thumb_color} {scrollbar_track_color};">
+        <html>
             <head>
-                <style>
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-{csp_nonce}'; script-src 'none'; img-src data: http: https:; object-src 'none'; frame-src 'none';">
+                <base target="_blank" rel="noopener noreferrer">
+                <style nonce="{csp_nonce}">
+                    html {{
+                        background: {background_color};
+                        scrollbar-color: {scrollbar_thumb_color} {scrollbar_track_color};
+                    }}
                     body {{
                         margin: 0;
                         padding: 16px;
