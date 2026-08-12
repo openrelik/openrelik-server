@@ -20,6 +20,8 @@ from datetime import datetime
 from typing import List
 from uuid import uuid4
 
+import markdown
+import nh3
 import aiofiles
 import redis
 from fastapi import (
@@ -85,6 +87,29 @@ def get_file(
     return get_file_from_db(db, int(file_id))
 
 
+def sanitize_html(html_content: str) -> str:
+    """Sanitizes HTML content using nh3."""
+    return nh3.clean(
+        html_content,
+        tags={
+            "p", "div", "span", "br", "hr",
+            "h1", "h2", "h3", "h4", "h5", "h6",
+            "strong", "em", "b", "i", "code", "pre", "blockquote",
+            "ul", "ol", "li",
+            "table", "thead", "tbody", "tr", "th", "td",
+            "a", "img",
+        },
+        attributes={
+            "a": {"href", "title", "target"},
+            "img": {"src", "alt", "title"},
+            "code": {"class"},
+            "div": {"class"},
+        },
+        url_schemes={"http", "https", "mailto"},
+        link_rel="noopener noreferrer nofollow",
+    )
+
+
 # Get file content
 @router.get("/{file_id}/content", response_class=HTMLResponse)
 @require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
@@ -111,27 +136,115 @@ def get_file_content(
             continue
     background_color = "#fff"
     font_color = "#000"
+    border_color = "#d0d7de"
+    code_bg = "#f6f8fa"
+    table_header_bg = "#f6f8fa"
     scrollbar_track_color = "#fff"
     scrollbar_thumb_color = "#ddd"
+
     if theme == "dark":
         background_color = "#0e172a"
         font_color = "#fff"
+        border_color = "#30363d"
+        code_bg = "#161b22"
+        table_header_bg = "#161b22"
         scrollbar_track_color = "#000"
         scrollbar_thumb_color = "#333"
 
-    html_source_content = html.escape(content)
-    if unescaped:
-        if file.data_type in ALLOWED_DATA_TYPES_PREVIEW:
-            html_source_content = content
+    is_markdown = (
+        (file.extension and file.extension.lower() in ["md", "markdown"])
+        or (file.display_name and file.display_name.lower().endswith((".md", ".markdown")))
+        or (file.magic_mime and file.magic_mime.lower() in ["text/markdown", "text/x-markdown"])
+    )
 
-    html_content = f"""
-    <html style="background:{background_color}; scrollbar-color: {scrollbar_thumb_color} {scrollbar_track_color};">
-        <body style="margin: 0;">
-            <pre style="color:{font_color};padding:10px;white-space: pre-wrap; margin: 0; padding: 0;">{html_source_content}</pre>
-        </body>
-    </html>
-    """
-    # return content
+    csp_nonce = uuid4().hex
+
+    if is_markdown:
+        raw_md = markdown.markdown(
+            content,
+            extensions=["tables", "fenced_code", "nl2br", "sane_lists"]
+        )
+        rendered_md = sanitize_html(raw_md)
+        html_content = f"""
+        <!DOCTYPE html>
+        <html>
+            <head>
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-{csp_nonce}'; script-src 'none'; img-src data: http: https:; object-src 'none'; frame-src 'none';">
+                <base target="_blank" rel="noopener noreferrer">
+                <style nonce="{csp_nonce}">
+                    html {{
+                        background: {background_color};
+                        scrollbar-color: {scrollbar_thumb_color} {scrollbar_track_color};
+                    }}
+                    body {{
+                        margin: 0;
+                        padding: 16px;
+                        background: {background_color};
+                        color: {font_color};
+                        font-family: sans-serif;
+                    }}
+                    .markdown-body table {{
+                        border-collapse: collapse;
+                        width: 100%;
+                        margin-bottom: 16px;
+                    }}
+                    .markdown-body table th, .markdown-body table td {{
+                        padding: 6px 13px;
+                        border: 1px solid {border_color};
+                    }}
+                    .markdown-body table th {{
+                        font-weight: 600;
+                        background-color: {table_header_bg};
+                    }}
+                    .markdown-body ul, .markdown-body ol {{
+                        padding-left: 2em;
+                        margin-bottom: 16px;
+                    }}
+                    .markdown-body blockquote {{
+                        padding: 0 1em;
+                        margin: 0 0 16px 0;
+                        border-left: 4px solid {border_color};
+                        opacity: 0.85;
+                    }}
+                    .markdown-body code {{
+                        font-family: monospace;
+                        background-color: {code_bg};
+                        padding: 0.2em 0.4em;
+                        border-radius: 4px;
+                    }}
+                    .markdown-body pre {{
+                        background-color: {code_bg};
+                        padding: 12px;
+                        border-radius: 6px;
+                        overflow-x: auto;
+                        margin: 0 0 16px 0;
+                    }}
+                    .markdown-body pre code {{
+                        background: transparent;
+                        padding: 0;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="markdown-body">
+                    {rendered_md}
+                </div>
+            </body>
+        </html>
+        """
+    else:
+        html_source_content = html.escape(content)
+        if unescaped:
+            if file.data_type in ALLOWED_DATA_TYPES_PREVIEW:
+                html_source_content = sanitize_html(content)
+
+        html_content = f"""
+        <html style="background:{background_color}; scrollbar-color: {scrollbar_thumb_color} {scrollbar_track_color};">
+            <body style="margin: 0;">
+                <pre style="color:{font_color};padding:10px;white-space: pre-wrap; margin: 0; padding: 0;">{html_source_content}</pre>
+            </body>
+        </html>
+        """
     return HTMLResponse(content=html_content, status_code=200)
 
 
