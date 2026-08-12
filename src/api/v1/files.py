@@ -112,11 +112,18 @@ def get_file_content(
             continue
     background_color = "#fff"
     font_color = "#000"
+    border_color = "#d0d7de"
+    code_bg = "#f6f8fa"
+    table_header_bg = "#f6f8fa"
     scrollbar_track_color = "#fff"
     scrollbar_thumb_color = "#ddd"
+
     if theme == "dark":
         background_color = "#0e172a"
         font_color = "#fff"
+        border_color = "#30363d"
+        code_bg = "#161b22"
+        table_header_bg = "#161b22"
         scrollbar_track_color = "#000"
         scrollbar_thumb_color = "#333"
 
@@ -132,9 +139,63 @@ def get_file_content(
             extensions=["tables", "fenced_code", "nl2br", "sane_lists"]
         )
         html_content = f"""
+        <!DOCTYPE html>
         <html style="background:{background_color}; scrollbar-color: {scrollbar_thumb_color} {scrollbar_track_color};">
-            <body style="color:{font_color}; padding: 16px; margin: 0; font-family: sans-serif; line-height: 1.6;">
-                {rendered_md}
+            <head>
+                <style>
+                    body {{
+                        margin: 0;
+                        padding: 16px;
+                        background: {background_color};
+                        color: {font_color};
+                        font-family: sans-serif;
+                    }}
+                    .markdown-body table {{
+                        border-collapse: collapse;
+                        width: 100%;
+                        margin-bottom: 16px;
+                    }}
+                    .markdown-body table th, .markdown-body table td {{
+                        padding: 6px 13px;
+                        border: 1px solid {border_color};
+                    }}
+                    .markdown-body table th {{
+                        font-weight: 600;
+                        background-color: {table_header_bg};
+                    }}
+                    .markdown-body ul, .markdown-body ol {{
+                        padding-left: 2em;
+                        margin-bottom: 16px;
+                    }}
+                    .markdown-body blockquote {{
+                        padding: 0 1em;
+                        margin: 0 0 16px 0;
+                        border-left: 4px solid {border_color};
+                        opacity: 0.85;
+                    }}
+                    .markdown-body code {{
+                        font-family: monospace;
+                        background-color: {code_bg};
+                        padding: 0.2em 0.4em;
+                        border-radius: 4px;
+                    }}
+                    .markdown-body pre {{
+                        background-color: {code_bg};
+                        padding: 12px;
+                        border-radius: 6px;
+                        overflow-x: auto;
+                        margin: 0 0 16px 0;
+                    }}
+                    .markdown-body pre code {{
+                        background: transparent;
+                        padding: 0;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="markdown-body">
+                    {rendered_md}
+                </div>
             </body>
         </html>
         """
