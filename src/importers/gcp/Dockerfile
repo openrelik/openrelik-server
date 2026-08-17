@@ -17,6 +17,9 @@ COPY pyproject.toml uv.lock ./
 # Install dependencies (without dev groups)
 RUN uv sync --frozen --no-dev
 
+# Install container-specific dependencies
+RUN uv pip install google-cloud-storage google-cloud-pubsub
+
 # The runtime image
 FROM python:3.12-slim-bookworm AS runtime
 
@@ -31,10 +34,6 @@ ENV VIRTUAL_ENV=/importers/gcp/.venv PATH="/importers/gcp/.venv/bin:$PATH"
 # Copy python virtualenv from the build step
 WORKDIR /importers/gcp
 COPY --from=builder ${VIRTUAL_ENV} ${VIRTUAL_ENV}
-
-# Install additional dependencies
-RUN pip install google-cloud-storage
-RUN pip install google-cloud-pubsub
 
 # Copy needed files
 COPY src ./openrelik_server
