@@ -37,8 +37,21 @@ csrf_token_cookie = APIKeyCookie(name="csrf_token", auto_error=False)
 
 
 # JWT settings
-JWT_SECRET_KEY = config["auth"]["secret_jwt_key"]
 JWT_ALGORITHM = config["auth"]["jwt_algorithm"]
+JWT_SECRET_KEY = config["auth"].get("secret_jwt_key")
+JWT_SECRET_KEY_FILE = config["auth"].get("secret_jwt_key_file")
+if JWT_SECRET_KEY_FILE:
+    if not os.path.exists(JWT_SECRET_KEY_FILE):
+        raise FileNotFoundError(f"secret_jwt_key file not found: {JWT_SECRET_KEY_FILE}")
+    try:
+        with open(JWT_SECRET_KEY_FILE, 'r') as f:
+            JWT_SECRET_KEY = f.read().strip()
+    except PermissionError:
+        raise PermissionError(f"Cannot read secret_jwt_key file: {JWT_SECRET_KEY_FILE}")
+    except Exception as e:
+        raise RuntimeError(f"Error reading secret_jwt_key file {JWT_SECRET_KEY_FILE}: {e}")
+if JWT_SECRET_KEY is None:
+    raise RuntimeError("No secret_jwt_key provided (c.f. setting auth.secret_jwt_key)")
 
 # Server settings
 API_SERVER_URL = config["server"].get("api_server_url")
