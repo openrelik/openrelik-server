@@ -17,6 +17,8 @@ import json
 
 from unittest import mock
 
+from celery import signature
+
 from lib.workflow_utils import (
     TemplateNotFoundError,
     create_workflow,
@@ -246,3 +248,61 @@ def test_run_workflow_persists_spec_after_uuid_assignment(mocker, tmp_path):
 
     persisted = json.loads(workflow.spec_json)
     assert persisted["workflow"]["uuid"] == "server-generated-uuid"
+
+
+def test_run_workflow_persists_uuids_of_parallel_tasks(mocker, tmp_path):
+    """Tasks inside a parallel group must get their uuids before spec_json.
+
+    celery_group() wraps a generator lazily, so building a group from a
+    generator deferred get_task_signature() (DB row + uuid rewrite) until
+    apply_async(), after spec_json had been serialized. Uses the real
+    create_workflow_signature() so the group construction is exercised.
+    """
+    workflow = mock.Mock()
+    workflow.files = []
+    workflow.folder.path = str(tmp_path / "output")
+
+    dispatched = []
+
+    def fake_get_task_signature(db, user, task_data, *args, **kwargs):
+        task_data["uuid"] = f"server-{len(dispatched)}"
+        dispatched.append(task_data["uuid"])
+        return signature("dummy.task")
+
+    mocker.patch(
+        "lib.workflow_utils.get_task_signature", side_effect=fake_get_task_signature
+    )
+    mocker.patch("celery.canvas.group.apply_async")
+    mocker.patch("celery.canvas._chain.apply_async")
+
+    def task(uuid, children=()):
+        return {"type": "task", "uuid": uuid, "tasks": list(children)}
+
+    # Root fan-out (chain with >1 tasks) and a task with >1 children: both
+    # code paths that build a celery_group.
+    spec = {
+        "workflow": {
+            "type": "chain",
+            "isRoot": True,
+            "tasks": [
+                task("client-a", [task("client-a1"), task("client-a2")]),
+                task("client-b"),
+            ],
+        }
+    }
+
+    run_workflow(mock.Mock(), workflow=workflow, workflow_spec=spec, user=_make_user())
+
+    persisted = json.loads(workflow.spec_json)
+    uuids = []
+
+    def walk(node):
+        if node.get("uuid"):
+            uuids.append(node["uuid"])
+        for child in node.get("tasks", []):
+            walk(child)
+
+    walk(persisted["workflow"])
+    assert sorted(uuids) == sorted(dispatched)
+    assert len(dispatched) == 4
+    assert not any(u.startswith("client-") for u in uuids)
