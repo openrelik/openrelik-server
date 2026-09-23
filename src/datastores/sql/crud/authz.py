@@ -73,7 +73,7 @@ def check_user_access(
     if not folder and not file:
         raise ValueError("Either folder or file must be provided.")
 
-    if file:
+    if file is not None:
         file_role = (
             db.query(UserRole)
             .filter(UserRole.user_id == user.id, UserRole.file_id == file.id)
@@ -134,7 +134,7 @@ def require_access(allowed_roles: list, http_exception: bool = True, error_messa
             file_id = kwargs.get("file_id")
             current_user = kwargs.get("current_user")
 
-            if folder_id:
+            if folder_id is not None:
                 try:
                     folder_id = int(folder_id)
                 except (ValueError, TypeError):
