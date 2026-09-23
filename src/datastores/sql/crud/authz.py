@@ -73,7 +73,7 @@ def check_user_access(
     if not folder and not file:
         raise ValueError("Either folder or file must be provided.")
 
-    if file is not None:
+    if file:
         file_role = (
             db.query(UserRole)
             .filter(UserRole.user_id == user.id, UserRole.file_id == file.id)

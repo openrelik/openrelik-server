@@ -224,3 +224,15 @@ def test_require_access_decorator_invalid_file_id(db, authz):
         dummy_endpoint(db=db, file_id="invalid", current_user=user)
     assert exc_info.value.status_code == 400
     assert "Invalid file ID format" in exc_info.value.detail
+
+def test_require_access_decorator_folder_id_zero(db, authz):
+    @require_access([Role.VIEWER])
+    def dummy_endpoint(db, folder_id, current_user):
+        return True
+
+    user = User(id=1, groups=[])
+    db.get.return_value = None
+
+    with pytest.raises(HTTPException) as exc_info:
+        dummy_endpoint(db=db, folder_id=0, current_user=user)
+    assert exc_info.value.status_code == 404
