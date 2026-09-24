@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 
 # Import OpenRelik models so Alembic finds them.
 from datastores.sql.database import BaseModel
+from datastores.sql.database import get_db_url
 from datastores.sql.models.file import (
     File,
     FileAttribute,
@@ -70,7 +71,7 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
-    url = os.environ.get("SQLALCHEMY_DATABASE_URL")
+    url = get_db_url()
     connectable = create_engine(url)
 
     # connectable = engine_from_config(

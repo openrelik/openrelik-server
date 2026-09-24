@@ -43,21 +43,49 @@ if TYPE_CHECKING:
 
 from config import config
 
-SQLALCHEMY_DATABASE_URL = config["datastores"]["sqlalchemy"]["database_url"]
-SQLALCHEMY_DATABASE_URL_ENV = os.getenv("SQLALCHEMY_DATABASE_URL")
-
 # Set SQLAlchemy connection pool settings
 SQLALCHEMY_POOL_SIZE = 20
 SQLALCHEMY_MAX_OVERFLOW = 30
 SQLALCHEMY_POOL_TIMEOUT = 60
 
-if SQLALCHEMY_DATABASE_URL_ENV:
-    SQLALCHEMY_DATABASE_URL = SQLALCHEMY_DATABASE_URL_ENV
-
 # For SQLite you need to set check_same_thread
 # engine = create_engine(
 #    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
 # )
+
+def get_db_url() -> str:
+    # config file
+    sqlalchemy_database_url = config["datastores"]["sqlalchemy"].get("database_url")
+    sqlalchemy_database_url_file = config["datastores"]["sqlalchemy"].get("database_url_file")
+
+    # env vars
+    sqlalchemy_database_url_env = os.getenv("SQLALCHEMY_DATABASE_URL")
+    sqlalchemy_database_url_env_file = os.getenv("SQLALCHEMY_DATABASE_URL_FILE")
+
+    # environment variable takes precedence
+    if sqlalchemy_database_url_env_file:
+        sqlalchemy_database_url_file = sqlalchemy_database_url_env_file
+
+    # file takes precedence over direct configuration
+    if sqlalchemy_database_url_file:
+        if not os.path.exists(sqlalchemy_database_url_file):
+            raise FileNotFoundError(f"Database URL file not found: {sqlalchemy_database_url_file}")
+        try:
+            with open(sqlalchemy_database_url_file, 'r') as f:
+                sqlalchemy_database_url = f.read().strip()
+        except PermissionError:
+            raise PermissionError(f"Cannot read database URL file: {sqlalchemy_database_url_file}")
+        except Exception as e:
+            raise RuntimeError(f"Error reading database URL file {sqlalchemy_database_url_file}: {e}")
+    elif sqlalchemy_database_url_env:
+        sqlalchemy_database_url = sqlalchemy_database_url_env
+
+    if sqlalchemy_database_url is None:
+        raise RuntimeError("No database URL provided (c.f. setting datastores.sqlalchemy.database_url)")
+
+    return sqlalchemy_database_url
+
+SQLALCHEMY_DATABASE_URL = get_db_url()
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,

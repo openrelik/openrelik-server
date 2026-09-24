@@ -96,8 +96,28 @@ async def lifespan(app: FastAPI):
 
 
 # Create the main app
+
+secret_key = config["auth"].get("secret_session_key")
+secret_key_file = config["auth"].get("secret_session_key_file")
+if secret_key_file:
+    if not os.path.exists(secret_key_file):
+        raise FileNotFoundError(f"secret_session_key file not found: {secret_key_file}")
+    try:
+        with open(secret_key_file, 'r') as f:
+            secret_key = f.read().strip()
+    except PermissionError:
+        raise PermissionError(f"Cannot read secret_session_key file: {secret_key_file}")
+    except Exception as e:
+        raise RuntimeError(f"Error reading secret_session_key file {secret_key_file}: {e}")
+
+if secret_key is None:
+    raise RuntimeError("No secret_session_key provided (c.f. setting auth.secret_session_key)")
+
 app = FastAPI(lifespan=lifespan)
-app.add_middleware(SessionMiddleware, secret_key=config["auth"]["secret_session_key"])
+app.add_middleware(SessionMiddleware, secret_key=secret_key)
+
+# avoid further usage (of course the secret is still stored in the middleware component)
+del secret_key
 
 # Create app for API version 1
 api_v1 = FastAPI()
