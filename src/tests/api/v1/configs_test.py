@@ -28,3 +28,4 @@ def test_get_system_config(fastapi_test_client, mocker):
     assert response.json()["allowed_data_types_preview"] == [
         "openrelik:hayabusa:html_report"
     ]
+    assert response.json()["artefacts_bucket"] == "EXAMPLE_BUCKET"

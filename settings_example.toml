@@ -150,3 +150,6 @@ allowed_data_types_preview = ["openrelik:hayabusa:html_report"]
 # Enable the Agent Development Kit (ADK) server.
 # Optional: if not set, the server will not be able to run agents.
 adk_server_url = ""
+
+[gcp]
+artefacts_bucket = "EXAMPLE_BUCKET"
