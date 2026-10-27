@@ -390,9 +390,14 @@ async def test_create_workflow_template(
 
 @pytest.mark.asyncio
 async def test_update_workflow_template(
-    fastapi_async_test_client, mocker, template_db_model, workflow_template_response
+    fastapi_async_test_client,
+    mocker,
+    template_db_model,
+    workflow_template_response,
+    user_response,
 ):
     """Test update workflow route."""
+    template_db_model.user_id = user_response.id
     mock_get_workflow_template_from_db = mocker.patch(
         "api.v1.workflows.get_workflow_template_from_db"
     )
@@ -442,7 +447,93 @@ async def test_update_workflow_template(
         f"/workflows/templates/{template_id}", json=updated_workflow_template_data
     )
     assert response.status_code == 200
-    assert response.json() == workflow_template_response.model_dump(mode="json")
+    expected = workflow_template_response.model_copy(
+        update={"user_id": user_response.id}
+    )
+    assert response.json() == expected.model_dump(mode="json")
+
+    # Only the name and description are updated, on the template in the path.
+    update = mock_update_workflow_template_in_db.call_args[0][1]
+    assert update.id == template_id
+    assert update.display_name == "strings"
+    assert "spec_json" not in update.model_dump()
+
+
+@pytest.mark.asyncio
+async def test_update_workflow_template_not_creator(
+    fastapi_async_test_client, mocker, template_db_model, user_response
+):
+    """Any user can rename a template, not only its creator."""
+    template_db_model.user_id = user_response.id + 1
+    mocker.patch(
+        "api.v1.workflows.get_workflow_template_from_db",
+        return_value=template_db_model,
+    )
+    mock_update = mocker.patch("api.v1.workflows.update_workflow_template_in_db")
+    mock_update.return_value = template_db_model
+
+    response = await fastapi_async_test_client.patch(
+        "/workflows/templates/1", json={"display_name": "renamed"}
+    )
+    assert response.status_code == status.HTTP_200_OK
+    mock_update.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_update_workflow_template_not_found(fastapi_async_test_client, mocker):
+    """Updating a template that does not exist is a 404."""
+    mocker.patch("api.v1.workflows.get_workflow_template_from_db", return_value=None)
+
+    response = await fastapi_async_test_client.patch(
+        "/workflows/templates/1", json={"display_name": "renamed"}
+    )
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+@pytest.mark.asyncio
+async def test_delete_workflow_template(
+    fastapi_async_test_client, mocker, template_db_model, user_response
+):
+    """The creator of a template can delete it."""
+    template_db_model.user_id = user_response.id
+    mocker.patch(
+        "api.v1.workflows.get_workflow_template_from_db",
+        return_value=template_db_model,
+    )
+    mock_delete = mocker.patch("api.v1.workflows.delete_workflow_template_from_db")
+
+    response = await fastapi_async_test_client.delete("/workflows/templates/1")
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+    mock_delete.assert_called_once()
+    assert mock_delete.call_args[0][1] == 1
+
+
+@pytest.mark.asyncio
+async def test_delete_workflow_template_not_creator(
+    fastapi_async_test_client, mocker, template_db_model, user_response
+):
+    """Only the creator of a template can delete it."""
+    template_db_model.user_id = user_response.id + 1
+    mocker.patch(
+        "api.v1.workflows.get_workflow_template_from_db",
+        return_value=template_db_model,
+    )
+    mock_delete = mocker.patch("api.v1.workflows.delete_workflow_template_from_db")
+
+    response = await fastapi_async_test_client.delete("/workflows/templates/1")
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    mock_delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_delete_workflow_template_not_found(fastapi_async_test_client, mocker):
+    """Deleting a template that does not exist is a 404."""
+    mocker.patch("api.v1.workflows.get_workflow_template_from_db", return_value=None)
+    mock_delete = mocker.patch("api.v1.workflows.delete_workflow_template_from_db")
+
+    response = await fastapi_async_test_client.delete("/workflows/templates/1")
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    mock_delete.assert_not_called()
 
 
 @pytest.mark.asyncio

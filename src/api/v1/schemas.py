@@ -402,6 +402,19 @@ class WorkflowTemplateResponse(BaseSchema):
     description: Optional[str] = None
     spec_json: str
     user_id: int
+    # The creator, so clients can name them.
+    user: Optional[UserResponseCompact] = None
+
+
+class WorkflowTemplateUpdateRequest(BaseModel):
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class WorkflowTemplateUpdate(BaseModel):
+    id: int
+    display_name: Optional[str] = None
+    description: Optional[str] = None
 
 
 class WorkflowTemplateResponseCompact(BaseModel):
