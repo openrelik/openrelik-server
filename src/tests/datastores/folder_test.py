@@ -14,12 +14,13 @@
 
 """Tests for folder CRUD operations."""
 
+import datetime
 import re
 import uuid
 import warnings
 
 import pytest
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, update
 from sqlalchemy.exc import SAWarning
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -168,8 +169,11 @@ def test_get_all_folders_from_db_search(folder_tree, sqlite_db):
 
 
 def test_get_all_folders_from_db_pagination(folder_tree, sqlite_db):
-    """Test that paging returns every folder exactly once."""
+    """Test that paging returns every folder exactly once, in a stable order."""
     me, _ = folder_tree
+    # Give all folders the same created_at so the order depends on the id tie-breaker.
+    sqlite_db.execute(update(Folder).values(created_at=datetime.datetime(2026, 1, 1)))
+    sqlite_db.commit()
 
     seen = []
     for page in range(1, 4):
@@ -178,6 +182,7 @@ def test_get_all_folders_from_db_pagination(folder_tree, sqlite_db):
 
     assert total == 5
     assert len(seen) == len(set(seen)) == total
+    assert seen == sorted(seen, reverse=True)
 
 
 @pytest.mark.parametrize(
