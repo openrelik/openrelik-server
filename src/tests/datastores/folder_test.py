@@ -14,8 +14,17 @@
 
 """Tests for folder CRUD operations."""
 
+import contextlib
+import datetime
+import re
 import uuid
+import warnings
+
 import pytest
+from sqlalchemy import create_engine, event, update
+from sqlalchemy.exc import SAWarning
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from datastores.sql.crud.folder import (
     get_root_folders_from_db,
@@ -27,41 +36,204 @@ from datastores.sql.crud.folder import (
     create_subfolder_in_db,
     delete_folder_from_db,
 )
+from datastores.sql.database import BaseModel
 from datastores.sql.models.folder import Folder
-from datastores.sql.models.user import User
+from datastores.sql.models.group import Group, GroupRole
+from datastores.sql.models.role import Role
+from datastores.sql.models.user import User, UserRole
+from datastores.sql.models.workflow import Workflow
 from api.v1 import schemas
 
 
-def test_get_root_folders_from_db(db):
+@pytest.fixture
+def sqlite_db():
+    """Real in-memory SQLite session, for tests that need to execute the generated SQL."""
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    BaseModel.metadata.create_all(engine)
+    session = sessionmaker(bind=engine)()
+    yield session
+    session.close()
+    engine.dispose()
+
+
+@pytest.fixture
+def folder_tree(sqlite_db):
+    """Users, groups and folders covering owned, shared, group-shared and deleted folders."""
+    db = sqlite_db
+
+    def new_user(name):
+        return User(display_name=name, username=name, auth_method="local", uuid=uuid.uuid4())
+
+    me, other = new_user("me"), new_user("other")
+    group = Group(name="group", uuid=uuid.uuid4(), users=[me])
+    db.add_all([me, other, group])
+    db.flush()
+
+    def new_folder(name, owner, parent=None, deleted=False):
+        folder = Folder(
+            display_name=name, uuid=uuid.uuid4(), user=owner, parent=parent, is_deleted=deleted
+        )
+        db.add(folder)
+        db.add(UserRole(user=owner, folder=folder, role=Role.OWNER))
+        db.add(Workflow(display_name=f"{name}-workflow", uuid=uuid.uuid4(), user=owner, folder=folder))
+        return folder
+
+    folders = {
+        "my_root": new_folder("my_root", me),
+        "my_deleted_root": new_folder("my_deleted_root", me, deleted=True),
+        "other_root": new_folder("other_root", other),
+        "user_shared": new_folder("user_shared", other),
+        "group_shared": new_folder("group_shared", other),
+        "deleted_shared": new_folder("deleted_shared", other, deleted=True),
+        "shared_and_owned": new_folder("shared_and_owned", other),
+    }
+    folders["my_sub"] = new_folder("my_sub", me, parent=folders["my_root"])
+    folders["my_child"] = new_folder("my_child", me, parent=folders["my_root"])
+    folders["shared_sub"] = new_folder("shared_sub", other, parent=folders["other_root"])
+    db.flush()
+
+    db.add_all(
+        [
+            UserRole(user=me, folder=folders["user_shared"], role=Role.VIEWER),
+            UserRole(user=me, folder=folders["deleted_shared"], role=Role.VIEWER),
+            UserRole(user=me, folder=folders["shared_sub"], role=Role.EDITOR),
+            UserRole(user=me, folder=folders["shared_and_owned"], role=Role.VIEWER),
+            UserRole(user=me, folder=folders["shared_and_owned"], role=Role.OWNER),
+            # File-level role, folder_id is NULL. Must not show up in the folder ID subqueries.
+            UserRole(user=me, folder_id=None, role=Role.VIEWER),
+            GroupRole(group=group, folder=folders["group_shared"], role=Role.VIEWER),
+        ]
+    )
+    db.commit()
+    return me, folders
+
+
+def _names(folders):
+    return {folder.display_name for folder in folders}
+
+
+@contextlib.contextmanager
+def _count_queries(db):
+    """Collect every SQL statement executed on the session's engine inside the block."""
+    statements = []
+
+    def _record(conn, cursor, statement, *args):
+        statements.append(statement)
+
+    engine = db.get_bind()
+    event.listen(engine, "before_cursor_execute", _record)
+    try:
+        yield statements
+    finally:
+        event.remove(engine, "before_cursor_execute", _record)
+
+
+def test_get_root_folders_from_db(folder_tree, sqlite_db):
     """Test get_root_folders_from_db."""
-    current_user = User(id=1)
-    mock_query = db.query.return_value
-    mock_join = mock_query.join.return_value
-    mock_filter = mock_join.filter.return_value
-    mock_order = mock_filter.order_by.return_value
-    mock_order.all.return_value = [Folder(id=1, parent_id=None)]
+    me, _ = folder_tree
 
-    result = get_root_folders_from_db(db, current_user)
+    result = get_root_folders_from_db(sqlite_db, me)
 
-    db.query.assert_called_once_with(Folder)
-    assert len(result) == 1
-    assert result[0].id == 1
+    assert _names(result) == {"my_root", "shared_and_owned"}
 
 
-def test_get_subfolders_from_db(db):
-    """Test get_subfolders_from_db."""
-    parent_id = 1
-    mock_query = db.query.return_value
-    mock_filter = mock_query.filter_by.return_value
-    mock_order = mock_filter.order_by.return_value
-    mock_order.all.return_value = [Folder(id=2, parent_id=parent_id)]
+def test_get_shared_folders_from_db(folder_tree, sqlite_db):
+    """Test get_shared_folders_from_db excludes owned and deleted folders."""
+    me, _ = folder_tree
 
-    result = get_subfolders_from_db(db, parent_id)
+    result = get_shared_folders_from_db(sqlite_db, me)
 
-    db.query.assert_called_once_with(Folder)
-    mock_query.filter_by.assert_called_once_with(parent_id=parent_id)
-    assert len(result) == 1
-    assert result[0].id == 2
+    assert _names(result) == {"user_shared", "group_shared", "shared_sub"}
+
+
+def test_get_all_folders_from_db_default(folder_tree, sqlite_db):
+    """Test get_all_folders_from_db in default mode (no search)."""
+    me, _ = folder_tree
+
+    folders, total = get_all_folders_from_db(sqlite_db, me)
+
+    assert _names(folders) == {
+        "my_root",
+        "shared_and_owned",
+        "user_shared",
+        "group_shared",
+        "shared_sub",
+    }
+    assert total == 5
+
+
+def test_get_all_folders_from_db_search(folder_tree, sqlite_db):
+    """Test get_all_folders_from_db in search mode includes inherited subfolders."""
+    me, _ = folder_tree
+
+    folders, total = get_all_folders_from_db(sqlite_db, me, search_term="sub")
+
+    assert _names(folders) == {"my_sub", "shared_sub"}
+    assert total == 2
+
+
+def test_get_all_folders_from_db_pagination(folder_tree, sqlite_db):
+    """Test that paging returns every folder exactly once, in a stable order."""
+    me, _ = folder_tree
+    # Give all folders the same created_at so the order depends on the id tie-breaker.
+    sqlite_db.execute(update(Folder).values(created_at=datetime.datetime(2026, 1, 1)))
+    sqlite_db.commit()
+
+    seen = []
+    for page in range(1, 4):
+        folders, total = get_all_folders_from_db(sqlite_db, me, page=page, page_size=2)
+        seen.extend(folder.id for folder in folders)
+
+    assert total == 5
+    assert len(seen) == len(set(seen)) == total
+    assert seen == sorted(seen, reverse=True)
+
+
+@pytest.mark.parametrize(
+    "list_folders",
+    [
+        lambda db, user, folders: get_root_folders_from_db(db, user),
+        lambda db, user, folders: get_shared_folders_from_db(db, user),
+        lambda db, user, folders: get_all_folders_from_db(db, user)[0],
+        lambda db, user, folders: get_all_folders_from_db(db, user, search_term="sub")[0],
+        lambda db, user, folders: get_subfolders_from_db(db, folders["my_root"].id),
+    ],
+    ids=["root", "shared", "all", "all_search", "subfolders"],
+)
+def test_folder_listing_query_count(folder_tree, sqlite_db, list_folders):
+    """Folder listings must not cross join or lazy load per folder (N+1)."""
+    me, folders = folder_tree
+    # Drop cached relationships so lazy loads would hit the database, then reload the objects
+    # used to build the query so that doesn't count either.
+    sqlite_db.expire_all()
+    sqlite_db.refresh(me)
+    sqlite_db.refresh(folders["my_root"])
+    with _count_queries(sqlite_db) as statements, warnings.catch_warnings():
+        # SQLAlchemy warns about cartesian products, fail the test if that happens. Only
+        # SQLAlchemy warnings, so unrelated deprecation warnings don't fail the test.
+        warnings.simplefilter("error", category=SAWarning)
+        listed = list_folders(sqlite_db, me, folders)
+        response = [schemas.FolderResponseCompact.model_validate(folder) for folder in listed]
+
+    assert response
+    assert all(folder.workflows for folder in response)
+    # Folder query (+ count) + one query each for eager loading users and workflows.
+    assert len(statements) <= 4
+    # Workflows must be loaded in one batch, not one lazy load per folder.
+    assert sum("FROM workflow" in statement for statement in statements) == 1
+    # No implicit cross join, e.g. "FROM (...) AS anon_1, folder WHERE ...".
+    assert not any(re.search(r",\s*folder\s+WHERE", statement) for statement in statements)
+
+
+def test_get_subfolders_from_db(folder_tree, sqlite_db):
+    """Test get_subfolders_from_db returns direct children, newest first."""
+    _, folders = folder_tree
+
+    result = get_subfolders_from_db(sqlite_db, folders["my_root"].id)
+
+    assert [folder.display_name for folder in result] == ["my_child", "my_sub"]
 
 
 def test_get_folder_from_db(db):
@@ -95,94 +267,6 @@ def test_create_root_folder_in_db(mocker, db):
     db.refresh.assert_called()
     mock_os.mkdir.assert_called_once()
     assert result.display_name == "New Folder"
-
-
-def test_get_shared_folders_from_db(mocker, db):
-    """Test get_shared_folders_from_db."""
-    current_user = User(id=1)
-
-    mock_q = mocker.MagicMock()
-    db.query.return_value = mock_q
-    mock_q.join.return_value = mock_q
-    mock_q.filter.return_value = mock_q
-    mock_q.union.return_value = mock_q
-    mock_q.select_from.return_value = mock_q
-    mock_q.outerjoin.return_value = mock_q
-    mock_q.order_by.return_value = mock_q
-
-    mock_q.all.return_value = [Folder(id=2)]
-
-    result = get_shared_folders_from_db(db, current_user)
-
-    assert len(result) == 1
-    assert result[0].id == 2
-
-
-def test_get_all_folders_from_db_default(mocker, db):
-    """Test get_all_folders_from_db in default mode (no search)."""
-    current_user = User(id=1)
-
-    mock_q = mocker.MagicMock()
-    db.query.return_value = mock_q
-    mock_q.join.return_value = mock_q
-    mock_q.filter.return_value = mock_q
-    mock_q.union.return_value = mock_q
-    mock_q.select_from.return_value = mock_q
-    mock_q.outerjoin.return_value = mock_q
-    mock_q.order_by.return_value = mock_q
-    mock_q.distinct.return_value = mock_q
-    mock_q.offset.return_value = mock_q
-    mock_q.limit.return_value = mock_q
-
-    mock_q.all.return_value = [Folder(id=1), Folder(id=2)]
-    mock_q.count.return_value = 2
-
-    folders, total = get_all_folders_from_db(db, current_user)
-
-    assert len(folders) == 2
-    assert total == 2
-
-
-def test_get_all_folders_from_db_search(mocker, db):
-    """Test get_all_folders_from_db in search mode."""
-    mock_aliased = mocker.patch("datastores.sql.crud.folder.aliased")
-    mock_select = mocker.patch("datastores.sql.crud.folder.select")
-    mock_union = mocker.patch("datastores.sql.crud.folder.union")
-
-    current_user = User(id=1)
-
-    # Mock the complex select/union CTE generation
-    mock_stmt = mocker.MagicMock()
-    mock_select.return_value = mock_stmt
-    mock_stmt.join.return_value = mock_stmt
-    mock_stmt.filter.return_value = mock_stmt
-    mock_stmt.cte.return_value = mocker.MagicMock()
-
-    # Mock aliased to return a mock that has .c.id
-    mock_cte_alias = mocker.MagicMock()
-    mock_aliased.return_value = mock_cte_alias
-
-    # Use the fluent mock trick
-    mock_q = mocker.MagicMock()
-    db.query.return_value = mock_q
-    mock_q.join.return_value = mock_q
-    mock_q.filter.return_value = mock_q
-    mock_q.union.return_value = mock_q
-    mock_q.select_from.return_value = mock_q
-    mock_q.outerjoin.return_value = mock_q
-    mock_q.order_by.return_value = mock_q
-    mock_q.distinct.return_value = mock_q
-    mock_q.offset.return_value = mock_q
-    mock_q.limit.return_value = mock_q
-
-    mock_q.all.return_value = [Folder(id=1)]
-    mock_q.count.return_value = 1
-    mock_q.scalar.return_value = 1  # For total count in search mode
-
-    folders, total = get_all_folders_from_db(db, current_user, search_term="test")
-
-    assert len(folders) == 1
-    assert total == 1
 
 
 def test_create_subfolder_in_db(mocker, db):

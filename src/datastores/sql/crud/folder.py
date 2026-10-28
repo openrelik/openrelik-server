@@ -15,8 +15,8 @@
 import os
 import uuid
 
-from sqlalchemy import and_, func, select, union, update
-from sqlalchemy.orm import Session, aliased
+from sqlalchemy import exists, func, select, union, update
+from sqlalchemy.orm import Session, aliased, selectinload
 
 from api.v1 import schemas
 from config import config
@@ -25,6 +25,61 @@ from datastores.sql.models.folder import Folder
 from datastores.sql.models.group import Group, GroupRole
 from datastores.sql.models.role import Role
 from datastores.sql.models.user import User, UserRole
+from datastores.sql.models.workflow import Workflow
+
+
+def _folder_list_options():
+    """Eager-load options for folder listings (FolderResponseCompact).
+
+    Loads the owner and workflows for all folders in two extra queries instead of one
+    lazy load per folder (N+1). Only the workflow columns used in the response are loaded.
+    """
+    return (
+        selectinload(Folder.user),
+        selectinload(Folder.workflows).load_only(Workflow.id, Workflow.display_name),
+    )
+
+
+def _shared_folder_ids(current_user: User):
+    """Build a subquery of IDs for folders shared with the user but not owned by them.
+
+    Includes folders shared directly with the user and folders shared with any group the
+    user is a member of. Built with Core select() on the role tables so that the soft-delete
+    before_compile hook (which only applies to legacy Query objects) does not inject a stray
+    FROM folder, which previously caused a cartesian product against the whole folder table.
+
+    Args:
+        current_user (User): current user
+
+    Returns:
+        Select statement with a single "id" column, for use with Folder.id.in_().
+    """
+    user_shared_ids = select(UserRole.folder_id.label("id")).where(
+        UserRole.user_id == current_user.id,
+        UserRole.role != Role.OWNER,
+        UserRole.folder_id.is_not(None),
+    )
+    group_shared_ids = (
+        select(GroupRole.folder_id.label("id"))
+        .join(Group, Group.id == GroupRole.group_id)
+        .where(
+            Group.users.any(id=current_user.id),
+            GroupRole.folder_id.is_not(None),
+        )
+    )
+    shared_ids = union(user_shared_ids, group_shared_ids).subquery()
+    # Exclude folders the user owns. NOT EXISTS lets the database use an anti-join; NOT IN
+    # falls back to rescanning the owned IDs per row when they don't fit in work_mem.
+    owner_role = aliased(UserRole, name="owner_role")
+    is_owned = (
+        exists()
+        .where(
+            owner_role.folder_id == shared_ids.c.id,
+            owner_role.user_id == current_user.id,
+            owner_role.role == Role.OWNER,
+        )
+    )
+    return select(shared_ids.c.id).where(~is_owned)
 
 
 def get_root_folders_from_db(db: Session, current_user: User):
@@ -45,7 +100,8 @@ def get_root_folders_from_db(db: Session, current_user: User):
             UserRole.role == Role.OWNER,
             Folder.parent_id.is_(None),
         )
-        .order_by(Folder.created_at.desc())
+        .options(*_folder_list_options())
+        .order_by(Folder.created_at.desc(), Folder.id.desc())
         .all()
     )
 
@@ -60,40 +116,11 @@ def get_shared_folders_from_db(db: Session, current_user: User):
     Returns:
         list: list of folders
     """
-    # Get folders shared directly with the user
-    user_folders = (
-        db.query(Folder.id.label("id"))
-        .join(UserRole, UserRole.folder_id == Folder.id)
-        .filter(
-            UserRole.user_id == current_user.id,
-            UserRole.role != Role.OWNER,
-        )
-    )
-
-    # Get folders shared with groups the user is a member of
-    group_folders = (
-        db.query(Folder.id.label("id"))
-        .join(GroupRole, GroupRole.folder_id == Folder.id)
-        .join(Group, Group.id == GroupRole.group_id)
-        .filter(Group.users.any(id=current_user.id))
-    )
-
-    # Combine the results and exclude folders where the user is the owner
-    shared_folders = user_folders.union(group_folders).subquery()
-
     return (
         db.query(Folder)
-        .join(shared_folders, Folder.id == shared_folders.c.id)  # Specify the join condition here
-        .outerjoin(
-            UserRole,
-            and_(
-                UserRole.folder_id == Folder.id,
-                UserRole.user_id == current_user.id,
-                UserRole.role == Role.OWNER,
-            ),
-        )
-        .filter(UserRole.id.is_(None))
-        .order_by(Folder.created_at.desc())
+        .filter(Folder.id.in_(_shared_folder_ids(current_user)))
+        .options(*_folder_list_options())
+        .order_by(Folder.created_at.desc(), Folder.id.desc())
         .all()
     )
 
@@ -176,62 +203,38 @@ def get_all_folders_from_db(
         search_pattern = f"%{search_term}%"
         final_query = final_query.filter(Folder.display_name.ilike(search_pattern))
 
-        subquery = final_query.subquery()
-        total_count = db.query(func.count()).select_from(subquery).scalar()
+        # The recursive CTE can reach the same folder through more than one path.
+        final_query = final_query.distinct()
 
     else:
         # --- Default View: Non-Recursive - Owned Roots + Direct Shares ---
 
-        # Query for root folders owned by the user
-        owned_root_folders_query = (
-            db.query(Folder)
-            .join(UserRole, UserRole.folder_id == Folder.id)
-            .filter(
+        # Root folders owned by the user. Joins folder for parent_id, the outer query can't
+        # filter on it as the shared folders below include subfolders.
+        owned_root_folder_ids = (
+            select(UserRole.folder_id.label("id"))
+            .join(Folder, Folder.id == UserRole.folder_id)
+            .where(
                 UserRole.user_id == current_user.id,
                 UserRole.role == Role.OWNER,
                 Folder.parent_id.is_(None),  # Owned ROOT only for default view
             )
         )
-        # Query for folders directly shared (not owned)
-        user_shared_ids = (
-            db.query(Folder.id.label("id"))
-            .join(UserRole, UserRole.folder_id == Folder.id)
-            .filter(
-                UserRole.user_id == current_user.id,
-                UserRole.role != Role.OWNER,
-            )
+        # Combine owned roots and direct shares (root and subfolders) for the default view.
+        # A single IN (UNION ...) instead of OR-ing two IN clauses, so the database can drive
+        # the query from the ID set instead of filtering every row in the folder table.
+        final_query = db.query(Folder).filter(
+            Folder.id.in_(union(owned_root_folder_ids, _shared_folder_ids(current_user)))
         )
-        group_shared_ids = (
-            db.query(Folder.id.label("id"))
-            .join(GroupRole, GroupRole.folder_id == Folder.id)
-            .join(Group, Group.id == GroupRole.group_id)
-            .filter(Group.users.any(id=current_user.id))
-        )
-        potentially_shared_folder_ids = user_shared_ids.union(group_shared_ids).subquery()
-        shared_folders_query = (
-            db.query(Folder)
-            .join(potentially_shared_folder_ids, Folder.id == potentially_shared_folder_ids.c.id)
-            .outerjoin(
-                UserRole,
-                and_(
-                    UserRole.folder_id == Folder.id,
-                    UserRole.user_id == current_user.id,
-                    UserRole.role == Role.OWNER,
-                ),
-            )
-            .filter(UserRole.id.is_(None))
-        )
-        # Combine owned roots and direct shares using UNION for the default view
-        final_query = owned_root_folders_query.union(shared_folders_query)
+
+    # Get total count before applying ordering and pagination
+    total_count = final_query.count()
 
     # --- Execute the selected query with pagination ---
-    final_query = final_query.order_by(Folder.created_at.desc())
-
-    # Use distinct() to ensure unique folder objects are returned
-    final_query = final_query.distinct()
-
-    # Get total count before applying pagination
-    total_count = final_query.count()
+    # Order by id as a tie-breaker to get stable pagination.
+    final_query = final_query.order_by(Folder.created_at.desc(), Folder.id.desc()).options(
+        *_folder_list_options()
+    )
 
     # Apply pagination
     if page_size is not None:
@@ -251,7 +254,13 @@ def get_subfolders_from_db(db: Session, parent_folder_id: str):
     Returns:
         list: list of folders
     """
-    return db.query(Folder).filter_by(parent_id=parent_folder_id).order_by(Folder.id.desc()).all()
+    return (
+        db.query(Folder)
+        .filter_by(parent_id=parent_folder_id)
+        .options(*_folder_list_options())
+        .order_by(Folder.id.desc())
+        .all()
+    )
 
 
 def get_folder_from_db(db: Session, folder_id: int):
