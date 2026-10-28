@@ -88,6 +88,7 @@ def folder_tree(sqlite_db):
         "shared_and_owned": new_folder("shared_and_owned", other),
     }
     folders["my_sub"] = new_folder("my_sub", me, parent=folders["my_root"])
+    folders["my_child"] = new_folder("my_child", me, parent=folders["my_root"])
     folders["shared_sub"] = new_folder("shared_sub", other, parent=folders["other_root"])
     db.flush()
 
@@ -182,26 +183,30 @@ def test_get_all_folders_from_db_pagination(folder_tree, sqlite_db):
 @pytest.mark.parametrize(
     "list_folders",
     [
-        get_root_folders_from_db,
-        get_shared_folders_from_db,
-        lambda db, user: get_all_folders_from_db(db, user)[0],
-        lambda db, user: get_all_folders_from_db(db, user, search_term="sub")[0],
+        lambda db, user, folders: get_root_folders_from_db(db, user),
+        lambda db, user, folders: get_shared_folders_from_db(db, user),
+        lambda db, user, folders: get_all_folders_from_db(db, user)[0],
+        lambda db, user, folders: get_all_folders_from_db(db, user, search_term="sub")[0],
+        lambda db, user, folders: get_subfolders_from_db(db, folders["my_root"].id),
     ],
+    ids=["root", "shared", "all", "all_search", "subfolders"],
 )
 def test_folder_listing_query_count(folder_tree, sqlite_db, list_folders):
     """Folder listings must not cross join or lazy load per folder (N+1)."""
-    me, _ = folder_tree
-    # Drop cached relationships so lazy loads would hit the database, then reload the user.
+    me, folders = folder_tree
+    # Drop cached relationships so lazy loads would hit the database, then reload the objects
+    # used to build the query so that doesn't count either.
     sqlite_db.expire_all()
     sqlite_db.refresh(me)
+    sqlite_db.refresh(folders["my_root"])
     statements = _count_queries(sqlite_db)
 
     with warnings.catch_warnings():
         # SQLAlchemy warns about cartesian products, fail the test if that happens. Only
         # SQLAlchemy warnings, so unrelated deprecation warnings don't fail the test.
         warnings.simplefilter("error", category=SAWarning)
-        folders = list_folders(sqlite_db, me)
-        response = [schemas.FolderResponseCompact.model_validate(folder) for folder in folders]
+        listed = list_folders(sqlite_db, me, folders)
+        response = [schemas.FolderResponseCompact.model_validate(folder) for folder in listed]
 
     assert response
     assert all(folder.workflows for folder in response)
@@ -213,20 +218,13 @@ def test_folder_listing_query_count(folder_tree, sqlite_db, list_folders):
     assert not any(re.search(r",\s*folder\s+WHERE", statement) for statement in statements)
 
 
-def test_get_subfolders_from_db(db):
-    """Test get_subfolders_from_db."""
-    parent_id = 1
-    mock_query = db.query.return_value
-    mock_filter = mock_query.filter_by.return_value
-    mock_order = mock_filter.order_by.return_value
-    mock_order.all.return_value = [Folder(id=2, parent_id=parent_id)]
+def test_get_subfolders_from_db(folder_tree, sqlite_db):
+    """Test get_subfolders_from_db returns direct children, newest first."""
+    _, folders = folder_tree
 
-    result = get_subfolders_from_db(db, parent_id)
+    result = get_subfolders_from_db(sqlite_db, folders["my_root"].id)
 
-    db.query.assert_called_once_with(Folder)
-    mock_query.filter_by.assert_called_once_with(parent_id=parent_id)
-    assert len(result) == 1
-    assert result[0].id == 2
+    assert [folder.display_name for folder in result] == ["my_child", "my_sub"]
 
 
 def test_get_folder_from_db(db):

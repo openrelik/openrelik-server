@@ -254,7 +254,13 @@ def get_subfolders_from_db(db: Session, parent_folder_id: str):
     Returns:
         list: list of folders
     """
-    return db.query(Folder).filter_by(parent_id=parent_folder_id).order_by(Folder.id.desc()).all()
+    return (
+        db.query(Folder)
+        .filter_by(parent_id=parent_folder_id)
+        .options(*_folder_list_options())
+        .order_by(Folder.id.desc())
+        .all()
+    )
 
 
 def get_folder_from_db(db: Session, folder_id: int):
