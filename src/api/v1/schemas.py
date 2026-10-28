@@ -179,9 +179,14 @@ class FolderResponseCompact(BaseSchema):
 
 class FolderListPaginatedResponse(BaseModel):
     folders: List[FolderResponseCompact]
-    page: int
+    # None for requests with a cursor (after), which don't use page numbers and skip
+    # counting.
+    page: Optional[int]
     page_size: int
-    total_count: int
+    total_count: Optional[int]
+    sort: str
+    order: str
+    next_cursor: Optional[str] = None
 
 
 class UserRoleResponse(BaseSchema):
