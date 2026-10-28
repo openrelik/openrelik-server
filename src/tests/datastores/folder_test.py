@@ -14,6 +14,7 @@
 
 """Tests for folder CRUD operations."""
 
+import contextlib
 import datetime
 import re
 import uuid
@@ -113,15 +114,20 @@ def _names(folders):
     return {folder.display_name for folder in folders}
 
 
+@contextlib.contextmanager
 def _count_queries(db):
-    """Return a list that collects every SQL statement executed on the session's engine."""
+    """Collect every SQL statement executed on the session's engine inside the block."""
     statements = []
-    event.listen(
-        db.get_bind(),
-        "before_cursor_execute",
-        lambda conn, cursor, statement, *args: statements.append(statement),
-    )
-    return statements
+
+    def _record(conn, cursor, statement, *args):
+        statements.append(statement)
+
+    engine = db.get_bind()
+    event.listen(engine, "before_cursor_execute", _record)
+    try:
+        yield statements
+    finally:
+        event.remove(engine, "before_cursor_execute", _record)
 
 
 def test_get_root_folders_from_db(folder_tree, sqlite_db):
@@ -204,9 +210,7 @@ def test_folder_listing_query_count(folder_tree, sqlite_db, list_folders):
     sqlite_db.expire_all()
     sqlite_db.refresh(me)
     sqlite_db.refresh(folders["my_root"])
-    statements = _count_queries(sqlite_db)
-
-    with warnings.catch_warnings():
+    with _count_queries(sqlite_db) as statements, warnings.catch_warnings():
         # SQLAlchemy warns about cartesian products, fail the test if that happens. Only
         # SQLAlchemy warnings, so unrelated deprecation warnings don't fail the test.
         warnings.simplefilter("error", category=SAWarning)
