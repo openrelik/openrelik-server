@@ -17,6 +17,7 @@
 import pytest
 import httpx
 
+from datastores.sql.crud.folder import InvalidCursorError
 from datastores.sql.models.role import Role
 from datastores.sql.models.user import User as UserSQLModel
 from datastores.sql.models.group import Group as GroupSQLModel
@@ -714,12 +715,90 @@ def test_get_all_folders(fastapi_test_client, mocker, folder_response_compact):
     mock_get_all_folders_from_db = mocker.patch(
         "api.v1.folders.get_all_folders_from_db"
     )
-    mock_get_all_folders_from_db.return_value = (mock_folders, 2)
+    mock_get_all_folders_from_db.return_value = (mock_folders, 2, None)
 
-    response = fastapi_test_client.get("/folders/all/")
+    # The request older clients make: no sort, order or cursor.
+    response = fastapi_test_client.get("/folders/all/?page=1&page_size=100")
     assert response.status_code == 200
     assert response.json()["folders"] == mock_folders
     assert response.json()["total_count"] == 2
+    assert response.json()["page"] == 1
+    assert response.json()["page_size"] == 100
+    assert response.json()["sort"] == "created_at"
+    assert response.json()["order"] == "desc"
+    assert response.json()["next_cursor"] is None
+    _, kwargs = mock_get_all_folders_from_db.call_args
+    assert kwargs["sort"] == "created_at"
+    assert kwargs["order"] == "desc"
+    assert kwargs["after"] is None
+
+
+def test_get_all_folders_sorted_with_cursor(
+    fastapi_test_client, mocker, folder_response_compact
+):
+    """Test that sort, order and after are passed on, and the cursor returned."""
+    mock_folders = [folder_response_compact.model_dump(mode="json")]
+    mock_get_all_folders_from_db = mocker.patch(
+        "api.v1.folders.get_all_folders_from_db"
+    )
+    mock_get_all_folders_from_db.return_value = (mock_folders, None, "next")
+
+    response = fastapi_test_client.get(
+        "/folders/all/?sort=updated_at&order=asc&after=prev&page_size=1000"
+    )
+    assert response.status_code == 200
+    assert response.json()["total_count"] is None
+    # Pages requested with a cursor have no page number.
+    assert response.json()["page"] is None
+    assert response.json()["sort"] == "updated_at"
+    assert response.json()["order"] == "asc"
+    assert response.json()["next_cursor"] == "next"
+    _, kwargs = mock_get_all_folders_from_db.call_args
+    assert (kwargs["sort"], kwargs["order"], kwargs["after"]) == (
+        "updated_at",
+        "asc",
+        "prev",
+    )
+    assert kwargs["page_size"] == 1000
+
+
+@pytest.mark.parametrize(
+    "query", ["sort=size", "order=up", "page=0", "page=-1", "page_size=-1"]
+)
+def test_get_all_folders_invalid_sort(fastapi_test_client, mocker, query):
+    """Test that unknown sort keys and orders, and invalid pages, are rejected."""
+    mock_get_all_folders_from_db = mocker.patch(
+        "api.v1.folders.get_all_folders_from_db"
+    )
+
+    response = fastapi_test_client.get(f"/folders/all/?{query}")
+    assert response.status_code == 422
+    mock_get_all_folders_from_db.assert_not_called()
+
+
+def test_get_all_folders_zero_page_size(fastapi_test_client, mocker):
+    """Test that a page size of zero is still accepted, as before."""
+    mock_get_all_folders_from_db = mocker.patch(
+        "api.v1.folders.get_all_folders_from_db"
+    )
+    mock_get_all_folders_from_db.return_value = ([], 2, None)
+
+    response = fastapi_test_client.get("/folders/all/?page_size=0")
+    assert response.status_code == 200
+    assert response.json()["folders"] == []
+    assert response.json()["total_count"] == 2
+
+
+def test_get_all_folders_invalid_cursor(fastapi_test_client, mocker):
+    """Test that an invalid cursor is a 422, not a server error."""
+    mocker.patch(
+        "api.v1.folders.get_all_folders_from_db",
+        side_effect=InvalidCursorError("invalid cursor"),
+    )
+
+    response = fastapi_test_client.get("/folders/all/?after=garbage")
+    assert response.status_code == 422
+    assert response.json()["detail"] == "invalid cursor"
 
 
 @pytest.mark.asyncio

@@ -12,10 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import base64
+import binascii
+import datetime
+import json
 import os
 import uuid
+from typing import Literal, get_args
 
-from sqlalchemy import exists, func, select, union, update
+from sqlalchemy import exists, func, literal, select, tuple_, union, update
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from api.v1 import schemas
@@ -125,13 +130,93 @@ def get_shared_folders_from_db(db: Session, current_user: User):
     )
 
 
+# Columns get_all_folders_from_db can sort by. Names sort case-insensitively.
+FolderSortKey = Literal["created_at", "updated_at", "display_name"]
+FolderSortOrder = Literal["asc", "desc"]
+FOLDER_SORT_KEYS = get_args(FolderSortKey)
+FOLDER_SORT_ORDERS = get_args(FolderSortOrder)
+
+# Largest folder ID, the range of the BigInteger primary key.
+_MAX_FOLDER_ID = 2**63 - 1
+
+
+class InvalidCursorError(ValueError):
+    """Raised when a folder listing cursor can't be decoded or doesn't match the listing."""
+
+
+def _sort_column(sort: str):
+    if sort == "display_name":
+        return func.lower(Folder.display_name)
+    return getattr(Folder, sort)
+
+
+def encode_folder_cursor(
+    folder: Folder, sort: str, order: str, search_term: str | None = None
+) -> str:
+    """Encode the position after folder in a listing sorted by sort and order.
+
+    Args:
+        folder (Folder): last folder of a page
+        sort (str): sort key, one of FOLDER_SORT_KEYS
+        order (str): "asc" or "desc"
+        search_term (str | None): search term of the listing, if any
+
+    Returns:
+        str: opaque cursor for the next page
+    """
+    value = getattr(folder, sort)
+    if isinstance(value, datetime.datetime):
+        value = value.isoformat()
+    payload = {
+        "sort": sort,
+        "order": order,
+        "q": search_term or None,
+        "value": value,
+        "id": folder.id,
+    }
+    return base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+
+
+def _decode_folder_cursor(cursor: str, sort: str, order: str, search_term: str | None):
+    """Decode a cursor from encode_folder_cursor into (value, id).
+
+    Raises:
+        InvalidCursorError: if the cursor is malformed or was made for another listing
+            (another sort, order or search term).
+    """
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(cursor.encode()))
+        value, folder_id = payload["value"], payload["id"]
+        listing = (payload["sort"], payload["order"], payload["q"])
+        if sort == "display_name":
+            if not isinstance(value, str):
+                raise TypeError("display_name cursor value must be a string")
+        else:
+            value = datetime.datetime.fromisoformat(value)
+    except (binascii.Error, ValueError, KeyError, TypeError, AttributeError) as e:
+        raise InvalidCursorError("invalid cursor") from e
+    # bool is a subclass of int, but not an ID.
+    if (
+        not isinstance(folder_id, int)
+        or isinstance(folder_id, bool)
+        or not 0 < folder_id <= _MAX_FOLDER_ID
+    ):
+        raise InvalidCursorError("invalid cursor")
+    if listing != (sort, order, search_term or None):
+        raise InvalidCursorError("cursor is for another listing (sort, order or search term)")
+    return value, folder_id
+
+
 def get_all_folders_from_db(
     db: Session,
     current_user: User,
     search_term: str | None = None,
     page: int = 1,
     page_size: int = 100,
-) -> tuple[list[Folder], int]:
+    sort: FolderSortKey = "created_at",
+    order: FolderSortOrder = "desc",
+    after: str | None = None,
+) -> tuple[list[Folder], int | None, str | None]:
     """
     Retrieves accessible folders with conditional logic based on search term.
 
@@ -146,12 +231,33 @@ def get_all_folders_from_db(
         db (Session): database session
         current_user (User): current user
         search_term (str | None, optional): Term to filter folder names by
-        page (int, optional): Page number. Defaults to 1.
+        page (int, optional): Page number. Defaults to 1. Ignored when after is set.
         page_size (int, optional): Number of records per page.
+        sort (str, optional): Sort key, one of FOLDER_SORT_KEYS. Defaults to created_at.
+        order (str, optional): "asc" or "desc". Defaults to desc.
+        after (str | None, optional): Cursor from a previous call; returns the folders
+            after it instead of a page. Unlike page offsets, folders created or deleted
+            while paging don't shift the remaining pages.
 
     Returns:
-        list[Folder]: List of folders based on the mode, ordered by creation date desc.
+        tuple: the folders, the total count (None when after is set, as counting on
+        every page is expensive), and a cursor for the next folders (None after the
+        last ones).
+
+    Raises:
+        ValueError: if sort or order is not supported, page is below 1 or page_size is
+            negative.
+        InvalidCursorError: if after is malformed or was made for another listing.
     """
+    if sort not in FOLDER_SORT_KEYS:
+        raise ValueError(f"unsupported sort: {sort!r}")
+    if order not in FOLDER_SORT_ORDERS:
+        raise ValueError(f"unsupported order: {order!r}")
+    if page < 1:
+        raise ValueError(f"page must be 1 or more, not {page}")
+    if page_size is not None and page_size < 0:
+        raise ValueError(f"page_size must not be negative, not {page_size}")
+
 
     final_query = None
 
@@ -194,17 +300,15 @@ def get_all_folders_from_db(
         accessible_folders_cte = accessible_folders_cte.union_all(recursive_part)
 
         # Step 3: Query Folders using the CTE and Apply Filters
-        # Join Folder with CTE results to get only accessible folders
-        final_query = db.query(Folder).join(
-            accessible_folders_cte, Folder.id == accessible_folders_cte.c.id
+        # The recursive CTE can reach the same folder through more than one path; IN
+        # matches each folder once, without a DISTINCT that would restrict the ORDER BY.
+        final_query = db.query(Folder).filter(
+            Folder.id.in_(select(accessible_folders_cte.c.id))
         )
 
         # Apply Search Filter
         search_pattern = f"%{search_term}%"
         final_query = final_query.filter(Folder.display_name.ilike(search_pattern))
-
-        # The recursive CTE can reach the same folder through more than one path.
-        final_query = final_query.distinct()
 
     else:
         # --- Default View: Non-Recursive - Owned Roots + Direct Shares ---
@@ -227,21 +331,42 @@ def get_all_folders_from_db(
             Folder.id.in_(union(owned_root_folder_ids, _shared_folder_ids(current_user)))
         )
 
-    # Get total count before applying ordering and pagination
-    total_count = final_query.count()
+    if after:
+        value, last_id = _decode_folder_cursor(after, sort, order, search_term)
+        last_value = literal(value)
+        if sort == "display_name":
+            # The cursor holds the raw name, lowercased here by the database like the
+            # sort column. Python's str.lower() differs for some names (e.g. "İ", final
+            # sigma) and the database's depends on its locale, so a cursor lowercased in
+            # Python could skip or repeat folders.
+            last_value = func.lower(last_value)
+        position = tuple_(_sort_column(sort), Folder.id)
+        last = tuple_(last_value, literal(last_id))
+        final_query = final_query.filter(position > last if order == "asc" else position < last)
+        total_count = None
+    else:
+        # Get total count before applying ordering and pagination
+        total_count = final_query.count()
 
     # --- Execute the selected query with pagination ---
     # Order by id as a tie-breaker to get stable pagination.
-    final_query = final_query.order_by(Folder.created_at.desc(), Folder.id.desc()).options(
-        *_folder_list_options()
-    )
+    final_query = final_query.order_by(
+        getattr(_sort_column(sort), order)(), getattr(Folder.id, order)()
+    ).options(*_folder_list_options())
 
-    # Apply pagination
-    if page_size is not None:
-        offset = (page - 1) * page_size
-        final_query = final_query.offset(offset).limit(page_size)
-
-    return final_query.all(), total_count
+    # Apply pagination. One extra row tells whether there is a next page.
+    if page_size is None:
+        return final_query.all(), total_count, None
+    if not after:
+        final_query = final_query.offset((page - 1) * page_size)
+    folders = final_query.limit(page_size + 1).all()
+    has_more = len(folders) > page_size
+    folders = folders[:page_size]
+    next_cursor = None
+    # With page_size 0, the extra row leaves no folder to build a cursor from.
+    if has_more and folders:
+        next_cursor = encode_folder_cursor(folders[-1], sort, order, search_term)
+    return folders, total_count, next_cursor
 
 
 def get_subfolders_from_db(db: Session, parent_folder_id: str):

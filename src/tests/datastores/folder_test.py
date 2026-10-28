@@ -14,8 +14,10 @@
 
 """Tests for folder CRUD operations."""
 
+import base64
 import contextlib
 import datetime
+import json
 import re
 import uuid
 import warnings
@@ -33,6 +35,7 @@ from datastores.sql.crud.folder import (
     create_root_folder_in_db,
     get_shared_folders_from_db,
     get_all_folders_from_db,
+    InvalidCursorError,
     create_subfolder_in_db,
     delete_folder_from_db,
 )
@@ -152,8 +155,9 @@ def test_get_all_folders_from_db_default(folder_tree, sqlite_db):
     """Test get_all_folders_from_db in default mode (no search)."""
     me, _ = folder_tree
 
-    folders, total = get_all_folders_from_db(sqlite_db, me)
+    folders, total, next_cursor = get_all_folders_from_db(sqlite_db, me)
 
+    assert next_cursor is None
     assert _names(folders) == {
         "my_root",
         "shared_and_owned",
@@ -168,7 +172,7 @@ def test_get_all_folders_from_db_search(folder_tree, sqlite_db):
     """Test get_all_folders_from_db in search mode includes inherited subfolders."""
     me, _ = folder_tree
 
-    folders, total = get_all_folders_from_db(sqlite_db, me, search_term="sub")
+    folders, total, _ = get_all_folders_from_db(sqlite_db, me, search_term="sub")
 
     assert _names(folders) == {"my_sub", "shared_sub"}
     assert total == 2
@@ -183,12 +187,250 @@ def test_get_all_folders_from_db_pagination(folder_tree, sqlite_db):
 
     seen = []
     for page in range(1, 4):
-        folders, total = get_all_folders_from_db(sqlite_db, me, page=page, page_size=2)
+        folders, total, _ = get_all_folders_from_db(sqlite_db, me, page=page, page_size=2)
         seen.extend(folder.id for folder in folders)
 
     assert total == 5
     assert len(seen) == len(set(seen)) == total
     assert seen == sorted(seen, reverse=True)
+
+
+def _set_times(db, folders, updated=None, created=None):
+    """Set updated_at and created_at of the named folders, and of the others to 2025-01-01.
+
+    Both columns are set in each update, as any update sets updated_at to now(). Also, in
+    SQLite, timestamps from now() don't compare correctly with bound datetimes (they're
+    compared as strings in different formats).
+    """
+    base = datetime.datetime(2025, 1, 1)
+    db.execute(update(Folder).values(updated_at=base, created_at=base))
+    for name in set(updated or {}) | set(created or {}):
+        values = {
+            "updated_at": (updated or {}).get(name, base),
+            "created_at": (created or {}).get(name, base),
+        }
+        db.execute(update(Folder).where(Folder.id == folders[name].id).values(values))
+    db.commit()
+
+
+def _walk(db, user, page_size, **kwargs):
+    """Follow next_cursor from the first page to the end, returning the folders in order."""
+    folders, total, next_cursor = get_all_folders_from_db(db, user, page_size=page_size, **kwargs)
+    pages = 1
+    while next_cursor:
+        assert pages < 20, "cursor doesn't advance"
+        page, page_total, next_cursor = get_all_folders_from_db(
+            db, user, page_size=page_size, after=next_cursor, **kwargs
+        )
+        assert page_total is None, "requests with a cursor must not count"
+        folders.extend(page)
+        pages += 1
+    return folders, total, pages
+
+
+@pytest.mark.parametrize(
+    "sort, order, expected",
+    [
+        (
+            "updated_at",
+            "asc",
+            ["shared_sub", "user_shared", "my_root", "group_shared", "shared_and_owned"],
+        ),
+        (
+            "updated_at",
+            "desc",
+            ["shared_and_owned", "group_shared", "my_root", "user_shared", "shared_sub"],
+        ),
+        (
+            "display_name",
+            "asc",
+            ["group_shared", "my_root", "shared_and_owned", "shared_sub", "user_shared"],
+        ),
+        (
+            "created_at",
+            "desc",
+            ["shared_and_owned", "group_shared", "user_shared", "my_root", "shared_sub"],
+        ),
+    ],
+)
+@pytest.mark.parametrize("page_size", [1, 2, 5, 100])
+def test_get_all_folders_from_db_sort_and_cursor(
+    folder_tree, sqlite_db, sort, order, expected, page_size
+):
+    """Cursor paging returns every folder once, in the requested order."""
+    me, folders = folder_tree
+    day = lambda d: datetime.datetime(2026, 1, d)
+    # Names sort case-insensitively. Renamed before setting the times, as updates set
+    # updated_at.
+    sqlite_db.execute(
+        update(Folder).where(Folder.id == folders["my_root"].id).values(display_name="My_root")
+    )
+    # my_root and group_shared share an update time, so the id breaks the tie.
+    _set_times(
+        sqlite_db,
+        folders,
+        updated={
+            "shared_sub": day(1),
+            "user_shared": day(2),
+            "my_root": day(3),
+            "group_shared": day(3),
+            "shared_and_owned": day(4),
+        },
+        created={
+            "shared_sub": day(1),
+            "my_root": day(2),
+            "user_shared": day(3),
+            "group_shared": day(4),
+            "shared_and_owned": day(5),
+        },
+    )
+    expected = ["My_root" if name == "my_root" else name for name in expected]
+
+    listed, total, pages = _walk(sqlite_db, me, page_size, sort=sort, order=order)
+
+    assert total == 5
+    assert [folder.display_name for folder in listed] == expected
+    assert pages == -(-5 // page_size)
+
+
+def test_get_all_folders_from_db_cursor_is_stable(folder_tree, sqlite_db):
+    """Folders created while paging don't shift or repeat the remaining folders."""
+    me, folders = folder_tree
+    _set_times(sqlite_db, folders)
+    first, total, next_cursor = get_all_folders_from_db(sqlite_db, me, page_size=2)
+    new = Folder(
+        display_name="new_root",
+        uuid=uuid.uuid4(),
+        user=me,
+        created_at=datetime.datetime(2026, 1, 1),
+    )
+    sqlite_db.add_all([new, UserRole(user=me, folder=new, role=Role.OWNER)])
+    sqlite_db.commit()
+
+    rest = []
+    while next_cursor:
+        assert len(rest) < 20, "cursor doesn't advance"
+        page, _, next_cursor = get_all_folders_from_db(
+            sqlite_db, me, page_size=2, after=next_cursor
+        )
+        rest.extend(page)
+
+    ids = [folder.id for folder in first + rest]
+    assert len(ids) == len(set(ids)) == total
+    # The newest folder sorts first, before the cursor, so it isn't returned.
+    assert new.id not in ids
+
+
+@pytest.mark.parametrize(
+    "cursor",
+    ["not base64!", "e30=", "bm90IGpzb24="],
+    ids=["garbled", "empty object", "not json"],
+)
+def test_get_all_folders_from_db_invalid_cursor(folder_tree, sqlite_db, cursor):
+    """Malformed cursors are rejected."""
+    me, _ = folder_tree
+    with pytest.raises(InvalidCursorError):
+        get_all_folders_from_db(sqlite_db, me, after=cursor)
+
+
+def test_get_all_folders_from_db_cursor_for_other_sort(folder_tree, sqlite_db):
+    """A cursor can only continue the listing it came from."""
+    me, folders = folder_tree
+    _set_times(sqlite_db, folders)
+    _, _, next_cursor = get_all_folders_from_db(sqlite_db, me, page_size=1, sort="updated_at")
+    with pytest.raises(InvalidCursorError):
+        get_all_folders_from_db(sqlite_db, me, page_size=1, sort="display_name", after=next_cursor)
+    with pytest.raises(InvalidCursorError):
+        get_all_folders_from_db(
+            sqlite_db, me, page_size=1, sort="updated_at", order="asc", after=next_cursor
+        )
+
+
+def _cursor(**payload):
+    return base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+
+
+@pytest.mark.parametrize(
+    "sort, payload",
+    [
+        ("display_name", {"value": 5, "id": 1}),
+        ("display_name", {"value": None, "id": 1}),
+        ("updated_at", {"value": "yesterday", "id": 1}),
+        ("display_name", {"value": "a", "id": "1"}),
+        ("display_name", {"value": "a", "id": True}),
+        ("display_name", {"value": "a", "id": 1.5}),
+        ("display_name", {"value": "a", "id": 0}),
+        ("display_name", {"value": "a", "id": 2**63}),
+    ],
+    ids=[
+        "name not a string",
+        "name null",
+        "time not a timestamp",
+        "id a string",
+        "id a bool",
+        "id a float",
+        "id zero",
+        "id too large",
+    ],
+)
+def test_get_all_folders_from_db_tampered_cursor(folder_tree, sqlite_db, sort, payload):
+    """Well-formed cursors with values of the wrong type or range are rejected."""
+    me, _ = folder_tree
+    cursor = _cursor(sort=sort, order="desc", q=None, **payload)
+    with pytest.raises(InvalidCursorError):
+        get_all_folders_from_db(sqlite_db, me, sort=sort, after=cursor)
+
+
+def test_get_all_folders_from_db_cursor_for_other_search(folder_tree, sqlite_db):
+    """A cursor from a listing can't continue a search, or another search, and back."""
+    me, folders = folder_tree
+    _set_times(sqlite_db, folders)
+    _, _, listing_cursor = get_all_folders_from_db(sqlite_db, me, page_size=1)
+    _, _, search_cursor = get_all_folders_from_db(sqlite_db, me, page_size=1, search_term="sub")
+    for search_term, cursor in [
+        ("sub", listing_cursor),
+        (None, search_cursor),
+        ("my", search_cursor),
+    ]:
+        with pytest.raises(InvalidCursorError):
+            get_all_folders_from_db(
+                sqlite_db, me, page_size=1, search_term=search_term, after=cursor
+            )
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [{"sort": "user_id"}, {"order": "ASC"}, {"page": 0}, {"page": -1}, {"page_size": -1}],
+)
+def test_get_all_folders_from_db_unsupported_sort(folder_tree, sqlite_db, kwargs):
+    """Only the documented sort keys and orders, and valid pages, are accepted."""
+    me, _ = folder_tree
+    with pytest.raises(ValueError):
+        get_all_folders_from_db(sqlite_db, me, **kwargs)
+
+
+def test_get_all_folders_from_db_zero_page_size(folder_tree, sqlite_db):
+    """A page size of zero returns no folders and no cursor, as before cursors."""
+    me, _ = folder_tree
+
+    folders, total, next_cursor = get_all_folders_from_db(sqlite_db, me, page_size=0)
+
+    assert folders == []
+    assert total == 5
+    assert next_cursor is None
+
+
+def test_get_all_folders_from_db_search_with_cursor(folder_tree, sqlite_db):
+    """Cursor paging also works for searches."""
+    me, _ = folder_tree
+
+    listed, total, pages = _walk(
+        sqlite_db, me, 1, search_term="sub", sort="display_name", order="asc"
+    )
+
+    assert total == 2
+    assert [folder.display_name for folder in listed] == ["my_sub", "shared_sub"]
+    assert pages == 2
 
 
 @pytest.mark.parametrize(

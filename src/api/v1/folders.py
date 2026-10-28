@@ -18,7 +18,7 @@ import uuid
 from typing import List
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from sse_starlette import EventSourceResponse
 
@@ -27,6 +27,9 @@ from auth.common import get_current_active_user
 from datastores.sql.crud.authz import check_user_access, require_access
 from datastores.sql.crud.file import get_files_from_db
 from datastores.sql.crud.folder import (
+    FolderSortKey,
+    FolderSortOrder,
+    InvalidCursorError,
     create_root_folder_in_db,
     create_subfolder_in_db,
     delete_folder_from_db,
@@ -104,28 +107,53 @@ def get_shared_folders(
 def get_all_folders(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
-    page: int = 1,
-    page_size: int = 40,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(40, ge=0),
     q: str | None = None,
+    sort: FolderSortKey = "created_at",
+    order: FolderSortOrder = "desc",
+    after: str | None = None,
 ) -> schemas.FolderListPaginatedResponse:
-    """Get all shared folders for a user.
+    """Get the user's root folders and the folders shared with them, or search them.
+
+    Pages can be requested by number, or by passing the next_cursor of the previous
+    response as after. Cursors don't skip or repeat folders when folders are created
+    or deleted while paging, and total_count is only computed for the first request.
 
     Args:
         db (Session): database session
         current_user (User): current user
+        page (int): page number, ignored when after is set (and returned as None)
+        page_size (int): number of folders per page
         q (str | None): search term
+        sort (str): created_at, updated_at or display_name (case-insensitive)
+        order (str): asc or desc
+        after (str | None): cursor from a previous response's next_cursor
 
     Returns:
-        list: list of folders
+        FolderListPaginatedResponse: folders with pagination metadata
     """
-    result, total_count = get_all_folders_from_db(
-        db, current_user, search_term=q, page=page, page_size=page_size
-    )
+    try:
+        result, total_count, next_cursor = get_all_folders_from_db(
+            db,
+            current_user,
+            search_term=q,
+            page=page,
+            page_size=page_size,
+            sort=sort,
+            order=order,
+            after=after,
+        )
+    except InvalidCursorError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     response = schemas.FolderListPaginatedResponse(
         folders=result,
         total_count=total_count,
-        page=page,
+        page=None if after else page,
         page_size=page_size,
+        sort=sort,
+        order=order,
+        next_cursor=next_cursor,
     )
     return response
 
