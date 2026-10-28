@@ -20,6 +20,7 @@ import warnings
 
 import pytest
 from sqlalchemy import create_engine, event
+from sqlalchemy.exc import SAWarning
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -97,7 +98,7 @@ def folder_tree(sqlite_db):
             UserRole(user=me, folder=folders["shared_sub"], role=Role.EDITOR),
             UserRole(user=me, folder=folders["shared_and_owned"], role=Role.VIEWER),
             UserRole(user=me, folder=folders["shared_and_owned"], role=Role.OWNER),
-            # File-level role, folder_id is NULL. Must not break NOT IN subqueries.
+            # File-level role, folder_id is NULL. Must not show up in the folder ID subqueries.
             UserRole(user=me, folder_id=None, role=Role.VIEWER),
             GroupRole(group=group, folder=folders["group_shared"], role=Role.VIEWER),
         ]
@@ -196,8 +197,9 @@ def test_folder_listing_query_count(folder_tree, sqlite_db, list_folders):
     statements = _count_queries(sqlite_db)
 
     with warnings.catch_warnings():
-        # SQLAlchemy warns about cartesian products, fail the test if that happens.
-        warnings.simplefilter("error")
+        # SQLAlchemy warns about cartesian products, fail the test if that happens. Only
+        # SQLAlchemy warnings, so unrelated deprecation warnings don't fail the test.
+        warnings.simplefilter("error", category=SAWarning)
         folders = list_folders(sqlite_db, me)
         response = [schemas.FolderResponseCompact.model_validate(folder) for folder in folders]
 

@@ -15,7 +15,7 @@
 import os
 import uuid
 
-from sqlalchemy import func, or_, select, union, update
+from sqlalchemy import exists, func, select, union, update
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from api.v1 import schemas
@@ -54,11 +54,6 @@ def _shared_folder_ids(current_user: User):
     Returns:
         Select statement with a single "id" column, for use with Folder.id.in_().
     """
-    owned_folder_ids = select(UserRole.folder_id).where(
-        UserRole.user_id == current_user.id,
-        UserRole.role == Role.OWNER,
-        UserRole.folder_id.is_not(None),
-    )
     user_shared_ids = select(UserRole.folder_id.label("id")).where(
         UserRole.user_id == current_user.id,
         UserRole.role != Role.OWNER,
@@ -73,7 +68,18 @@ def _shared_folder_ids(current_user: User):
         )
     )
     shared_ids = union(user_shared_ids, group_shared_ids).subquery()
-    return select(shared_ids.c.id).where(shared_ids.c.id.not_in(owned_folder_ids))
+    # Exclude folders the user owns. NOT EXISTS lets the database use an anti-join; NOT IN
+    # falls back to rescanning the owned IDs per row when they don't fit in work_mem.
+    owner_role = aliased(UserRole, name="owner_role")
+    is_owned = (
+        exists()
+        .where(
+            owner_role.folder_id == shared_ids.c.id,
+            owner_role.user_id == current_user.id,
+            owner_role.role == Role.OWNER,
+        )
+    )
+    return select(shared_ids.c.id).where(~is_owned)
 
 
 def get_root_folders_from_db(db: Session, current_user: User):
@@ -203,20 +209,22 @@ def get_all_folders_from_db(
     else:
         # --- Default View: Non-Recursive - Owned Roots + Direct Shares ---
 
-        # Root folders owned by the user
-        owned_root_folder_ids = select(UserRole.folder_id).join(
-            Folder, Folder.id == UserRole.folder_id
-        ).where(
-            UserRole.user_id == current_user.id,
-            UserRole.role == Role.OWNER,
-            Folder.parent_id.is_(None),  # Owned ROOT only for default view
-        )
-        # Combine owned roots and direct shares (root and subfolders) for the default view
-        final_query = db.query(Folder).filter(
-            or_(
-                Folder.id.in_(owned_root_folder_ids),
-                Folder.id.in_(_shared_folder_ids(current_user)),
+        # Root folders owned by the user. Joins folder for parent_id, the outer query can't
+        # filter on it as the shared folders below include subfolders.
+        owned_root_folder_ids = (
+            select(UserRole.folder_id.label("id"))
+            .join(Folder, Folder.id == UserRole.folder_id)
+            .where(
+                UserRole.user_id == current_user.id,
+                UserRole.role == Role.OWNER,
+                Folder.parent_id.is_(None),  # Owned ROOT only for default view
             )
+        )
+        # Combine owned roots and direct shares (root and subfolders) for the default view.
+        # A single IN (UNION ...) instead of OR-ing two IN clauses, so the database can drive
+        # the query from the ID set instead of filtering every row in the folder table.
+        final_query = db.query(Folder).filter(
+            Folder.id.in_(union(owned_root_folder_ids, _shared_folder_ids(current_user)))
         )
 
     # Get total count before applying ordering and pagination
