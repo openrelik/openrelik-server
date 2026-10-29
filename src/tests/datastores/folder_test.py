@@ -24,7 +24,7 @@ import warnings
 
 import pytest
 from sqlalchemy import create_engine, event, update
-from sqlalchemy.exc import SAWarning
+from sqlalchemy.exc import IntegrityError, SAWarning
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -38,6 +38,11 @@ from datastores.sql.crud.folder import (
     InvalidCursorError,
     create_subfolder_in_db,
     delete_folder_from_db,
+    CaseRefTakenError,
+    InvalidCaseRefError,
+    get_folder_by_case_ref_from_db,
+    normalize_case_ref,
+    set_folder_case_ref_in_db,
 )
 from datastores.sql.database import BaseModel
 from datastores.sql.models.folder import Folder
@@ -564,3 +569,183 @@ def test_delete_folder_from_db_empty(db):
 
     assert db.execute.call_count == 1
     db.commit.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "case_ref, expected",
+    [
+        ("case-123", "case-123"),
+        ("CASE-123", "case-123"),
+        ("  case-123 ", "case-123"),
+        ("CASE 123", "case-123"),
+        ("Case \t 2024  07", "case-2024-07"),
+        ("IR/2024/007", "ir/2024/007"),
+        ("ir/..x/v1.2", "ir/..x/v1.2"),
+        ("ir/2024/007_a.b", "ir/2024/007_a.b"),
+    ],
+)
+def test_normalize_case_ref(case_ref, expected):
+    """Test normalize_case_ref makes equivalent references equal."""
+    assert normalize_case_ref(case_ref) == expected
+
+
+@pytest.mark.parametrize(
+    "case_ref",
+    [
+        "",
+        "   ",
+        "case#1",
+        "case:1",
+        "fall-ä",
+        "x" * 256,
+        # Would be changed or merged in URLs.
+        ".",
+        "..",
+        "/case-1",
+        "case-1/",
+        "ir//007",
+        "ir/./007",
+        "ir/../007",
+        "-case-1",
+        "case-1.",
+    ],
+)
+def test_normalize_case_ref_invalid(case_ref):
+    """Test normalize_case_ref refuses empty, too long and unsupported references."""
+    with pytest.raises(InvalidCaseRefError):
+        normalize_case_ref(case_ref)
+
+
+@pytest.fixture
+def no_mkdir(mocker):
+    """Keep folder creation from creating directories."""
+    mock_os = mocker.patch("datastores.sql.crud.folder.os")
+    mock_os.path.exists.return_value = True
+    return mock_os
+
+
+def test_create_root_folder_in_db_case_ref(folder_tree, sqlite_db, no_mkdir):
+    """Test creating a case folder stores the normalized reference and is unique."""
+    me, _ = folder_tree
+    request = schemas.FolderCreateRequest(display_name="ACME", case_ref="CASE 123")
+
+    folder = create_root_folder_in_db(sqlite_db, request, me)
+    assert folder.case_ref == "case-123"
+    assert get_folder_by_case_ref_from_db(sqlite_db, "Case-123").id == folder.id
+
+    duplicate = schemas.FolderCreateRequest(display_name="ACME again", case_ref="case-123")
+    with pytest.raises(CaseRefTakenError) as error:
+        create_root_folder_in_db(sqlite_db, duplicate, me)
+    assert error.value.case_ref == "case-123"
+    assert error.value.folder.id == folder.id
+    # The refused folder and its owner role were rolled back together.
+    assert sqlite_db.query(Folder).filter_by(display_name="ACME again").count() == 0
+
+
+def test_create_root_folder_in_db_invalid_case_ref(folder_tree, sqlite_db, no_mkdir):
+    """Test creating a folder with a malformed reference creates nothing."""
+    me, _ = folder_tree
+    request = schemas.FolderCreateRequest(display_name="bad", case_ref="case#1")
+
+    with pytest.raises(InvalidCaseRefError):
+        create_root_folder_in_db(sqlite_db, request, me)
+    assert sqlite_db.query(Folder).filter_by(display_name="bad").count() == 0
+
+
+def test_set_folder_case_ref_in_db(folder_tree, sqlite_db):
+    """Test setting, changing, clearing and reusing a case reference."""
+    _, folders = folder_tree
+    root, other = folders["my_root"], folders["other_root"]
+
+    set_folder_case_ref_in_db(sqlite_db, root, "CASE-1")
+    assert root.case_ref == "case-1"
+    # Setting the same reference again changes nothing.
+    set_folder_case_ref_in_db(sqlite_db, root, "case 1")
+    assert root.case_ref == "case-1"
+
+    with pytest.raises(CaseRefTakenError) as error:
+        set_folder_case_ref_in_db(sqlite_db, other, "case-1")
+    assert error.value.folder.id == root.id
+    assert sqlite_db.get(Folder, other.id).case_ref is None
+
+    set_folder_case_ref_in_db(sqlite_db, root, "case-2")
+    set_folder_case_ref_in_db(sqlite_db, other, "case-1")
+    assert other.case_ref == "case-1"
+
+    set_folder_case_ref_in_db(sqlite_db, root, None)
+    assert root.case_ref is None
+    assert get_folder_by_case_ref_from_db(sqlite_db, "case-2") is None
+
+
+def test_set_folder_case_ref_in_db_subfolder(folder_tree, sqlite_db):
+    """Test only root folders can be case folders."""
+    _, folders = folder_tree
+
+    with pytest.raises(InvalidCaseRefError):
+        set_folder_case_ref_in_db(sqlite_db, folders["my_sub"], "case-1")
+
+
+def test_case_ref_check_constraint(folder_tree, sqlite_db):
+    """Test the database refuses a case reference on a subfolder."""
+    _, folders = folder_tree
+
+    folders["my_sub"].case_ref = "case-1"
+    with pytest.raises(IntegrityError):
+        sqlite_db.commit()
+    sqlite_db.rollback()
+
+
+def test_delete_folder_from_db_frees_case_ref(folder_tree, sqlite_db):
+    """Test deleting a case folder frees its reference, but the folder keeps it as a record."""
+    _, folders = folder_tree
+    root, other = folders["my_root"], folders["other_root"]
+    set_folder_case_ref_in_db(sqlite_db, root, "case-1")
+
+    delete_folder_from_db(sqlite_db, root.id)
+    sqlite_db.expire_all()
+
+    assert get_folder_by_case_ref_from_db(sqlite_db, "case-1") is None
+    set_folder_case_ref_in_db(sqlite_db, other, "case-1")
+    assert get_folder_by_case_ref_from_db(sqlite_db, "case-1").id == other.id
+    assert sqlite_db.get(Folder, root.id).case_ref == "case-1"
+
+
+def test_create_root_folder_in_db_mkdir_fails(folder_tree, sqlite_db, no_mkdir):
+    """Test a folder whose directory can't be created is removed, freeing its reference."""
+    me, _ = folder_tree
+    no_mkdir.path.exists.return_value = False
+    no_mkdir.mkdir.side_effect = PermissionError("read-only")
+    request = schemas.FolderCreateRequest(display_name="ACME", case_ref="case-9")
+
+    with pytest.raises(PermissionError):
+        create_root_folder_in_db(sqlite_db, request, me)
+    assert sqlite_db.query(Folder).filter_by(display_name="ACME").count() == 0
+
+    no_mkdir.mkdir.side_effect = None
+    assert create_root_folder_in_db(sqlite_db, request, me).case_ref == "case-9"
+
+
+def test_create_root_folder_in_db_other_integrity_error(folder_tree, sqlite_db, mocker):
+    """Test an integrity error on another constraint isn't reported as a taken case."""
+    me, folders = folder_tree
+    set_folder_case_ref_in_db(sqlite_db, folders["my_root"], "case-1")
+    error = IntegrityError("INSERT", {}, Exception("CHECK constraint failed: something_else"))
+    mocker.patch.object(sqlite_db, "commit", side_effect=error)
+    request = schemas.FolderCreateRequest(display_name="ACME", case_ref="case-1")
+
+    with pytest.raises(IntegrityError):
+        create_root_folder_in_db(sqlite_db, request, me)
+
+
+def test_case_ref_taken_by_folder_gone_since(folder_tree, sqlite_db, mocker):
+    """Test losing the race to a folder deleted before the lookup still reports a taken case."""
+    me, _ = folder_tree
+    error = IntegrityError(
+        "INSERT", {}, Exception('duplicate key value violates unique constraint "ix_folder_case_ref"')
+    )
+    mocker.patch.object(sqlite_db, "commit", side_effect=error)
+    request = schemas.FolderCreateRequest(display_name="ACME", case_ref="case-1")
+
+    with pytest.raises(CaseRefTakenError) as taken:
+        create_root_folder_in_db(sqlite_db, request, me)
+    assert taken.value.folder is None

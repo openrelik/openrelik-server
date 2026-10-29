@@ -57,6 +57,7 @@ class User(BaseSchema):
     profile_picture_url: str
     uuid: UUID
     is_active: bool
+    is_admin: Optional[bool] = False
 
 
 class UserCreate(BaseModel):
@@ -135,10 +136,16 @@ class FolderCreateRequest(BaseModel):
     display_name: str
     parent_id: Optional[int] = None
     storage_provider: Optional[str] = None
+    # Root folders only: makes the new folder the folder of this case.
+    case_ref: Optional[str] = None
 
 
 class FolderUpdateRequest(BaseModel):
     display_name: str
+
+
+class FolderCaseRefRequest(BaseModel):
+    case_ref: str
 
 
 class FolderShareRequest(BaseModel):
@@ -166,6 +173,7 @@ class FolderResponse(BaseSchema):
     user_roles: Optional[List["UserRoleResponse"]]
     group_roles: Optional[List["GroupRoleResponse"]]
     storage_provider: Optional[str] = None
+    case_ref: Optional[str] = None
 
 
 class FolderResponseCompact(BaseSchema):
@@ -175,6 +183,7 @@ class FolderResponseCompact(BaseSchema):
     user: UserResponseCompact
     workflows: Optional[List["WorkflowResponseCompact"]]
     selectable: Optional[bool] = False
+    case_ref: Optional[str] = None
 
 
 class FolderListPaginatedResponse(BaseModel):

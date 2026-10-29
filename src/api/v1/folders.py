@@ -14,6 +14,7 @@
 
 import asyncio
 import json
+import logging
 import uuid
 from typing import List
 
@@ -27,17 +28,21 @@ from auth.common import get_current_active_user
 from datastores.sql.crud.authz import check_user_access, require_access
 from datastores.sql.crud.file import get_files_from_db
 from datastores.sql.crud.folder import (
+    CaseRefTakenError,
     FolderSortKey,
     FolderSortOrder,
+    InvalidCaseRefError,
     InvalidCursorError,
     create_root_folder_in_db,
     create_subfolder_in_db,
     delete_folder_from_db,
     get_all_folders_from_db,
+    get_folder_by_case_ref_from_db,
     get_folder_from_db,
     get_root_folders_from_db,
     get_shared_folders_from_db,
     get_subfolders_from_db,
+    set_folder_case_ref_in_db,
     update_folder_in_db,
 )
 from datastores.sql.crud.group import (
@@ -64,6 +69,53 @@ from openrelik_common import telemetry
 from . import schemas
 
 router = APIRouter()
+
+logger = logging.getLogger(__name__)
+
+
+def _can_see_case_folder(db: Session, current_user: schemas.User, folder) -> bool:
+    """Return whether the user can see a case folder.
+
+    Users with any role on the folder can, and so can admins, who need to find the folder
+    holding a reference to fix it.
+    """
+    return current_user.is_admin or check_user_access(
+        db, current_user, allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER], folder=folder
+    )
+
+
+def _case_ref_taken(db: Session, current_user: schemas.User, error: CaseRefTakenError):
+    """Build the 409 for a case reference another folder has.
+
+    Users who can see that folder learn which one it is, so they can use it. Others only
+    learn that the case exists, which uniqueness can't avoid.
+    """
+    folder = error.folder
+    if folder is not None and _can_see_case_folder(db, current_user, folder):
+        detail = (
+            f'Case {error.case_ref} already exists: folder {folder.id} "{folder.display_name}", '
+            f"owned by {folder.user.username}."
+        )
+    else:
+        detail = f"Case {error.case_ref} already exists. Ask your OpenRelik admin for access."
+    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+
+
+def _get_case_folder_for_update(db: Session, current_user: schemas.User, folder_id: int):
+    """Return the folder whose case reference the user wants to change.
+
+    Editors and owners of the folder, and admins, can change it. This does the checks of
+    require_access by hand, since that has no exception for admins, who need to fix case
+    references on any folder.
+    """
+    folder = get_folder_from_db(db, folder_id)
+    if not folder or folder.is_deleted:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Folder not found.")
+    if not current_user.is_admin and not check_user_access(
+        db, current_user, allowed_roles=[Role.EDITOR, Role.OWNER], folder=folder
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No access to folder")
+    return folder
 
 
 # Get all root folders for a user
@@ -158,6 +210,40 @@ def get_all_folders(
     return response
 
 
+# Get the folder of a case. Case references can contain "/", hence the path converter.
+@router.get("/case/{case_ref:path}")
+def get_case_folder(
+    case_ref: str,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> schemas.FolderResponse:
+    """Get the folder with a case reference.
+
+    The reference is normalized first, so "CASE 123" finds the folder of "case-123". A case
+    that doesn't exist and one the user can't access both return 404, so the lookup doesn't
+    reveal which cases exist. Admins can get any case folder.
+
+    Args:
+        case_ref: case reference, normalized or not
+        db: database session
+        current_user: current user
+
+    Returns:
+        The case folder.
+
+    Raises:
+        HTTPException: 422 if the reference is malformed, 404 if there is no such case
+            folder the user can access.
+    """
+    try:
+        folder = get_folder_by_case_ref_from_db(db, case_ref)
+    except InvalidCaseRefError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if folder is None or not _can_see_case_folder(db, current_user, folder):
+        raise HTTPException(status_code=404, detail="Case not found.")
+    return folder
+
+
 # Get all sub-folders for a parent folder
 @router.get("/{folder_id}/folders/")
 @require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
@@ -239,9 +325,20 @@ def create_root_folder(
         Folder: folder
 
     Raises:
-        HTTPException: If the user does not have permission to create a folder.
+        HTTPException: If the user does not have permission to create a folder, 422 if the
+            case reference is malformed, 409 if another folder has it.
     """
-    return create_root_folder_in_db(db, new_folder_request, current_user)
+    try:
+        folder = create_root_folder_in_db(db, new_folder_request, current_user)
+    except InvalidCaseRefError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except CaseRefTakenError as e:
+        raise _case_ref_taken(db, current_user, e)
+    if folder.case_ref:
+        logger.info(
+            "case %s: created as folder %d by user %s", folder.case_ref, folder.id, current_user.id
+        )
+    return folder
 
 
 # Create subfolder
@@ -262,8 +359,14 @@ def create_subfolder(
 
     Returns:
         Folder: folder
+
+    Raises:
+        HTTPException: 422 if the request has a case reference, since only root folders can
+            be case folders.
     """
     telemetry.add_attribute_to_current_span('folder_id', folder_id)
+    if new_folder_request.case_ref is not None:
+        raise HTTPException(status_code=422, detail="only root folders can be case folders")
     return create_subfolder_in_db(db, folder_id, new_folder_request, current_user)
 
 
@@ -323,7 +426,86 @@ def delete_folder(
     current_user: schemas.User = Depends(get_current_active_user),
 ):
     telemetry.add_attribute_to_current_span('folder_id', folder_id)
+    folder = get_folder_from_db(db, folder_id)
+    # A deleted folder keeps its reference as a record, but no longer holds it.
+    case_ref = folder.case_ref if folder and not folder.is_deleted else None
     delete_folder_from_db(db, folder_id)
+    if case_ref:
+        logger.info(
+            "case %s: freed by deleting folder %d by user %s", case_ref, folder_id, current_user.id
+        )
+
+
+# Set the case reference of a folder
+@router.put("/{folder_id}/case")
+def set_folder_case_ref(
+    folder_id: int,
+    request: schemas.FolderCaseRefRequest,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+) -> schemas.FolderResponse:
+    """Make a root folder the folder of a case, or change its case reference.
+
+    Args:
+        folder_id: The ID of the root folder.
+        request: The case reference, normalized or not.
+        db: Database session.
+        current_user: The currently authenticated user.
+
+    Returns:
+        The updated folder.
+
+    Raises:
+        HTTPException: 404 if the folder doesn't exist, 403 if the user is not an editor or
+            owner of the folder or an admin, 422 if the reference is malformed or the folder
+            is a subfolder, 409 if another folder has the reference.
+    """
+    telemetry.add_attribute_to_current_span('folder_id', folder_id)
+    folder = _get_case_folder_for_update(db, current_user, folder_id)
+    previous = folder.case_ref
+    try:
+        folder = set_folder_case_ref_in_db(db, folder, request.case_ref)
+    except InvalidCaseRefError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except CaseRefTakenError as e:
+        raise _case_ref_taken(db, current_user, e)
+    if folder.case_ref != previous:
+        logger.info(
+            "case %s: set on folder %d by user %s (was %s)",
+            folder.case_ref,
+            folder_id,
+            current_user.id,
+            previous,
+        )
+    return folder
+
+
+# Remove the case reference of a folder
+@router.delete("/{folder_id}/case", status_code=status.HTTP_204_NO_CONTENT)
+def clear_folder_case_ref(
+    folder_id: int,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+):
+    """Remove the case reference of a folder. The folder stays, and the reference is free.
+
+    Args:
+        folder_id: The ID of the folder.
+        db: Database session.
+        current_user: The currently authenticated user.
+
+    Raises:
+        HTTPException: 404 if the folder doesn't exist, 403 if the user is not an editor or
+            owner of the folder or an admin.
+    """
+    telemetry.add_attribute_to_current_span('folder_id', folder_id)
+    folder = _get_case_folder_for_update(db, current_user, folder_id)
+    previous = folder.case_ref
+    set_folder_case_ref_in_db(db, folder, None)
+    if previous:
+        logger.info(
+            "case %s: removed from folder %d by user %s", previous, folder_id, current_user.id
+        )
 
 
 # Share folder

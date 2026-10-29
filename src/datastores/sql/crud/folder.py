@@ -17,10 +17,12 @@ import binascii
 import datetime
 import json
 import os
+import re
 import uuid
 from typing import Literal, get_args
 
 from sqlalchemy import exists, func, literal, select, tuple_, union, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from api.v1 import schemas
@@ -401,6 +403,140 @@ def get_folder_from_db(db: Session, folder_id: int):
     return db.get(Folder, folder_id)
 
 
+# Characters allowed in a normalized case reference.
+_CASE_REF_PATTERN = re.compile(r"[a-z0-9._/-]+")
+_CASE_REF_MAX_LENGTH = 255
+
+
+class InvalidCaseRefError(ValueError):
+    """Raised when a case reference is malformed or can't be set on a folder."""
+
+
+class CaseRefTakenError(Exception):
+    """Raised when another folder already has the case reference.
+
+    Attributes:
+        case_ref (str): the normalized case reference
+        folder (Folder | None): the folder that has it, or None if it was gone by the time
+            it was looked up
+    """
+
+    def __init__(self, case_ref: str, folder: Folder | None):
+        super().__init__(f"case {case_ref} already exists")
+        self.case_ref = case_ref
+        self.folder = folder
+
+
+def normalize_case_ref(case_ref: str) -> str:
+    """Return the canonical form of a case reference.
+
+    Trims surrounding whitespace, converts to lower case and replaces each run of inner
+    whitespace with "-", so "CASE 123", "case-123" and " case-123 " are the same case.
+
+    Args:
+        case_ref (str): case reference as given by the user
+
+    Returns:
+        str: the normalized case reference
+
+    Raises:
+        InvalidCaseRefError: if the reference is empty, too long, has characters other
+            than letters, digits, "-", "_", "." and "/" after normalization, doesn't start
+            and end with a letter or digit, or has an empty, "." or ".." part between
+            slashes. Those would be changed or merged in URLs (/folders/case/{case_ref}).
+    """
+    normalized = re.sub(r"\s+", "-", case_ref.strip().lower())
+    if not normalized:
+        raise InvalidCaseRefError("case reference must not be empty")
+    if len(normalized) > _CASE_REF_MAX_LENGTH:
+        raise InvalidCaseRefError(
+            f"case reference must be at most {_CASE_REF_MAX_LENGTH} characters"
+        )
+    if not _CASE_REF_PATTERN.fullmatch(normalized):
+        raise InvalidCaseRefError(
+            "case reference can only contain letters a-z, digits, '-', '_', '.' and '/'"
+        )
+    if not (normalized[0].isalnum() and normalized[-1].isalnum()):
+        raise InvalidCaseRefError("case reference must start and end with a letter or digit")
+    if any(part in ("", ".", "..") for part in normalized.split("/")):
+        raise InvalidCaseRefError(
+            "case reference must not contain '//' or have '.' or '..' between slashes"
+        )
+    return normalized
+
+
+def get_folder_by_case_ref_from_db(db: Session, case_ref: str):
+    """Get the folder with a case reference.
+
+    Args:
+        db (Session): database session
+        case_ref (str): case reference, normalized or not
+
+    Returns:
+        Folder object, or None if no folder has the reference
+
+    Raises:
+        InvalidCaseRefError: if the reference is malformed.
+    """
+    return _case_folder_query(db, normalize_case_ref(case_ref)).first()
+
+
+def _case_folder_query(db: Session, case_ref: str):
+    """Query the folder holding a normalized case reference."""
+    # Filtering on NOT is_deleted, the condition of ix_folder_case_ref, lets Postgres use the
+    # index. The soft-delete filter that db.query adds also allows NULL, so it doesn't.
+    return db.query(Folder).filter(Folder.case_ref == case_ref, ~Folder.is_deleted)
+
+
+def _is_case_ref_clash(error: IntegrityError) -> bool:
+    """Return whether error is a violation of the unique case reference index."""
+    # Postgres names the index, SQLite the column.
+    message = str(error.orig)
+    return "ix_folder_case_ref" in message or "folder.case_ref" in message
+
+
+def _commit_case_ref(db: Session, case_ref: str | None):
+    """Commit, turning a clash on the unique case reference into CaseRefTakenError."""
+    try:
+        db.commit()
+    except IntegrityError as e:
+        db.rollback()
+        if not case_ref or not _is_case_ref_clash(e):
+            raise
+        existing = _case_folder_query(db, case_ref).first()
+        raise CaseRefTakenError(case_ref, existing) from e
+
+
+def set_folder_case_ref_in_db(db: Session, folder: Folder, case_ref: str | None):
+    """Set or clear the case reference of a root folder.
+
+    Setting the reference the folder already has changes nothing. The database's unique
+    index decides between concurrent requests for the same reference.
+
+    Args:
+        db (Session): database session
+        folder (Folder): root folder to update
+        case_ref (str | None): case reference, normalized or not, or None to clear it
+
+    Returns:
+        Folder: the updated folder
+
+    Raises:
+        InvalidCaseRefError: if the reference is malformed or the folder is a subfolder.
+        CaseRefTakenError: if another folder has the reference.
+    """
+    if case_ref is not None:
+        case_ref = normalize_case_ref(case_ref)
+        if folder.parent_id is not None:
+            raise InvalidCaseRefError("only root folders can be case folders")
+    if folder.case_ref == case_ref:
+        return folder
+    folder.case_ref = case_ref
+    _commit_case_ref(db, case_ref)
+    db.refresh(folder)
+    return folder
+
+
 def create_root_folder_in_db(
     db: Session,
     new_folder: schemas.FolderCreateRequest,
@@ -427,23 +563,35 @@ def create_root_folder_in_db(
     else:
         storage_provider_name = default_provider_name
 
+    case_ref = None
+    if new_folder.case_ref is not None:
+        case_ref = normalize_case_ref(new_folder.case_ref)
+
     new_db_folder = Folder(
         display_name=new_folder.display_name,
         uuid=uuid.uuid4(),
         user=current_user,
         parent_id=None,
         storage_provider=storage_provider_name,
+        case_ref=case_ref,
     )
     db.add(new_db_folder)
-    db.commit()
-    db.refresh(new_db_folder)
-
+    # The folder and its owner role are committed together, so a folder whose case
+    # reference is taken leaves nothing behind.
     user_role = UserRole(user=current_user, folder=new_db_folder, role=Role.OWNER)
     db.add(user_role)
-    db.commit()
+    _commit_case_ref(db, case_ref)
+    db.refresh(new_db_folder)
 
-    if not os.path.exists(new_db_folder.path):
-        os.mkdir(new_db_folder.path)
+    try:
+        if not os.path.exists(new_db_folder.path):
+            os.mkdir(new_db_folder.path)
+    except Exception:
+        # Don't leave a folder without a directory behind, holding its case reference.
+        db.delete(user_role)
+        db.delete(new_db_folder)
+        db.commit()
+        raise
 
     return new_db_folder
 
@@ -520,7 +668,8 @@ def update_folder_in_db(db: Session, folder: schemas.FolderUpdateRequest):
 def delete_folder_from_db(db: Session, folder_id: int) -> None:
     """
     Function to soft-delete a folder and all its descendant folders and files using a recursive CTE
-    and bulk updates.
+    and bulk updates. Deleting a case folder frees its case reference for other folders, while
+    the deleted folder keeps it as a record.
 
     Args:
         db (Session): A SQLAlchemy database session object.
