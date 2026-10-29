@@ -17,7 +17,11 @@
 import pytest
 import httpx
 
-from datastores.sql.crud.folder import InvalidCursorError
+from datastores.sql.crud.folder import (
+    CaseRefTakenError,
+    InvalidCaseRefError,
+    InvalidCursorError,
+)
 from datastores.sql.models.role import Role
 from datastores.sql.models.user import User as UserSQLModel
 from datastores.sql.models.group import Group as GroupSQLModel
@@ -121,6 +125,23 @@ def test_delete_folder(fastapi_test_client, mocker, db):
 
     assert response.status_code == 204
     mock_delete_folder.assert_called_once_with(db, folder_id)
+
+
+@pytest.mark.parametrize("deleted, logged", [(False, True), (True, False)])
+def test_delete_case_folder_logs_freed_reference(
+    fastapi_test_client, mocker, folder_db_model, caplog, deleted, logged
+):
+    """Test deleting a case folder logs the freed reference, but not when already deleted."""
+    folder_db_model.case_ref = "case-123"
+    folder_db_model.is_deleted = deleted
+    mocker.patch("api.v1.folders.get_folder_from_db", return_value=folder_db_model)
+    mocker.patch("api.v1.folders.delete_folder_from_db")
+
+    with caplog.at_level("INFO", logger="api.v1.folders"):
+        response = fastapi_test_client.delete("/folders/1")
+
+    assert response.status_code == 204
+    assert ("case case-123: freed" in caplog.text) == logged
 
 
 def test_share_folder(
@@ -320,6 +341,7 @@ def test_get_folder_success(fastapi_test_client, mocker):
     mock_folder.user_roles = []
     mock_folder.group_roles = []
     mock_folder.storage_provider = "local"
+    mock_folder.case_ref = None
 
     mock_user = mocker.MagicMock()
     mock_user.display_name = "Test User"
@@ -937,3 +959,272 @@ def test_get_folder_invalid_id_format(fastapi_test_client):
     """Test get_folder with non-integer folder ID format (e.g. 'None')."""
     response = fastapi_test_client.get("/folders/None")
     assert response.status_code == 400
+
+
+@pytest.fixture
+def case_folder(folder_response):
+    """A folder response for the folder of case-123."""
+    folder_response.case_ref = "case-123"
+    return folder_response
+
+
+def test_create_root_folder_with_case_ref(fastapi_test_client, mocker, case_folder):
+    """Test creating a case folder passes the reference on and returns it."""
+    mock_create = mocker.patch(
+        "api.v1.folders.create_root_folder_in_db", return_value=case_folder
+    )
+
+    response = fastapi_test_client.post(
+        "/folders/", json={"display_name": "ACME", "case_ref": "CASE 123"}
+    )
+
+    assert response.status_code == 201
+    assert response.json()["case_ref"] == "case-123"
+    assert mock_create.call_args.args[1].case_ref == "CASE 123"
+
+
+def test_create_root_folder_invalid_case_ref(fastapi_test_client, mocker):
+    """Test creating a folder with a malformed case reference returns 422."""
+    mocker.patch(
+        "api.v1.folders.create_root_folder_in_db",
+        side_effect=InvalidCaseRefError("bad reference"),
+    )
+
+    response = fastapi_test_client.post("/folders/", json={"display_name": "x", "case_ref": "#"})
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "bad reference"
+
+
+@pytest.mark.parametrize(
+    "has_access, expected",
+    [
+        (True, 'Case case-123 already exists: folder 1 "test_folder", owned by'),
+        (False, "Case case-123 already exists. Ask your OpenRelik admin for access."),
+    ],
+)
+def test_create_root_folder_case_ref_taken(
+    fastapi_test_client, mocker, folder_db_model, has_access, expected
+):
+    """Test a taken case reference names the folder only to users who can access it."""
+    mocker.patch(
+        "api.v1.folders.create_root_folder_in_db",
+        side_effect=CaseRefTakenError("case-123", folder_db_model),
+    )
+    mocker.patch("api.v1.folders.check_user_access", return_value=has_access)
+
+    response = fastapi_test_client.post(
+        "/folders/", json={"display_name": "x", "case_ref": "case-123"}
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"].startswith(expected)
+
+
+def test_create_root_folder_case_ref_taken_by_folder_gone(fastapi_test_client, mocker):
+    """Test a reference taken by a folder deleted before the lookup names no folder."""
+    mocker.patch(
+        "api.v1.folders.create_root_folder_in_db",
+        side_effect=CaseRefTakenError("case-123", None),
+    )
+
+    response = fastapi_test_client.post(
+        "/folders/", json={"display_name": "x", "case_ref": "case-123"}
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == (
+        "Case case-123 already exists. Ask your OpenRelik admin for access."
+    )
+
+
+@pytest.mark.asyncio
+async def test_create_subfolder_with_case_ref(fastapi_async_test_client, mocker):
+    """Test a subfolder can't be created with a case reference."""
+    mock_create_subfolder = mocker.patch("api.v1.folders.create_subfolder_in_db")
+
+    response = await fastapi_async_test_client.post(
+        "/folders/1/folders/", json={"display_name": "x", "case_ref": "case-123"}
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "only root folders can be case folders"
+    mock_create_subfolder.assert_not_called()
+
+
+@pytest.mark.parametrize("path", ["case-123", "CASE%20123", "ir/2024/007"])
+def test_get_case_folder(fastapi_test_client, mocker, case_folder, path):
+    """Test getting a case folder by reference, including references with '/'."""
+    mock_get = mocker.patch(
+        "api.v1.folders.get_folder_by_case_ref_from_db", return_value=case_folder
+    )
+    mocker.patch("api.v1.folders.check_user_access", return_value=True)
+
+    response = fastapi_test_client.get(f"/folders/case/{path}")
+
+    assert response.status_code == 200
+    assert response.json()["case_ref"] == "case-123"
+    assert mock_get.call_args.args[1] == path.replace("%20", " ")
+
+
+@pytest.mark.parametrize("found, has_access", [(False, True), (True, False)])
+def test_get_case_folder_not_found(fastapi_test_client, mocker, case_folder, found, has_access):
+    """Test a missing case and a case the user can't access look the same."""
+    mocker.patch(
+        "api.v1.folders.get_folder_by_case_ref_from_db",
+        return_value=case_folder if found else None,
+    )
+    mocker.patch("api.v1.folders.check_user_access", return_value=has_access)
+
+    response = fastapi_test_client.get("/folders/case/case-123")
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Case not found."
+
+
+def test_get_case_folder_admin(fastapi_test_client, mocker, case_folder, user_response):
+    """Test admins can get a case folder they have no role on."""
+    user_response.is_admin = True
+    mocker.patch("api.v1.folders.get_folder_by_case_ref_from_db", return_value=case_folder)
+    mocker.patch("api.v1.folders.check_user_access", return_value=False)
+
+    response = fastapi_test_client.get("/folders/case/case-123")
+
+    assert response.status_code == 200
+    assert response.json()["id"] == case_folder.id
+
+
+def test_set_folder_case_ref_taken_admin(
+    fastapi_test_client, mocker, folder_db_model, user_response
+):
+    """Test a taken reference names the folder to admins, so they can fix it."""
+    user_response.is_admin = True
+    mocker.patch("api.v1.folders.get_folder_from_db", return_value=folder_db_model)
+    mocker.patch("api.v1.folders.check_user_access", return_value=False)
+    mocker.patch(
+        "api.v1.folders.set_folder_case_ref_in_db",
+        side_effect=CaseRefTakenError("case-123", folder_db_model),
+    )
+
+    response = fastapi_test_client.put("/folders/1/case", json={"case_ref": "case-123"})
+
+    assert response.status_code == 409
+    assert response.json()["detail"].startswith(
+        f'Case case-123 already exists: folder {folder_db_model.id} "{folder_db_model.display_name}"'
+    )
+
+
+def test_get_case_folder_for_update_schema_user(mocker, folder_db_model, regular_user):
+    """Test the access check works with the User schema, which FastAPI's types name."""
+    from api.v1.folders import _get_case_folder_for_update
+
+    mocker.patch("api.v1.folders.get_folder_from_db", return_value=folder_db_model)
+    mocker.patch("api.v1.folders.check_user_access", return_value=True)
+
+    assert _get_case_folder_for_update(mocker.MagicMock(), regular_user, 1) is folder_db_model
+
+
+def test_get_case_folder_invalid(fastapi_test_client, mocker):
+    """Test a malformed reference returns 422."""
+    response = fastapi_test_client.get("/folders/case/case%231")
+
+    assert response.status_code == 422
+
+
+def test_set_folder_case_ref(fastapi_test_client, mocker, folder_db_model, case_folder, db):
+    """Test an editor can make a folder the case folder."""
+    mocker.patch("api.v1.folders.get_folder_from_db", return_value=folder_db_model)
+    mock_access = mocker.patch("api.v1.folders.check_user_access", return_value=True)
+    mock_set = mocker.patch("api.v1.folders.set_folder_case_ref_in_db", return_value=case_folder)
+
+    response = fastapi_test_client.put("/folders/1/case", json={"case_ref": "CASE-123"})
+
+    assert response.status_code == 200
+    assert response.json()["case_ref"] == "case-123"
+    mock_set.assert_called_once_with(db, folder_db_model, "CASE-123")
+    assert mock_access.call_args.kwargs["allowed_roles"] == [Role.EDITOR, Role.OWNER]
+
+
+def test_set_folder_case_ref_forbidden(fastapi_test_client, mocker, folder_db_model):
+    """Test viewers can't set a case reference."""
+    mocker.patch("api.v1.folders.get_folder_from_db", return_value=folder_db_model)
+    mocker.patch("api.v1.folders.check_user_access", return_value=False)
+    mock_set = mocker.patch("api.v1.folders.set_folder_case_ref_in_db")
+
+    response = fastapi_test_client.put("/folders/1/case", json={"case_ref": "case-123"})
+
+    assert response.status_code == 403
+    mock_set.assert_not_called()
+
+
+def test_set_folder_case_ref_admin(
+    fastapi_test_client, mocker, folder_db_model, case_folder, user_response
+):
+    """Test admins can set a case reference on any folder."""
+    user_response.is_admin = True
+    mocker.patch("api.v1.folders.get_folder_from_db", return_value=folder_db_model)
+    mocker.patch("api.v1.folders.check_user_access", return_value=False)
+    mocker.patch("api.v1.folders.set_folder_case_ref_in_db", return_value=case_folder)
+
+    response = fastapi_test_client.put("/folders/1/case", json={"case_ref": "case-123"})
+
+    assert response.status_code == 200
+
+
+@pytest.mark.parametrize("deleted", [False, True])
+def test_set_folder_case_ref_not_found(fastapi_test_client, mocker, folder_db_model, deleted):
+    """Test setting a case reference on a missing or deleted folder returns 404."""
+    folder_db_model.is_deleted = True
+    mocker.patch(
+        "api.v1.folders.get_folder_from_db", return_value=folder_db_model if deleted else None
+    )
+
+    response = fastapi_test_client.put("/folders/1/case", json={"case_ref": "case-123"})
+
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "error, status_code",
+    [
+        (InvalidCaseRefError("only root folders can be case folders"), 422),
+        ("taken", 409),
+    ],
+)
+def test_set_folder_case_ref_errors(
+    fastapi_test_client, mocker, folder_db_model, error, status_code
+):
+    """Test a malformed or taken case reference."""
+    if error == "taken":
+        error = CaseRefTakenError("case-123", folder_db_model)
+    mocker.patch("api.v1.folders.get_folder_from_db", return_value=folder_db_model)
+    mocker.patch("api.v1.folders.check_user_access", return_value=True)
+    mocker.patch("api.v1.folders.set_folder_case_ref_in_db", side_effect=error)
+
+    response = fastapi_test_client.put("/folders/1/case", json={"case_ref": "case-123"})
+
+    assert response.status_code == status_code
+
+
+def test_clear_folder_case_ref(fastapi_test_client, mocker, folder_db_model, db):
+    """Test removing a case reference."""
+    mocker.patch("api.v1.folders.get_folder_from_db", return_value=folder_db_model)
+    mocker.patch("api.v1.folders.check_user_access", return_value=True)
+    mock_set = mocker.patch("api.v1.folders.set_folder_case_ref_in_db")
+
+    response = fastapi_test_client.delete("/folders/1/case")
+
+    assert response.status_code == 204
+    mock_set.assert_called_once_with(db, folder_db_model, None)
+
+
+def test_clear_folder_case_ref_forbidden(fastapi_test_client, mocker, folder_db_model):
+    """Test viewers can't remove a case reference."""
+    mocker.patch("api.v1.folders.get_folder_from_db", return_value=folder_db_model)
+    mocker.patch("api.v1.folders.check_user_access", return_value=False)
+    mock_set = mocker.patch("api.v1.folders.set_folder_case_ref_in_db")
+
+    response = fastapi_test_client.delete("/folders/1/case")
+
+    assert response.status_code == 403
+    mock_set.assert_not_called()

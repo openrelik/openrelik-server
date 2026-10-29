@@ -15,7 +15,17 @@ import os
 import uuid as uuid_module
 from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import UUID, BigInteger, ForeignKey, Integer, UnicodeText
+from sqlalchemy import (
+    UUID,
+    BigInteger,
+    CheckConstraint,
+    ForeignKey,
+    Index,
+    Integer,
+    Unicode,
+    UnicodeText,
+    text,
+)
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -44,7 +54,22 @@ class Folder(BaseModel):
         parent_id: The ID of the parent folder.
         parent: The parent folder.
         children: The children folders.
+        case_ref: The case reference, set on the one root folder that is a case's folder.
     """
+
+    __table_args__ = (
+        # A case reference can only be set on a root folder.
+        CheckConstraint("case_ref IS NULL OR parent_id IS NULL", name="ck_folder_case_ref_root"),
+        # At most one folder per case, whichever client creates it. Deleted folders keep their
+        # reference as a record, but don't hold it.
+        Index(
+            "ix_folder_case_ref",
+            "case_ref",
+            unique=True,
+            postgresql_where=text("NOT is_deleted"),
+            sqlite_where=text("NOT is_deleted"),
+        ),
+    )
 
     display_name: Mapped[str] = mapped_column(UnicodeText, index=True)
     description: Mapped[Optional[str]] = mapped_column(UnicodeText, index=False)
@@ -55,6 +80,10 @@ class Folder(BaseModel):
     # mount point. Only root-level folders have this set; subfolders inherit the storage provider of
     # their top-level parent folder. This attribute is ignored for subfolders.
     storage_provider: Mapped[str] = mapped_column(UnicodeText, index=True, nullable=True)
+
+    # Root-level folders only: The case reference, in the normalized form of
+    # datastores.sql.crud.folder.normalize_case_ref. See ix_folder_case_ref above.
+    case_ref: Mapped[Optional[str]] = mapped_column(Unicode(255), nullable=True)
 
     # Relationships
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"))
