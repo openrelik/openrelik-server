@@ -491,6 +491,45 @@ async def test_update_workflow_template_not_found(fastapi_async_test_client, moc
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("display_name", ["", "   ", None])
+async def test_update_workflow_template_empty_display_name(
+    fastapi_async_test_client, mocker, template_db_model, display_name
+):
+    """An empty display name is rejected instead of silently ignored."""
+    mocker.patch(
+        "api.v1.workflows.get_workflow_template_from_db",
+        return_value=template_db_model,
+    )
+    mock_update = mocker.patch("api.v1.workflows.update_workflow_template_in_db")
+
+    response = await fastapi_async_test_client.patch(
+        "/workflows/templates/1", json={"display_name": display_name}
+    )
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    mock_update.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_update_workflow_template_clear_description(
+    fastapi_async_test_client, mocker, template_db_model
+):
+    """Sending a null description passes it through so it gets cleared."""
+    mocker.patch(
+        "api.v1.workflows.get_workflow_template_from_db",
+        return_value=template_db_model,
+    )
+    mock_update = mocker.patch("api.v1.workflows.update_workflow_template_in_db")
+    mock_update.return_value = template_db_model
+
+    response = await fastapi_async_test_client.patch(
+        "/workflows/templates/1", json={"description": None}
+    )
+    assert response.status_code == status.HTTP_200_OK
+    update = mock_update.call_args[0][1]
+    assert update.model_dump(exclude_unset=True) == {"id": 1, "description": None}
+
+
+@pytest.mark.asyncio
 async def test_delete_workflow_template(
     fastapi_async_test_client, mocker, template_db_model, user_response
 ):
@@ -533,6 +572,44 @@ async def test_delete_workflow_template_not_found(fastapi_async_test_client, moc
 
     response = await fastapi_async_test_client.delete("/workflows/templates/1")
     assert response.status_code == status.HTTP_404_NOT_FOUND
+    mock_delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("owner_offset", [1, None])
+async def test_delete_workflow_template_as_admin(
+    fastapi_async_test_client, mocker, template_db_model, user_response, owner_offset
+):
+    """Admins can delete templates owned by other users and orphaned templates."""
+    template_db_model.user_id = (
+        None if owner_offset is None else user_response.id + owner_offset
+    )
+    mocker.patch.object(user_response, "is_admin", True)
+    mocker.patch(
+        "api.v1.workflows.get_workflow_template_from_db",
+        return_value=template_db_model,
+    )
+    mock_delete = mocker.patch("api.v1.workflows.delete_workflow_template_from_db")
+
+    response = await fastapi_async_test_client.delete("/workflows/templates/1")
+    assert response.status_code == status.HTTP_204_NO_CONTENT
+    mock_delete.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_orphaned_workflow_template_not_admin(
+    fastapi_async_test_client, mocker, template_db_model
+):
+    """Non-admins cannot delete orphaned templates."""
+    template_db_model.user_id = None
+    mocker.patch(
+        "api.v1.workflows.get_workflow_template_from_db",
+        return_value=template_db_model,
+    )
+    mock_delete = mocker.patch("api.v1.workflows.delete_workflow_template_from_db")
+
+    response = await fastapi_async_test_client.delete("/workflows/templates/1")
+    assert response.status_code == status.HTTP_403_FORBIDDEN
     mock_delete.assert_not_called()
 
 

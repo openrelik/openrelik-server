@@ -436,13 +436,17 @@ async def create_workflow_template(
     return create_workflow_template_in_db(db, new_template_db)
 
 
-def _get_own_workflow_template(
+def _get_deletable_workflow_template(
     db: Session, template_id: int, current_user: schemas.User
 ):
-    """Get a workflow template that the current user created, to delete it.
+    """Get a workflow template that the current user is allowed to delete.
+
+    The creator of a template can delete it. Admins can delete any template,
+    including orphaned ones whose creator no longer exists.
 
     Raises:
-        HTTPException: 404 if the template does not exist, 403 if another user created it.
+        HTTPException: 404 if the template does not exist, 403 if the user is
+            neither its creator nor an admin.
     """
     template = get_workflow_template_from_db(db, template_id)
     if not template:
@@ -450,10 +454,10 @@ def _get_own_workflow_template(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Workflow template {template_id} not found",
         )
-    if template.user_id != current_user.id:
+    if template.user_id != current_user.id and not current_user.is_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only the creator of a workflow template can delete it.",
+            detail="Only the creator of a workflow template or an admin can delete it.",
         )
     return template
 
@@ -468,7 +472,10 @@ async def update_workflow_template(
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.WorkflowTemplateResponse:
     """Update a workflow template's name or description. Any user can; only
-    deleting is left to its creator.
+    deleting is restricted to its creator or an admin.
+
+    The description can be cleared by sending null or an empty string. The
+    display name cannot be empty.
 
     WorkflowTemplateUpdateRequest (request_body):
         - display_name (Optional[str]): The display name of the template.
@@ -488,9 +495,13 @@ async def update_workflow_template(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Workflow template {template_id} not found",
         )
-    update = schemas.WorkflowTemplateUpdate(
-        id=template_id, **request_body.model_dump(exclude_unset=True)
-    )
+    fields = request_body.model_dump(exclude_unset=True)
+    if "display_name" in fields and not (fields["display_name"] or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="display_name cannot be empty.",
+        )
+    update = schemas.WorkflowTemplateUpdate(id=template_id, **fields)
     return update_workflow_template_in_db(db, update)
 
 
@@ -502,7 +513,7 @@ async def delete_workflow_template(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ):
-    """Delete a workflow template. Only its creator can.
+    """Delete a workflow template. Only its creator or an admin can.
 
     Workflows created from it are kept.
 
@@ -511,7 +522,7 @@ async def delete_workflow_template(
         db (Session): The database session.
         current_user (schemas.User): The current user.
     """
-    _get_own_workflow_template(db, template_id, current_user)
+    _get_deletable_workflow_template(db, template_id, current_user)
     delete_workflow_template_from_db(db, template_id)
 
 

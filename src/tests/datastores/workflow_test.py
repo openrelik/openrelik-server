@@ -190,13 +190,30 @@ def test_update_workflow_template_in_db(mocker):
     mock_db.get.return_value = mock_template_in_db
 
     mock_template_schema = mocker.MagicMock()
-    mock_template_schema.model_dump.return_value = {"display_name": "new_name"}
+    mock_template_schema.model_dump.return_value = {"id": 1, "display_name": "new_name"}
 
     result = update_workflow_template_in_db(mock_db, mock_template_schema)
 
+    mock_template_schema.model_dump.assert_called_once_with(exclude_unset=True)
+    assert mock_template_in_db.display_name == "new_name"
     mock_db.get.assert_called_once()
     mock_db.commit.assert_called_once()
     assert result == mock_template_in_db
+
+
+def test_update_workflow_template_in_db_clears_description(mocker):
+    """Explicitly set empty values are written, so a description can be cleared."""
+    mock_db = mocker.MagicMock()
+    mock_template_in_db = mocker.MagicMock()
+    mock_template_in_db.description = "old"
+    mock_db.get.return_value = mock_template_in_db
+
+    mock_template_schema = mocker.MagicMock()
+    mock_template_schema.model_dump.return_value = {"id": 1, "description": None}
+
+    update_workflow_template_in_db(mock_db, mock_template_schema)
+
+    assert mock_template_in_db.description is None
 
 
 def test_get_task_from_db(mocker):
