@@ -192,11 +192,16 @@ def create_workflow_signature(
     """
     if task_data["type"] == "chain":
         if len(task_data["tasks"]) > 1:
+            # A list, not a generator: celery_group wraps generators lazily,
+            # which would defer DB task creation (and the uuid rewrite in
+            # workflow_spec) until apply_async(), after spec_json is saved.
             return celery_group(
-                create_workflow_signature(
-                    db, current_user, task, input_files, output_path, workflow
-                )
-                for task in task_data["tasks"]
+                [
+                    create_workflow_signature(
+                        db, current_user, task, input_files, output_path, workflow
+                    )
+                    for task in task_data["tasks"]
+                ]
             )
         else:
             return celery_chain(
@@ -237,10 +242,12 @@ def create_workflow_signature(
                 return celery_chain(
                     task_signature,
                     celery_group(
-                        create_workflow_signature(
-                            db, current_user, t, input_files, output_path, workflow
-                        )
-                        for t in task_data["tasks"]
+                        [
+                            create_workflow_signature(
+                                db, current_user, t, input_files, output_path, workflow
+                            )
+                            for t in task_data["tasks"]
+                        ]
                     ),
                 )
             else:
