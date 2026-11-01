@@ -28,6 +28,7 @@ from datastores.sql.crud.folder import create_subfolder_in_db
 from datastores.sql.crud.workflow import (
     create_workflow_in_db,
     create_workflow_template_in_db,
+    delete_workflow_template_from_db,
     delete_workflow_from_db,
     get_folder_workflows_from_db,
     get_workflow_from_db,
@@ -435,39 +436,93 @@ async def create_workflow_template(
     return create_workflow_template_in_db(db, new_template_db)
 
 
+def _check_can_delete_workflow_template(
+    db: Session, template_id: int, current_user: schemas.User
+) -> None:
+    """Check that the current user is allowed to delete a workflow template.
+
+    The creator of a template can delete it. Admins can delete any template,
+    including orphaned ones whose creator no longer exists.
+
+    Raises:
+        HTTPException: 404 if the template does not exist, 403 if the user is
+            neither its creator nor an admin.
+    """
+    template = get_workflow_template_from_db(db, template_id)
+    if not template:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Workflow template {template_id} not found",
+        )
+    if template.user_id != current_user.id and not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the creator of a workflow template or an admin can delete it.",
+        )
+
+
 # Update workflow template
 # /workflows/templates/{template_id}
 @router_root.patch("/templates/{template_id}")
 async def update_workflow_template(
     template_id: int,
-    template_from_request: schemas.WorkflowTemplateResponse,
+    request_body: schemas.WorkflowTemplateUpdateRequest,
     db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.WorkflowTemplateResponse:
-    """Update a workflow template.
+    """Update a workflow template's name or description. Any user can; only
+    deleting is restricted to its creator or an admin.
 
-    WorkflowTemplateReponse (template_from_request):
-        - display_name (str): The display name of the template.
+    The description can be cleared by sending null or an empty string. The
+    display name cannot be empty.
+
+    WorkflowTemplateUpdateRequest (request_body):
+        - display_name (Optional[str]): The display name of the template.
         - description (Optional[str]): The description of the template.
-        - spec_json (Optional[str]): JSON representation of the workflow specification.
 
     Args:
         template_id (int): The ID of the template to update.
-        template_from_request (schemas.WorkflowTemplateCreateRequest): The template data to update.
+        request_body (schemas.WorkflowTemplateUpdateRequest): The fields to update.
         db (Session): The database session.
         current_user (schemas.User): The current user.
 
     Returns:
-        schemas.WorkflowTemplateResponse: The created workflow template.
+        schemas.WorkflowTemplateResponse: The updated workflow template.
     """
-    # Fetch workflow to update from database
-    template_from_db = get_workflow_template_from_db(db, template_id)
-    template_model = schemas.WorkflowTemplateCreate(**template_from_db.__dict__)
+    if not get_workflow_template_from_db(db, template_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Workflow template {template_id} not found",
+        )
+    fields = request_body.model_dump(exclude_unset=True)
+    if "display_name" in fields and not (fields["display_name"] or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="display_name cannot be empty.",
+        )
+    update = schemas.WorkflowTemplateUpdate(id=template_id, **fields)
+    return update_workflow_template_in_db(db, update)
 
-    # Update template data with supplied values
-    update_data = template_from_request.model_dump(exclude_unset=True)
-    updated_template_model = template_model.model_copy(update=update_data)
 
-    return update_workflow_template_in_db(db, updated_template_model)
+# Delete workflow template
+# /workflows/templates/{template_id}
+@router_root.delete("/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_workflow_template(
+    template_id: int,
+    db: Session = Depends(get_db_connection),
+    current_user: schemas.User = Depends(get_current_active_user),
+):
+    """Delete a workflow template. Only its creator or an admin can.
+
+    Workflows created from it are kept.
+
+    Args:
+        template_id (int): The ID of the template to delete.
+        db (Session): The database session.
+        current_user (schemas.User): The current user.
+    """
+    _check_can_delete_workflow_template(db, template_id, current_user)
+    delete_workflow_template_from_db(db, template_id)
 
 
 # Generate workflow name

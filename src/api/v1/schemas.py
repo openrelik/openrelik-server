@@ -401,7 +401,21 @@ class WorkflowTemplateResponse(BaseSchema):
     display_name: str
     description: Optional[str] = None
     spec_json: str
-    user_id: int
+    # Nullable in the database, so a template can outlive its creator.
+    user_id: Optional[int] = None
+    # The creator, so clients can name them.
+    user: Optional[UserResponseCompact] = None
+
+
+class WorkflowTemplateUpdateRequest(BaseModel):
+    display_name: Optional[str] = None
+    description: Optional[str] = None
+
+
+class WorkflowTemplateUpdate(BaseModel):
+    id: int
+    display_name: Optional[str] = None
+    description: Optional[str] = None
 
 
 class WorkflowTemplateResponseCompact(BaseModel):

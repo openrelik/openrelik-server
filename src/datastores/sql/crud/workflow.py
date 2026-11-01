@@ -230,6 +230,9 @@ def create_workflow_template_in_db(
 def update_workflow_template_in_db(db: Session, template: WorkflowTemplate) -> WorkflowTemplate:
     """Update a workflow template.
 
+    Only fields that were explicitly set on the update are written, so a field
+    can be cleared by setting it to None or an empty string.
+
     Args:
         db (Session): SQLAlchemy session object
         template (WorkflowTemplate): Workflow template object
@@ -238,8 +241,10 @@ def update_workflow_template_in_db(db: Session, template: WorkflowTemplate) -> W
         WorkflowTemplate object
     """
     template_in_db = db.get(WorkflowTemplate, template.id)
-    for key, value in template.model_dump().items():
-        setattr(template_in_db, key, value) if value else None
+    for key, value in template.model_dump(exclude_unset=True).items():
+        if key == "id":
+            continue
+        setattr(template_in_db, key, value)
     db.commit()
     db.refresh(template_in_db)
     return template_in_db
