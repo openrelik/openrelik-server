@@ -436,10 +436,10 @@ async def create_workflow_template(
     return create_workflow_template_in_db(db, new_template_db)
 
 
-def _get_deletable_workflow_template(
+def _check_can_delete_workflow_template(
     db: Session, template_id: int, current_user: schemas.User
-):
-    """Get a workflow template that the current user is allowed to delete.
+) -> None:
+    """Check that the current user is allowed to delete a workflow template.
 
     The creator of a template can delete it. Admins can delete any template,
     including orphaned ones whose creator no longer exists.
@@ -459,7 +459,6 @@ def _get_deletable_workflow_template(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the creator of a workflow template or an admin can delete it.",
         )
-    return template
 
 
 # Update workflow template
@@ -522,7 +521,7 @@ async def delete_workflow_template(
         db (Session): The database session.
         current_user (schemas.User): The current user.
     """
-    _get_deletable_workflow_template(db, template_id, current_user)
+    _check_can_delete_workflow_template(db, template_id, current_user)
     delete_workflow_template_from_db(db, template_id)
 
 

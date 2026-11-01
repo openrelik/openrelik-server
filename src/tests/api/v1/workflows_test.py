@@ -530,6 +530,33 @@ async def test_update_workflow_template_clear_description(
 
 
 @pytest.mark.asyncio
+async def test_update_workflow_template_includes_creator(
+    fastapi_async_test_client, mocker, template_db_model, user_db_model
+):
+    """The response names the template's creator."""
+    template_db_model.user_id = user_db_model.id
+    template_db_model.user = user_db_model
+    mocker.patch(
+        "api.v1.workflows.get_workflow_template_from_db",
+        return_value=template_db_model,
+    )
+    mock_update = mocker.patch("api.v1.workflows.update_workflow_template_in_db")
+    mock_update.return_value = template_db_model
+
+    response = await fastapi_async_test_client.patch(
+        "/workflows/templates/1", json={"display_name": "renamed"}
+    )
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["user"] == {
+        "id": user_db_model.id,
+        "display_name": "test_user",
+        "username": "test_user",
+        "profile_picture_url": "http://localhost/profile/pic",
+        "uuid": user_db_model.uuid.hex,
+    }
+
+
+@pytest.mark.asyncio
 async def test_update_orphaned_workflow_template(
     fastapi_async_test_client, mocker, template_db_model
 ):
