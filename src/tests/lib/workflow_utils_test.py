@@ -278,8 +278,8 @@ def test_run_workflow_persists_uuids_of_parallel_tasks(mocker, tmp_path):
     def task(uuid, children=()):
         return {"type": "task", "uuid": uuid, "tasks": list(children)}
 
-    # Root fan-out (chain with >1 tasks) and a task with >1 children: both
-    # code paths that build a celery_group.
+    # Root fan-out (chain with >1 tasks), a task with >1 children (both code
+    # paths that build a celery_group) and a chord inside the root group.
     spec = {
         "workflow": {
             "type": "chain",
@@ -287,6 +287,11 @@ def test_run_workflow_persists_uuids_of_parallel_tasks(mocker, tmp_path):
             "tasks": [
                 task("client-a", [task("client-a1"), task("client-a2")]),
                 task("client-b"),
+                {
+                    "type": "chord",
+                    "tasks": [task("client-c1"), task("client-c2")],
+                    "callback": task("client-c3"),
+                },
             ],
         }
     }
@@ -301,8 +306,10 @@ def test_run_workflow_persists_uuids_of_parallel_tasks(mocker, tmp_path):
             uuids.append(node["uuid"])
         for child in node.get("tasks", []):
             walk(child)
+        if node.get("callback"):
+            walk(node["callback"])
 
     walk(persisted["workflow"])
     assert sorted(uuids) == sorted(dispatched)
-    assert len(dispatched) == 4
+    assert len(dispatched) == 7
     assert not any(u.startswith("client-") for u in uuids)
