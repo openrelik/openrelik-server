@@ -20,6 +20,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from api.v1.files import _is_database_file
 from datastores.sql.models.role import Role
 
 
@@ -221,6 +222,24 @@ def test_generate_file_summary(
     assert (
         mock_background_tasks_add_task.call_args.args[0].__name__ == "generate_summary"
     )
+
+
+@pytest.mark.parametrize(
+    "magic_text,expected",
+    [
+        ("SQLite 3.x database, last written using SQLite version 3045001", True),
+        ("DuckDB database file", True),
+        ("sqlite 3.X DATABASE", True),
+        (None, False),
+        ("", False),
+        ("plain text", False),
+        ("ASCII text, mentions sqlite", False),
+        ("Berkeley DB (Hash, version 9, native byte-order) database", False),
+    ],
+)
+def test_is_database_file(magic_text, expected):
+    """Only magic strings naming a SQLite or DuckDB database match."""
+    assert _is_database_file(magic_text) is expected
 
 
 @pytest.mark.parametrize(
