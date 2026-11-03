@@ -660,9 +660,14 @@ def create_file_chat_message(
 
 
 SQL_QUERY_DISABLED_DETAIL = "SQL querying of files has been disabled."
+SQL_QUERY_DISABLED_ROUTE_ARGS = {
+    "status_code": status.HTTP_410_GONE,
+    "deprecated": True,
+    "responses": {status.HTTP_410_GONE: {"description": SQL_QUERY_DISABLED_DETAIL}},
+}
 
 
-@router.post("/{file_id}/sql/query", deprecated=True)
+@router.post("/{file_id}/sql/query", **SQL_QUERY_DISABLED_ROUTE_ARGS)
 def run_sql_query(file_id: int):
     """Disabled. Querying files with DuckDB is no longer supported."""
     raise HTTPException(
@@ -670,7 +675,7 @@ def run_sql_query(file_id: int):
     )
 
 
-@router.post("/{file_id}/sql/query/generate", deprecated=True)
+@router.post("/{file_id}/sql/query/generate", **SQL_QUERY_DISABLED_ROUTE_ARGS)
 def generate_query(file_id: int):
     """Disabled. Querying files with DuckDB is no longer supported."""
     raise HTTPException(
@@ -678,7 +683,7 @@ def generate_query(file_id: int):
     )
 
 
-@router.get("/{file_id}/sql/schemas", deprecated=True)
+@router.get("/{file_id}/sql/schemas", **SQL_QUERY_DISABLED_ROUTE_ARGS)
 def get_all_tables_schemas(file_id: int):
     """Disabled. Querying files with DuckDB is no longer supported."""
     raise HTTPException(

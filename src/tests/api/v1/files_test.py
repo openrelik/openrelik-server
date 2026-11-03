@@ -528,6 +528,22 @@ def test_sql_endpoints_disabled(fastapi_test_client, mocker, method, path, paylo
     mock_get_file_from_db.assert_not_called()
 
 
+def test_sql_endpoints_openapi(fastapi_test_client):
+    """Disabled SQL endpoints are documented as deprecated and 410 only."""
+    paths = fastapi_test_client.app.openapi()["paths"]
+    for path, method in [
+        ("/files/{file_id}/sql/schemas", "get"),
+        ("/files/{file_id}/sql/query", "post"),
+        ("/files/{file_id}/sql/query/generate", "post"),
+    ]:
+        operation = paths[path][method]
+        assert operation["deprecated"] is True
+        assert set(operation["responses"]) - {"422"} == {"410"}
+        assert operation["responses"]["410"]["description"] == (
+            "SQL querying of files has been disabled."
+        )
+
+
 def test_get_file_content_encoding_fallback(
     fastapi_test_client, mocker, file_db_model, setup_file_path_mock
 ):
