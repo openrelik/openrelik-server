@@ -1170,3 +1170,16 @@ async def test_copy_workflow_without_access_to_parent_folder(
     assert response.status_code == status.HTTP_403_FORBIDDEN
     mock_create_subfolder.assert_not_called()
     mock_create.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_generate_workflow_name_with_inaccessible_file(
+    fastapi_async_test_client, mocker, workflow_with_inaccessible_file
+):
+    """Names and types of files the user can't access aren't sent to the LLM."""
+    mock_get_llm = mocker.patch("api.v1.workflows.get_active_llm")
+
+    response = await fastapi_async_test_client.get("/folders/1/workflows/1/generate_name/")
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    mock_get_llm.assert_not_called()

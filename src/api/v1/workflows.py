@@ -612,6 +612,8 @@ async def generate_workflow_name(
         schemas.WorkflowGeneratedNameResponse: The generated workflow name.
     """
     workflow = get_workflow_with_access(db, current_user, workflow_id, EDIT_ROLES)
+    # The prompt includes the input file names and types.
+    _check_files_accessible(db, current_user, workflow.files)
     MAX_WORDS = 5
 
     def _remove_task_config(data: dict | list) -> dict | list:
