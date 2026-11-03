@@ -195,8 +195,19 @@ def create_group_role_in_db(
     return group_role
 
 
-def delete_group_role_from_db(db: Session, group_role_id: int) -> None:
-    group_role = db.query(GroupRole).filter(
-        GroupRole.id == group_role_id).first()
+def delete_group_role_from_db(db: Session, group_role_id: int, folder_id: int) -> bool:
+    """Delete a group role on a folder.
+
+    Returns:
+        bool: True if deleted, False if there is no such role on the folder.
+    """
+    group_role = (
+        db.query(GroupRole)
+        .filter(GroupRole.id == group_role_id, GroupRole.folder_id == folder_id)
+        .first()
+    )
+    if not group_role:
+        return False
     db.delete(group_role)
     db.commit()
+    return True

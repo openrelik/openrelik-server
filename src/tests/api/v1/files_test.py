@@ -16,8 +16,11 @@
 
 import json
 import os
+from types import SimpleNamespace
 
 import pytest
+
+from datastores.sql.models.role import Role
 
 
 @pytest.mark.parametrize(
@@ -320,8 +323,8 @@ async def test_upload_files_chunked(
 
 def test_get_task(fastapi_test_client, mocker, db, task_response):
     """Test the get_task endpoint."""
-    mock_get_task_from_db = mocker.patch("api.v1.files.get_task_from_db")
-    mock_get_task_from_db.return_value = [task_response]
+    mock_get_task_with_access = mocker.patch("api.v1.files.get_task_with_access")
+    mock_get_task_with_access.return_value = task_response
 
     file_id = 1
     workflow_id = 1
@@ -331,9 +334,36 @@ def test_get_task(fastapi_test_client, mocker, db, task_response):
     )
 
     assert response.status_code == 200
-    mock_get_task_from_db.assert_called_once_with(db, task_id)
+    mock_get_task_with_access.assert_called_once_with(
+        db, mocker.ANY, task_id, [Role.VIEWER, Role.EDITOR, Role.OWNER], workflow_id=workflow_id
+    )
 
-    assert response.json() == [task_response.model_dump(mode="json")]
+    assert response.json() == task_response.model_dump(mode="json")
+
+
+def test_get_task_other_workflow(fastapi_test_client, db):
+    """A task can't be fetched through a workflow it isn't part of."""
+    db.get.return_value = SimpleNamespace(id=1, workflow_id=99)
+
+    response = fastapi_test_client.get("/files/1/workflows/1/tasks/1")
+
+    assert response.status_code == 404
+
+
+def test_get_task_no_access(fastapi_test_client, mocker, db):
+    """A task in a folder the user can't access is denied, whatever file is in the URL."""
+    db.get.return_value = SimpleNamespace(
+        id=1, workflow_id=1, workflow=SimpleNamespace(folder=mocker.Mock())
+    )
+    # The URL file is accessible, the task's folder isn't.
+    mocker.patch(
+        "datastores.sql.crud.authz.check_user_access",
+        side_effect=lambda db, user, roles, folder=None, file=None: file is not None,
+    )
+
+    response = fastapi_test_client.get("/files/1/workflows/1/tasks/1")
+
+    assert response.status_code == 403
 
 
 def test_get_file_summary(fastapi_test_client, mocker, db):
@@ -355,7 +385,7 @@ def test_get_file_summary(fastapi_test_client, mocker, db):
     mock_get_file_summary_from_db = mocker.patch(
         "api.v1.files.get_file_summary_from_db"
     )
-    mock_get_file_summary_from_db.return_value = mock_summary
+    mock_get_file_summary_from_db.return_value = SimpleNamespace(**mock_summary)
 
     file_id = 1
     summary_id = 1
@@ -363,6 +393,18 @@ def test_get_file_summary(fastapi_test_client, mocker, db):
     response = fastapi_test_client.get(f"/files/{file_id}/summaries/{summary_id}")
     assert response.status_code == 200
     assert response.json() == mock_summary
+
+
+def test_get_file_summary_other_file(fastapi_test_client, mocker):
+    """A summary can't be fetched through a file it doesn't belong to."""
+    mocker.patch(
+        "api.v1.files.get_file_summary_from_db",
+        return_value=SimpleNamespace(id=1, file_id=99),
+    )
+
+    response = fastapi_test_client.get("/files/1/summaries/1")
+
+    assert response.status_code == 404
 
 
 def test_download_task_result(fastapi_test_client, mocker, db, tmp_path):
@@ -376,6 +418,7 @@ def test_download_task_result(fastapi_test_client, mocker, db, tmp_path):
         f.write("Test result content")
 
     mock_task = mocker.Mock()
+    mock_task.workflow_id = workflow_id
     mock_task.result = json.dumps({"output_file_path": result_file_path})
     db.get.return_value = mock_task
 
@@ -389,6 +432,27 @@ def test_download_task_result(fastapi_test_client, mocker, db, tmp_path):
         == 'attachment; filename="test_result.txt"'
     )
     assert response.content == b"Test result content"
+
+
+def test_download_task_result_no_access(fastapi_test_client, mocker, db, tmp_path):
+    """The result of a task in a folder the user can't access isn't returned."""
+    result_file_path = os.path.join(tmp_path, "secret.txt")
+    with open(result_file_path, "w") as f:
+        f.write("secret")
+    mock_task = mocker.Mock()
+    mock_task.workflow_id = 1
+    mock_task.result = json.dumps({"output_file_path": result_file_path})
+    db.get.return_value = mock_task
+    # The URL file is accessible, the task's folder isn't.
+    mocker.patch(
+        "datastores.sql.crud.authz.check_user_access",
+        side_effect=lambda db, user, roles, folder=None, file=None: file is not None,
+    )
+
+    response = fastapi_test_client.post("/files/1/workflows/1/tasks/1/download")
+
+    assert response.status_code == 403
+    assert b"secret" not in response.content
 
 
 def test_get_sql_schemas(
@@ -774,3 +838,35 @@ def test_get_file_invalid_id_format(fastapi_test_client):
     """Test get_file with non-integer file ID format (e.g. 'None')."""
     response = fastapi_test_client.get("/files/None")
     assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "identifier", ["../escaped", "a/b", "..", "a.b", "/tmp/x", "a\\b", "", "x" * 129]
+)
+async def test_upload_files_rejects_unsafe_identifier(
+    fastapi_async_test_client, mocker, tmp_path, identifier
+):
+    """The upload identifier can't be used to write or delete files outside the folder."""
+    folder_path = tmp_path / "folder"
+    folder_path.mkdir()
+    mocker.patch(
+        "api.v1.files.get_folder_from_db", return_value=SimpleNamespace(path=str(folder_path))
+    )
+    mock_redis = mocker.patch("api.v1.files.redis_client")
+
+    response = await fastapi_async_test_client.post(
+        "/files/upload",
+        files={"file": ("test_file.txt", b"payload")},
+        params={
+            "resumableChunkNumber": 1,
+            "resumableTotalChunks": 1,
+            "resumableIdentifier": identifier,
+            "resumableFilename": "test_file.txt",
+            "folder_id": 1,
+        },
+    )
+
+    assert response.status_code in (400, 422)
+    assert mock_redis.method_calls == []
+    assert list(tmp_path.rglob("*")) == [folder_path]

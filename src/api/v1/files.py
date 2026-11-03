@@ -39,7 +39,7 @@ from sqlalchemy.orm import Session
 
 from auth.common import get_current_active_user
 from config import config, get_active_llm
-from datastores.sql.crud.authz import require_access
+from datastores.sql.crud.authz import get_task_with_access, require_access
 from datastores.sql.crud.file import (
     create_file_chat_in_db,
     create_file_chat_message_in_db,
@@ -51,10 +51,9 @@ from datastores.sql.crud.file import (
     get_latest_file_chat_from_db,
 )
 from datastores.sql.crud.folder import get_folder_from_db
-from datastores.sql.crud.workflow import get_file_workflows_from_db, get_task_from_db
+from datastores.sql.crud.workflow import get_file_workflows_from_db
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.role import Role
-from datastores.sql.models.workflow import Task
 from lib import duckdb_utils
 from lib.file_hashes import generate_hashes
 from lib.llm_file_chat import BASE_SYSTEM_INSTRUCTIONS, create_chat_session
@@ -65,6 +64,9 @@ from openrelik_common import telemetry
 from . import schemas
 
 router = APIRouter()
+
+# Upload identifiers from clients are UUIDs or hex strings.
+UPLOAD_IDENTIFIER_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
 # File types that are trusted to be returned unescaped to the client
 ALLOWED_DATA_TYPES_PREVIEW = config.get("ui", {}).get("allowed_data_types_preview", [])
@@ -346,6 +348,10 @@ async def upload_files(
 
     MAX_CHUNK_RETRIES = 5
 
+    # The identifier is part of the chunk file paths, so it must not be able to leave the folder.
+    if not UPLOAD_IDENTIFIER_PATTERN.fullmatch(resumableIdentifier):
+        raise HTTPException(status_code=400, detail="Invalid upload identifier.")
+
     # The folder that the file will be saved to.
     folder = get_folder_from_db(db, folder_id)
 
@@ -459,11 +465,13 @@ def get_task(
     task_id: int,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
-) -> List[schemas.TaskResponse]:
+) -> schemas.TaskResponse:
     telemetry.add_attribute_to_current_span('file_id', file_id)
     telemetry.add_attribute_to_current_span('workflow_id', workflow_id)
     telemetry.add_attribute_to_current_span('task_id', task_id)
-    return get_task_from_db(db, task_id)
+    return get_task_with_access(
+        db, current_user, task_id, [Role.VIEWER, Role.EDITOR, Role.OWNER], workflow_id=workflow_id
+    )
 
 
 # Download task result file
@@ -472,7 +480,7 @@ def get_task(
 def download_task_result(
     file_id: int,
     workflow_id: int,
-    task_id: str,
+    task_id: int,
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> FileResponse:
@@ -480,9 +488,13 @@ def download_task_result(
     telemetry.add_attribute_to_current_span('file_id', file_id)
     telemetry.add_attribute_to_current_span('workflow_id', workflow_id)
     telemetry.add_attribute_to_current_span('task_id', task_id)
-    task = db.get(Task, task_id)
-    result = json.loads(task.result)
-    result_file_path = result.get("output_file_path")
+    task = get_task_with_access(
+        db, current_user, task_id, [Role.VIEWER, Role.EDITOR, Role.OWNER], workflow_id=workflow_id
+    )
+    result = json.loads(task.result) if task.result else {}
+    result_file_path = result.get("output_file_path") if isinstance(result, dict) else None
+    if not result_file_path or not os.path.isfile(result_file_path):
+        raise HTTPException(status_code=404, detail="Task result file not found.")
     filename = os.path.basename(result_file_path)
 
     headers = {"Access-Control-Expose-Headers": "Content-Disposition"}
@@ -504,7 +516,11 @@ def get_file_summary(
 ):
     telemetry.add_attribute_to_current_span('file_id', file_id)
     telemetry.add_attribute_to_current_span('summary_id', summary_id)
-    return get_file_summary_from_db(db, summary_id)
+    summary = get_file_summary_from_db(db, summary_id)
+    # The decorator checked access to file_id, so the summary must belong to that file.
+    if not summary or summary.file_id != file_id:
+        raise HTTPException(status_code=404, detail="Summary not found.")
+    return summary
 
 
 @router.post("/{file_id}/summaries")

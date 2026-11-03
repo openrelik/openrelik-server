@@ -24,6 +24,7 @@ from datastores.sql.models.folder import Folder
 from datastores.sql.models.group import GroupRole
 from datastores.sql.models.role import Role
 from datastores.sql.models.user import User, UserRole
+from datastores.sql.models.workflow import Task, Workflow
 
 
 class AuthorizationError(Exception):
@@ -124,6 +125,50 @@ def check_user_access(
     return False  # No access found
 
 
+def get_workflow_with_access(
+    db: Session, user: User, workflow_id: int, allowed_roles: list
+) -> Workflow:
+    """Get a workflow the user has one of the allowed roles on.
+
+    Access is checked on the workflow's own folder, not on any folder in the request URL, so
+    a user can't reach a workflow by putting a folder they own in the URL.
+
+    Raises:
+        HTTPException: 404 if the workflow doesn't exist, 403 if the user has no access.
+    """
+    workflow = db.get(Workflow, workflow_id)
+    if not workflow:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found.")
+    if not workflow.folder or not check_user_access(
+        db, user, allowed_roles, folder=workflow.folder
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No access to workflow")
+    return workflow
+
+
+def get_task_with_access(
+    db: Session, user: User, task_id: int, allowed_roles: list, workflow_id: int = None
+) -> Task:
+    """Get a task the user has one of the allowed roles on, via the folder of its workflow.
+
+    Args:
+        workflow_id: If given, the task must belong to this workflow.
+
+    Raises:
+        HTTPException: 404 if the task doesn't exist or isn't part of the workflow, 403 if the
+            user has no access.
+    """
+    task = db.get(Task, task_id)
+    if not task or (workflow_id is not None and task.workflow_id != workflow_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found.")
+    workflow = task.workflow
+    if not workflow or not workflow.folder or not check_user_access(
+        db, user, allowed_roles, folder=workflow.folder
+    ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No access to task")
+    return task
+
+
 def require_access(allowed_roles: list, http_exception: bool = True, error_message: str = None):
     def decorator(func: Callable):
 
@@ -163,6 +208,15 @@ def require_access(allowed_roles: list, http_exception: bool = True, error_messa
                     raise HTTPException(status_code=404, detail="File not found.")
                 if not check_user_access(db, current_user, allowed_roles, file=file):
                     raise_authorization_error(http_exception, error_message or "No access to file")
+
+            if folder_id is None and file_id is None:
+                # Fail closed: a decorated route must name the folder or file to check.
+                if http_exception:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Access check misconfigured: no folder or file to check.",
+                    )
+                raise AuthorizationError("No folder_id or file_id to check access for.")
 
         if asyncio.iscoroutinefunction(func):
 

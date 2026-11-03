@@ -18,6 +18,8 @@ from unittest.mock import MagicMock
 
 from datastores.sql.crud.authz import (
     check_user_access,
+    get_task_with_access,
+    get_workflow_with_access,
     require_access,
     raise_authorization_error,
     AuthorizationError
@@ -27,6 +29,7 @@ from datastores.sql.models.folder import Folder
 from datastores.sql.models.user import User, UserRole
 from datastores.sql.models.group import Group, GroupRole
 from datastores.sql.models.role import Role
+from datastores.sql.models.workflow import Task, Workflow
 
 
 def test_raise_authorization_error():
@@ -236,3 +239,88 @@ def test_require_access_decorator_folder_id_zero(db, authz):
     with pytest.raises(HTTPException) as exc_info:
         dummy_endpoint(db=db, folder_id=0, current_user=user)
     assert exc_info.value.status_code == 404
+
+
+def test_require_access_decorator_fails_closed(db, authz):
+    """A decorated route without a folder_id or file_id is denied, not let through."""
+
+    @require_access([Role.VIEWER])
+    def dummy_endpoint(db, current_user):
+        return True
+
+    with pytest.raises(HTTPException) as exc_info:
+        dummy_endpoint(db=db, current_user=User(id=1, groups=[]))
+    assert exc_info.value.status_code == 500
+    authz.assert_not_called()
+
+
+def test_require_access_decorator_fails_closed_no_http(db, authz):
+    @require_access([Role.VIEWER], http_exception=False)
+    def dummy_endpoint(db, current_user):
+        return True
+
+    with pytest.raises(AuthorizationError):
+        dummy_endpoint(db=db, current_user=User(id=1, groups=[]))
+
+
+def test_get_workflow_with_access(db, authz):
+    folder = Folder(id=1)
+    workflow = Workflow(id=1, folder=folder)
+    db.get.return_value = workflow
+    user = User(id=1, groups=[])
+
+    assert get_workflow_with_access(db, user, 1, [Role.VIEWER]) is workflow
+    authz.assert_called_once_with(db, user, [Role.VIEWER], folder=folder)
+
+
+def test_get_workflow_with_access_not_found(db, authz):
+    db.get.return_value = None
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_workflow_with_access(db, User(id=1, groups=[]), 1, [Role.VIEWER])
+    assert exc_info.value.status_code == 404
+
+
+def test_get_workflow_with_access_denied(db, authz):
+    authz.return_value = False
+    db.get.return_value = Workflow(id=1, folder=Folder(id=1))
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_workflow_with_access(db, User(id=1, groups=[]), 1, [Role.VIEWER])
+    assert exc_info.value.status_code == 403
+
+
+def test_get_task_with_access(db, authz):
+    folder = Folder(id=1)
+    task = Task(id=1, workflow_id=2, workflow=Workflow(id=2, folder=folder))
+    db.get.return_value = task
+    user = User(id=1, groups=[])
+
+    assert get_task_with_access(db, user, 1, [Role.VIEWER], workflow_id=2) is task
+    authz.assert_called_once_with(db, user, [Role.VIEWER], folder=folder)
+
+
+def test_get_task_with_access_wrong_workflow(db, authz):
+    db.get.return_value = Task(id=1, workflow_id=2, workflow=Workflow(id=2, folder=Folder(id=1)))
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_task_with_access(db, User(id=1, groups=[]), 1, [Role.VIEWER], workflow_id=3)
+    assert exc_info.value.status_code == 404
+    authz.assert_not_called()
+
+
+def test_get_task_with_access_not_found(db, authz):
+    db.get.return_value = None
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_task_with_access(db, User(id=1, groups=[]), 1, [Role.VIEWER])
+    assert exc_info.value.status_code == 404
+
+
+def test_get_task_with_access_denied(db, authz):
+    authz.return_value = False
+    db.get.return_value = Task(id=1, workflow_id=2, workflow=Workflow(id=2, folder=Folder(id=1)))
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_task_with_access(db, User(id=1, groups=[]), 1, [Role.VIEWER])
+    assert exc_info.value.status_code == 403
