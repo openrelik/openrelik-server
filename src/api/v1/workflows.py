@@ -269,8 +269,12 @@ async def copy_workflow(
 ) -> schemas.WorkflowResponse:
     """Copy a workflow.
 
+    The copy gets a new results folder next to the original one, in the parent of the
+    workflow's folder, whatever folder is in the URL. The user needs edit access to the
+    workflow and to that parent folder, and view access to the input files.
+
     Args:
-        folder_id (int): The ID of the folder to copy the workflow to.
+        folder_id (int): A folder the user can edit. It's only used for the access check.
         workflow_id (int): The ID of the workflow to copy.
         db (Session): The database session.
         current_user (schemas.User): The current user.
