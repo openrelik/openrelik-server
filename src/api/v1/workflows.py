@@ -63,15 +63,30 @@ def _check_file_access(db: Session, current_user: schemas.User, file_ids: List[i
     Raises:
         HTTPException: 404 if a file doesn't exist or is deleted, 403 if the user has no access.
     """
+    files = []
     for file_id in file_ids:
         file = get_file_from_db(db, file_id)
         if not file or file.is_deleted:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail=f"File {file_id} not found."
             )
+        files.append(file)
+    _check_files_accessible(db, current_user, files)
+
+
+def _check_files_accessible(db: Session, current_user: schemas.User, files: list) -> None:
+    """Check that the user can view every file in files.
+
+    Access to a workflow's folder doesn't imply access to its input files, which are usually in
+    a parent folder, so anything that processes or reuses the input files must check them too.
+
+    Raises:
+        HTTPException: 403 if the user has no access to one of the files.
+    """
+    for file in files:
         if not check_user_access(db, current_user, VIEW_ROLES, file=file):
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail=f"No access to file {file_id}"
+                status_code=status.HTTP_403_FORBIDDEN, detail=f"No access to file {file.id}"
             )
 
 
@@ -265,6 +280,20 @@ async def copy_workflow(
     """
 
     workflow_to_copy = get_workflow_with_access(db, current_user, workflow_id, EDIT_ROLES)
+    files_to_copy = [file for file in workflow_to_copy.files if not file.is_deleted]
+    _check_files_accessible(db, current_user, files_to_copy)
+
+    # The copy's results folder is created next to the original one, so the user must be able
+    # to edit the parent folder, not just the workflow's own folder.
+    parent_folder = workflow_to_copy.folder.parent
+    if not parent_folder or not check_user_access(
+        db, current_user, EDIT_ROLES, folder=parent_folder
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No access to the folder to copy the workflow to.",
+        )
+
     workflow_spec = json.loads(workflow_to_copy.spec_json)
     replace_uuids(workflow_spec)
 
@@ -274,7 +303,7 @@ async def copy_workflow(
     )
     new_workflow_folder = create_subfolder_in_db(
         db,
-        folder_id=workflow_to_copy.folder.parent_id,
+        folder_id=parent_folder.id,
         new_folder=new_folder,
         current_user=current_user,
     )
@@ -282,7 +311,7 @@ async def copy_workflow(
     new_workflow_db = schemas.Workflow(
         display_name=f"Copy of {workflow_to_copy.display_name}",
         spec_json=json.dumps(workflow_spec),
-        file_ids=[file.id for file in workflow_to_copy.files if not file.is_deleted],
+        file_ids=[file.id for file in files_to_copy],
         folder_id=new_workflow_folder.id,
         user_id=current_user.id,
     )
@@ -338,6 +367,7 @@ async def run_workflow(
         schemas.WorkflowResponse: The workflow.
     """
     workflow = get_workflow_with_access(db, current_user, workflow_id, EDIT_ROLES)
+    _check_files_accessible(db, current_user, workflow.files)
     return workflow_utils.run_workflow(
         db,
         workflow=workflow,

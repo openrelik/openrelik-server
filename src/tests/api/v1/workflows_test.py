@@ -183,6 +183,9 @@ async def test_copy_workflow(
     """Test copy workflow route."""
     mock_get_workflow_from_db = mocker.patch("api.v1.workflows.get_workflow_with_access")
     mock_get_workflow_from_db.return_value = workflow_db_model
+    parent_folder = Folder(id=10)
+    workflow_db_model.folder.parent = parent_folder
+    mocker.patch("api.v1.workflows.check_user_access", return_value=True)
 
     mock_create_subfolder_in_db = mocker.patch(
         "api.v1.workflows.create_subfolder_in_db"
@@ -199,6 +202,7 @@ async def test_copy_workflow(
     )
 
     assert response.status_code == 200
+    assert mock_create_subfolder_in_db.call_args.kwargs["folder_id"] == parent_folder.id
 
 
 def test_delete_workflow(fastapi_test_client, mocker, db):
@@ -227,6 +231,7 @@ async def test_run_workflow(
     setup_file_path_mock,
 ):
     """Test run workflow route."""
+    mocker.patch("api.v1.workflows.check_user_access", return_value=True)
     mocker.patch(
         "datastores.sql.models.folder.get_config",
         return_value={"server": {"storage_path": "/tmp/test"}},
@@ -286,6 +291,7 @@ async def test_run_workflow_nested_tasks(
     setup_file_path_mock,
 ):
     """Test run workflow route with group tasks."""
+    mocker.patch("api.v1.workflows.check_user_access", return_value=True)
     mocker.patch(
         "datastores.sql.models.folder.get_config",
         return_value={"server": {"storage_path": "/tmp/test"}},
@@ -1099,3 +1105,68 @@ async def test_update_workflow_ignores_location_and_owner(
     assert updated.folder_id == workflow_db_model.folder_id
     assert updated.user_id == workflow_db_model.user_id
     assert 999 not in updated.file_ids
+
+
+@pytest.fixture
+def workflow_with_inaccessible_file(mocker, workflow_db_model):
+    """A workflow the user can edit, with an input file they can't access."""
+    mocker.patch("api.v1.workflows.get_workflow_with_access", return_value=workflow_db_model)
+    other_file = mocker.MagicMock(id=7, is_deleted=False)
+    workflow_db_model.files = [other_file]
+    workflow_db_model.folder.parent = Folder(id=10)
+    mocker.patch(
+        "api.v1.workflows.check_user_access",
+        side_effect=lambda db, user, roles, folder=None, file=None: file is not other_file,
+    )
+    return workflow_db_model
+
+
+@pytest.mark.asyncio
+async def test_run_workflow_with_inaccessible_file(
+    fastapi_async_test_client, mocker, workflow_with_inaccessible_file
+):
+    """Access to a workflow's folder doesn't allow running it on files the user can't access."""
+    mock_run = mocker.patch("api.v1.workflows.workflow_utils.run_workflow")
+
+    response = await fastapi_async_test_client.post(
+        "/folders/1/workflows/1/run/", json={"workflow_spec": {}}
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    mock_run.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_copy_workflow_with_inaccessible_file(
+    fastapi_async_test_client, mocker, workflow_with_inaccessible_file
+):
+    mock_create_subfolder = mocker.patch("api.v1.workflows.create_subfolder_in_db")
+    mock_create = mocker.patch("api.v1.workflows.create_workflow_in_db")
+
+    response = await fastapi_async_test_client.post("/folders/1/workflows/1/copy/")
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    mock_create_subfolder.assert_not_called()
+    mock_create.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_copy_workflow_without_access_to_parent_folder(
+    fastapi_async_test_client, mocker, workflow_db_model
+):
+    """A copy can't be created in a parent folder the user can't edit."""
+    mocker.patch("api.v1.workflows.get_workflow_with_access", return_value=workflow_db_model)
+    parent_folder = Folder(id=10)
+    workflow_db_model.folder.parent = parent_folder
+    mocker.patch(
+        "api.v1.workflows.check_user_access",
+        side_effect=lambda db, user, roles, folder=None, file=None: folder is not parent_folder,
+    )
+    mock_create_subfolder = mocker.patch("api.v1.workflows.create_subfolder_in_db")
+    mock_create = mocker.patch("api.v1.workflows.create_workflow_in_db")
+
+    response = await fastapi_async_test_client.post("/folders/1/workflows/1/copy/")
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN
+    mock_create_subfolder.assert_not_called()
+    mock_create.assert_not_called()
