@@ -65,6 +65,9 @@ from . import schemas
 
 router = APIRouter()
 
+# Upload identifiers from clients are UUIDs or hex strings.
+UPLOAD_IDENTIFIER_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,128}")
+
 # File types that are trusted to be returned unescaped to the client
 ALLOWED_DATA_TYPES_PREVIEW = config.get("ui", {}).get("allowed_data_types_preview", [])
 
@@ -344,6 +347,10 @@ async def upload_files(
                 pass
 
     MAX_CHUNK_RETRIES = 5
+
+    # The identifier is part of the chunk file paths, so it must not be able to leave the folder.
+    if not UPLOAD_IDENTIFIER_PATTERN.fullmatch(resumableIdentifier):
+        raise HTTPException(status_code=400, detail="Invalid upload identifier.")
 
     # The folder that the file will be saved to.
     folder = get_folder_from_db(db, folder_id)

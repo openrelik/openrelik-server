@@ -838,3 +838,35 @@ def test_get_file_invalid_id_format(fastapi_test_client):
     """Test get_file with non-integer file ID format (e.g. 'None')."""
     response = fastapi_test_client.get("/files/None")
     assert response.status_code == 400
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "identifier", ["../escaped", "a/b", "..", "a.b", "/tmp/x", "a\\b", "", "x" * 129]
+)
+async def test_upload_files_rejects_unsafe_identifier(
+    fastapi_async_test_client, mocker, tmp_path, identifier
+):
+    """The upload identifier can't be used to write or delete files outside the folder."""
+    folder_path = tmp_path / "folder"
+    folder_path.mkdir()
+    mocker.patch(
+        "api.v1.files.get_folder_from_db", return_value=SimpleNamespace(path=str(folder_path))
+    )
+    mock_redis = mocker.patch("api.v1.files.redis_client")
+
+    response = await fastapi_async_test_client.post(
+        "/files/upload",
+        files={"file": ("test_file.txt", b"payload")},
+        params={
+            "resumableChunkNumber": 1,
+            "resumableTotalChunks": 1,
+            "resumableIdentifier": identifier,
+            "resumableFilename": "test_file.txt",
+            "folder_id": 1,
+        },
+    )
+
+    assert response.status_code in (400, 422)
+    assert mock_redis.method_calls == []
+    assert list(tmp_path.rglob("*")) == [folder_path]
