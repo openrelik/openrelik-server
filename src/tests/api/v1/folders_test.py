@@ -294,7 +294,16 @@ def test_delete_group_role(fastapi_test_client, mocker, db):
     )
 
     assert response.status_code == 200
-    mock_delete_group_role_from_db.assert_called_once_with(db, role_id)
+    mock_delete_group_role_from_db.assert_called_once_with(db, role_id, folder_id)
+
+
+def test_delete_group_role_other_folder(fastapi_test_client, mocker):
+    """A role on another folder can't be deleted through a folder the user can access."""
+    mocker.patch("api.v1.folders.delete_group_role_from_db", return_value=False)
+
+    response = fastapi_test_client.delete("/folders/1/roles/groups/2")
+
+    assert response.status_code == 404
 
 
 def test_delete_user_role(fastapi_test_client, mocker, db):
@@ -307,7 +316,16 @@ def test_delete_user_role(fastapi_test_client, mocker, db):
     response = fastapi_test_client.delete(f"/folders/{folder_id}/roles/users/{role_id}")
 
     assert response.status_code == 200
-    mock_delete_user_role_from_db.assert_called_once_with(db, role_id)
+    mock_delete_user_role_from_db.assert_called_once_with(db, role_id, folder_id)
+
+
+def test_delete_user_role_other_folder(fastapi_test_client, mocker):
+    """A role on another folder can't be deleted through a folder the user can access."""
+    mocker.patch("api.v1.folders.delete_user_role_from_db", return_value=False)
+
+    response = fastapi_test_client.delete("/folders/1/roles/users/2")
+
+    assert response.status_code == 404
 
 
 def test_get_folder_files(fastapi_test_client, mocker, file_response_compact_list):

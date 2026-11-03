@@ -23,7 +23,12 @@ from sqlalchemy.orm import Session
 
 from auth.common import get_current_active_user
 from config import get_active_llm
-from datastores.sql.crud.authz import require_access
+from datastores.sql.crud.authz import (
+    check_user_access,
+    get_workflow_with_access,
+    require_access,
+)
+from datastores.sql.crud.file import get_file_from_db
 from datastores.sql.crud.folder import create_subfolder_in_db
 from datastores.sql.crud.workflow import (
     create_workflow_in_db,
@@ -31,7 +36,6 @@ from datastores.sql.crud.workflow import (
     delete_workflow_template_from_db,
     delete_workflow_from_db,
     get_folder_workflows_from_db,
-    get_workflow_from_db,
     get_workflow_template_from_db,
     get_workflow_templates_from_db,
     update_workflow_in_db,
@@ -43,9 +47,33 @@ from lib import workflow_utils
 from lib.reporting_utils import create_workflow_report
 from lib.workflow_utils import TemplateNotFoundError, replace_uuids
 
-from datastores.sql.crud.authz import check_user_access
-
 from . import schemas
+
+VIEW_ROLES = [Role.VIEWER, Role.EDITOR, Role.OWNER]
+EDIT_ROLES = [Role.EDITOR, Role.OWNER]
+
+# Fields of a workflow that clients can change with PATCH. The others, like folder_id and
+# user_id, decide where the workflow lives and who owns it, so they can't be set this way.
+UPDATABLE_WORKFLOW_FIELDS = {"display_name", "description", "spec_json"}
+
+
+def _check_file_access(db: Session, current_user: schemas.User, file_ids: List[int]) -> None:
+    """Check that the user can view every file in file_ids.
+
+    Raises:
+        HTTPException: 404 if a file doesn't exist or is deleted, 403 if the user has no access.
+    """
+    for file_id in file_ids:
+        file = get_file_from_db(db, file_id)
+        if not file or file.is_deleted:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail=f"File {file_id} not found."
+            )
+        if not check_user_access(db, current_user, VIEW_ROLES, file=file):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail=f"No access to file {file_id}"
+            )
+
 
 # Workflows in a folder context.
 router = APIRouter()
@@ -83,6 +111,7 @@ async def create_workflow(
     Returns:
         schemas.WorkflowResponse: The created workflow.
     """
+    _check_file_access(db, current_user, request_body.file_ids)
     try:
         return workflow_utils.create_workflow(
             db,
@@ -162,7 +191,7 @@ async def get_workflow(
     Returns:
         schemas.WorkflowResponse: The workflow.
     """
-    return get_workflow_from_db(db, workflow_id)
+    return get_workflow_with_access(db, current_user, workflow_id, VIEW_ROLES)
 
 
 # Update workflow
@@ -199,11 +228,15 @@ async def update_workflow(
     """
 
     # Fetch workflow to update from database
-    workflow_from_db = get_workflow_from_db(db, workflow_id)
+    workflow_from_db = get_workflow_with_access(db, current_user, workflow_id, EDIT_ROLES)
     workflow_model = schemas.Workflow(**workflow_from_db.__dict__)
 
     # Update workflow data with supplied values
-    update_data = workflow_from_request.model_dump(exclude_unset=True)
+    update_data = {
+        key: value
+        for key, value in workflow_from_request.model_dump(exclude_unset=True).items()
+        if key in UPDATABLE_WORKFLOW_FIELDS
+    }
     updated_workflow_model = workflow_model.model_copy(update=update_data)
 
     return update_workflow_in_db(db, updated_workflow_model)
@@ -231,7 +264,7 @@ async def copy_workflow(
         schemas.WorkflowResponse: The copied workflow.
     """
 
-    workflow_to_copy = get_workflow_from_db(db, workflow_id)
+    workflow_to_copy = get_workflow_with_access(db, current_user, workflow_id, EDIT_ROLES)
     workflow_spec = json.loads(workflow_to_copy.spec_json)
     replace_uuids(workflow_spec)
 
@@ -274,6 +307,7 @@ async def delete_workflow(
         db (Session): The database session.
         current_user (schemas.User): The current user.
     """
+    get_workflow_with_access(db, current_user, workflow_id, EDIT_ROLES)
     delete_workflow_from_db(db, workflow_id)
 
 
@@ -303,7 +337,7 @@ async def run_workflow(
     Returns:
         schemas.WorkflowResponse: The workflow.
     """
-    workflow = get_workflow_from_db(db, workflow_id)
+    workflow = get_workflow_with_access(db, current_user, workflow_id, EDIT_ROLES)
     return workflow_utils.run_workflow(
         db,
         workflow=workflow,
@@ -323,7 +357,7 @@ async def get_workflow_status(
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.WorkflowStatus:
     """Get a workflow status by ID."""
-    workflow = get_workflow_from_db(db, workflow_id)
+    workflow = get_workflow_with_access(db, current_user, workflow_id, VIEW_ROLES)
 
     # Terminal task states where a task is considered finished
     TERMINAL_TASK_STATES = {"SUCCESS", "FAILURE", "REVOKED", "REJECTED"}
@@ -417,12 +451,9 @@ async def create_workflow_template(
     """
     spec_json = None
     if request_body.workflow_id:
-        workflow_to_save = get_workflow_from_db(db, request_body.workflow_id)
-        if not workflow_to_save:
-            raise HTTPException(
-                status_code=404,
-                detail="Workflow with id {new_template_request.workflow_id} not found",
-            )
+        workflow_to_save = get_workflow_with_access(
+            db, current_user, request_body.workflow_id, VIEW_ROLES
+        )
 
         # Replace UUIDs with placeholder value for the template
         spec_json = json.loads(workflow_to_save.spec_json)
@@ -550,7 +581,7 @@ async def generate_workflow_name(
     Returns:
         schemas.WorkflowGeneratedNameResponse: The generated workflow name.
     """
-    workflow = get_workflow_from_db(db, workflow_id)
+    workflow = get_workflow_with_access(db, current_user, workflow_id, EDIT_ROLES)
     MAX_WORDS = 5
 
     def _remove_task_config(data: dict | list) -> dict | list:
@@ -637,19 +668,7 @@ async def get_workflow(
     Returns:
         schemas.WorkflowResponse: The workflow.
     """
-    workflow = get_workflow_from_db(db, workflow_id)
-
-    # Check if user has access to the workflow's folder
-    has_access = check_user_access(
-        db,
-        current_user,
-        allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER],
-        folder=workflow.folder
-    )
-    if not has_access:
-        raise HTTPException(status_code=403, detail="No access to workflow")
-
-    return workflow
+    return get_workflow_with_access(db, current_user, workflow_id, VIEW_ROLES)
 
 # Generate workflow report
 # /workflows/{workflow_id}/report
@@ -659,17 +678,7 @@ async def generate_workflow_report(
     db: Session = Depends(get_db_connection),
     current_user: schemas.User = Depends(get_current_active_user),
 ) -> schemas.WorkflowReportResponse:
-    workflow = get_workflow_from_db(db, workflow_id)
-
-    # Check if user has access to the workflow's folder
-    has_access = check_user_access(
-        db,
-        current_user,
-        allowed_roles=[Role.EDITOR, Role.OWNER],
-        folder=workflow.folder
-    )
-    if not has_access:
-        raise HTTPException(status_code=403, detail="No access to workflow")
+    workflow = get_workflow_with_access(db, current_user, workflow_id, EDIT_ROLES)
 
     markdown = create_workflow_report(workflow)
     response = schemas.WorkflowReportResponse(

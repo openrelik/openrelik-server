@@ -673,7 +673,8 @@ def delete_group_role(
 ):
     telemetry.add_attribute_to_current_span('folder_id', folder_id)
     telemetry.add_attribute_to_current_span('role_id', role_id)
-    delete_group_role_from_db(db, role_id)
+    if not delete_group_role_from_db(db, role_id, folder_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found.")
 
 
 @router.delete("/{folder_id}/roles/users/{role_id}")
@@ -686,7 +687,8 @@ def delete_user_role(
 ):
     telemetry.add_attribute_to_current_span('folder_id', folder_id)
     telemetry.add_attribute_to_current_span('role_id', role_id)
-    delete_user_role_from_db(db, role_id)
+    if not delete_user_role_from_db(db, role_id, folder_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Role not found.")
 
 
 # Create a new session in ADK

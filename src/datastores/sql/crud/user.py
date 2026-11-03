@@ -223,7 +223,19 @@ def create_user_role_in_db(
     return user_role
 
 
-def delete_user_role_from_db(db: Session, user_role_id: int) -> None:
-    user_role = db.query(UserRole).filter(UserRole.id == user_role_id).first()
+def delete_user_role_from_db(db: Session, user_role_id: int, folder_id: int) -> bool:
+    """Delete a user role on a folder.
+
+    Returns:
+        bool: True if deleted, False if there is no such role on the folder.
+    """
+    user_role = (
+        db.query(UserRole)
+        .filter(UserRole.id == user_role_id, UserRole.folder_id == folder_id)
+        .first()
+    )
+    if not user_role:
+        return False
     db.delete(user_role)
     db.commit()
+    return True
