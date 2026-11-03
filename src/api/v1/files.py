@@ -54,10 +54,9 @@ from datastores.sql.crud.folder import get_folder_from_db
 from datastores.sql.crud.workflow import get_file_workflows_from_db
 from datastores.sql.database import get_db_connection
 from datastores.sql.models.role import Role
-from lib import duckdb_utils
 from lib.file_hashes import generate_hashes
 from lib.llm_file_chat import BASE_SYSTEM_INSTRUCTIONS, create_chat_session
-from lib.llm_summary import generate_sql_summary, generate_summary
+from lib.llm_summary import generate_summary
 
 from openrelik_common import telemetry
 
@@ -67,6 +66,17 @@ router = APIRouter()
 
 # Upload identifiers from clients are UUIDs or hex strings.
 UPLOAD_IDENTIFIER_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,128}")
+
+
+def _is_database_file(magic_text: str | None) -> bool:
+    """Return True if the file magic identifies a SQLite or DuckDB database."""
+    if not magic_text:
+        return False
+    magic_text_lower = magic_text.lower()
+    return "database" in magic_text_lower and (
+        "sqlite" in magic_text_lower or "duckdb" in magic_text_lower
+    )
+
 
 # File types that are trusted to be returned unescaped to the client
 ALLOWED_DATA_TYPES_PREVIEW = config.get("ui", {}).get("allowed_data_types_preview", [])
@@ -533,6 +543,11 @@ def generate_file_summary(
 ):
     telemetry.add_attribute_to_current_span('file_id', file_id)
     file = get_file_from_db(db, file_id)
+    if _is_database_file(file.magic_text):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Summaries are not supported for database files.",
+        )
     active_llm = get_active_llm()
     if not active_llm:
         raise HTTPException(
@@ -545,12 +560,9 @@ def generate_file_summary(
         file_id=file_id,
     )
     file_summary_db = create_file_summary_in_db(db, new_file_summary)
-    summary_func = generate_summary
-    if duckdb_utils.is_sql_file(file.magic_text):
-        summary_func = generate_sql_summary
 
     background_tasks.add_task(
-        summary_func,
+        generate_summary,
         llm_provider=active_llm["name"],
         llm_model=active_llm["config"]["model"],
         file_id=file_id,
@@ -647,103 +659,33 @@ def create_file_chat_message(
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
-@router.post("/{file_id}/sql/query")
-@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
-def run_sql_query(
-    file_id: int,
-    request: schemas.SQLQueryRequest,
-    db: Session = Depends(get_db_connection),
-    current_user: schemas.User = Depends(get_current_active_user),
-) -> schemas.SQLQueryResponse:
-    telemetry.add_attribute_to_current_span('file_id', file_id)
-    file = get_file_from_db(db, file_id)
-    MAX_RESULT_LIMIT = 10000
-
-    if not duckdb_utils.is_sql_file(file.magic_text):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File is not a supported SQL format.",
-        )
-
-    # Check if the query contains a LIMIT clause
-    if "limit" not in request.query.lower() and "sample" not in request.query.lower():
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Query must contain a LIMIT or SAMPLE clause to prevent excessive resource usage.",
-        )
-
-    # Extract the LIMIT and SAMPLE values and check if it's higher than MAX_RESULT_LIMIT
-    limit_match = re.search(r"limit\s+(\d+)", request.query.lower())
-    sample_match = re.search(r"sample\s+(\d+)", request.query.lower())
-    if limit_match and int(limit_match.group(1)) > MAX_RESULT_LIMIT:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"LIMIT value cannot exceed {MAX_RESULT_LIMIT} to prevent excessive resource usage.",
-        )
-
-    if sample_match and int(sample_match.group(1)) > MAX_RESULT_LIMIT:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"SAMPLE value cannot exceed {MAX_RESULT_LIMIT} to prevent excessive resource usage.",
-        )
-
-    try:
-        result = duckdb_utils.run_query(file=file, sql_query=request.query)
-        return {"query": request.query, "result": result}
-    except RuntimeError as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"{str(e)}",
-        )
+SQL_QUERY_DISABLED_DETAIL = "SQL querying of files has been disabled."
+SQL_QUERY_DISABLED_ROUTE_ARGS = {
+    "status_code": status.HTTP_410_GONE,
+    "deprecated": True,
+    "responses": {status.HTTP_410_GONE: {"description": SQL_QUERY_DISABLED_DETAIL}},
+}
 
 
-@router.post("/{file_id}/sql/query/generate")
-@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
-def generate_query(
-    file_id: int,
-    request: schemas.SQLGenerateQueryRequest,
-    db: Session = Depends(get_db_connection),
-    current_user: schemas.User = Depends(get_current_active_user),
-) -> schemas.SQLGenerateQueryResponse:
-    telemetry.add_attribute_to_current_span('file_id', file_id)
-    file = get_file_from_db(db, file_id)
-    if not duckdb_utils.is_sql_file(file.magic_text):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File is not a supported SQL format.",
-        )
-    active_llm = get_active_llm()
-    if not active_llm:
-        raise HTTPException(
-            status_code=503,
-            detail="No active LLM available.",
-        )
-
-    tables_schemas = duckdb_utils.get_tables_schemas(file)
-    generated_query = duckdb_utils.generate_sql_query(
-        llm_provider=active_llm["name"],
-        llm_model=active_llm["config"]["model"],
-        tables_schemas=json.dumps(tables_schemas),
-        user_request=request.user_request,
-        file=file,
+@router.post("/{file_id}/sql/query", **SQL_QUERY_DISABLED_ROUTE_ARGS)
+def run_sql_query(file_id: int):
+    """Disabled. Querying files with DuckDB is no longer supported."""
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE, detail=SQL_QUERY_DISABLED_DETAIL
     )
-    return {"user_request": request.user_request, "generated_query": generated_query}
 
 
-@router.get("/{file_id}/sql/schemas")
-@require_access(allowed_roles=[Role.VIEWER, Role.EDITOR, Role.OWNER])
-def get_all_tables_schemas(
-    file_id: int,
-    db: Session = Depends(get_db_connection),
-    current_user: schemas.User = Depends(get_current_active_user),
-) -> schemas.SQLSchemasResponse:
-    telemetry.add_attribute_to_current_span('file_id', file_id)
-    file = get_file_from_db(db, file_id)
-    if not duckdb_utils.is_sql_file(file.magic_text):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File is not a supported SQL format.",
-        )
+@router.post("/{file_id}/sql/query/generate", **SQL_QUERY_DISABLED_ROUTE_ARGS)
+def generate_query(file_id: int):
+    """Disabled. Querying files with DuckDB is no longer supported."""
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE, detail=SQL_QUERY_DISABLED_DETAIL
+    )
 
-    result = duckdb_utils.get_tables_schemas(file)
-    return {"schemas": result}
+
+@router.get("/{file_id}/sql/schemas", **SQL_QUERY_DISABLED_ROUTE_ARGS)
+def get_all_tables_schemas(file_id: int):
+    """Disabled. Querying files with DuckDB is no longer supported."""
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE, detail=SQL_QUERY_DISABLED_DETAIL
+    )

@@ -20,6 +20,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from api.v1.files import _is_database_file
 from datastores.sql.models.role import Role
 
 
@@ -217,6 +218,58 @@ def test_generate_file_summary(
 
     response = fastapi_test_client.post(f"/files/{file_db_model.id}/summaries")
     assert response.status_code == 200
+    mock_background_tasks_add_task.assert_called_once()
+    assert (
+        mock_background_tasks_add_task.call_args.args[0].__name__ == "generate_summary"
+    )
+
+
+@pytest.mark.parametrize(
+    "magic_text,expected",
+    [
+        ("SQLite 3.x database, last written using SQLite version 3045001", True),
+        ("DuckDB database file", True),
+        ("sqlite 3.X DATABASE", True),
+        (None, False),
+        ("", False),
+        ("plain text", False),
+        ("ASCII text, mentions sqlite", False),
+        ("Berkeley DB (Hash, version 9, native byte-order) database", False),
+    ],
+)
+def test_is_database_file(magic_text, expected):
+    """Only magic strings naming a SQLite or DuckDB database match."""
+    assert _is_database_file(magic_text) is expected
+
+
+@pytest.mark.parametrize(
+    "magic_text",
+    [
+        "SQLite 3.x database, last written using SQLite version 3045001",
+        "DuckDB database file",
+    ],
+)
+def test_generate_file_summary_database_file(
+    fastapi_test_client, mocker, file_db_model, magic_text
+):
+    """Summaries are refused for SQLite/DuckDB files."""
+    file_db_model.magic_text = magic_text
+    mocker.patch("api.v1.files.get_file_from_db", return_value=file_db_model)
+    mock_get_active_llm = mocker.patch("api.v1.files.get_active_llm")
+    mock_create_file_summary_in_db = mocker.patch(
+        "api.v1.files.create_file_summary_in_db"
+    )
+    mock_add_task = mocker.patch("api.v1.files.BackgroundTasks.add_task")
+
+    response = fastapi_test_client.post(f"/files/{file_db_model.id}/summaries")
+
+    assert response.status_code == 400
+    assert (
+        response.json()["detail"] == "Summaries are not supported for database files."
+    )
+    mock_get_active_llm.assert_not_called()
+    mock_create_file_summary_in_db.assert_not_called()
+    mock_add_task.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -455,102 +508,40 @@ def test_download_task_result_no_access(fastapi_test_client, mocker, db, tmp_pat
     assert b"secret" not in response.content
 
 
-def test_get_sql_schemas(
-    fastapi_test_client, mocker, file_db_model, setup_file_path_mock
-):
-    """Test the get_sql_schemas endpoint."""
-    setup_file_path_mock
-
+@pytest.mark.parametrize(
+    "method,path,payload",
+    [
+        ("get", "/files/1/sql/schemas", None),
+        ("post", "/files/1/sql/query", {"query": "SELECT * FROM t LIMIT 1;"}),
+        ("post", "/files/1/sql/query/generate", {"user_request": "all rows"}),
+    ],
+)
+def test_sql_endpoints_disabled(fastapi_test_client, mocker, method, path, payload):
+    """SQL endpoints are disabled and never touch the file."""
     mock_get_file_from_db = mocker.patch("api.v1.files.get_file_from_db")
-    mock_get_file_from_db.return_value = file_db_model
-    mock_is_sql_file = mocker.patch("lib.duckdb_utils.is_sql_file")
-    mock_is_sql_file.return_value = True
-    mock_get_tables_schemas = mocker.patch("lib.duckdb_utils.get_tables_schemas")
-    mock_get_tables_schemas.return_value = {
-        "table1": {"column1": "INTEGER", "column2": "TEXT"},
-        "table2": {"columnA": "REAL", "columnB": "BLOB"},
-    }
+    kwargs = {"json": payload} if payload is not None else {}
 
-    response = fastapi_test_client.get(f"/files/{file_db_model.id}/sql/schemas")
-    assert response.status_code == 200
-    assert response.json() == {
-        "schemas": {
-            "table1": {"column1": "INTEGER", "column2": "TEXT"},
-            "table2": {"columnA": "REAL", "columnB": "BLOB"},
-        }
-    }
+    response = getattr(fastapi_test_client, method)(path, **kwargs)
 
-    # Test non-SQL file
-    mock_is_sql_file.return_value = False
-    response = fastapi_test_client.get(f"/files/{file_db_model.id}/sql/schemas")
-    assert response.status_code == 400
+    assert response.status_code == 410
+    assert response.json()["detail"] == "SQL querying of files has been disabled."
+    mock_get_file_from_db.assert_not_called()
 
 
-def test_run_sql_query(
-    fastapi_test_client, mocker, file_db_model, setup_file_path_mock
-):
-    """Test the run_sql_query endpoint."""
-    setup_file_path_mock
-
-    mock_get_file_from_db = mocker.patch("api.v1.files.get_file_from_db")
-    mock_get_file_from_db.return_value = file_db_model
-    mock_is_sql_file = mocker.patch("lib.duckdb_utils.is_sql_file")
-    mock_is_sql_file.return_value = True
-    mock_run_query = mocker.patch("lib.duckdb_utils.run_query")
-    mock_run_query.return_value = [{"column1": 1, "column2": "test"}]
-
-    sql_query_with_limit = "SELECT * FROM table1 LIMIT 10;"
-    response = fastapi_test_client.post(
-        f"/files/{file_db_model.id}/sql/query", json={"query": sql_query_with_limit}
-    )
-    # Test with LIMIT clause
-    assert response.status_code == 200
-    assert response.json() == {
-        "query": sql_query_with_limit,
-        "result": [{"column1": 1, "column2": "test"}],
-    }
-
-    # Test without LIMIT clause
-    sql_query_without_limit = "SELECT * FROM table1"
-    response = fastapi_test_client.post(
-        f"/files/{file_db_model.id}/sql/query", json={"query": sql_query_without_limit}
-    )
-    assert response.status_code == 400
-
-
-def test_generate_query(
-    fastapi_test_client, mocker, file_db_model, setup_file_path_mock
-):
-    """Test the generate_sql_query endpoint."""
-    setup_file_path_mock
-
-    mock_get_file_from_db = mocker.patch("api.v1.files.get_file_from_db")
-    mock_get_file_from_db.return_value = file_db_model
-    mock_is_sql_file = mocker.patch("lib.duckdb_utils.is_sql_file")
-    mock_is_sql_file.return_value = True
-    mock_get_tables_schemas = mocker.patch("lib.duckdb_utils.get_tables_schemas")
-    mock_get_tables_schemas.return_value = {
-        "table1": {"column1": "INTEGER", "column2": "TEXT"},
-        "table2": {"columnA": "REAL", "columnB": "BLOB"},
-    }
-    mock_get_active_llm = mocker.patch("api.v1.files.get_active_llm")
-    mock_get_active_llm.return_value = {
-        "name": "test_llm",
-        "config": {"model": "test_model"},
-    }
-    mock_generate_sql_query = mocker.patch("lib.duckdb_utils.generate_sql_query")
-    mock_generate_sql_query.return_value = "SELECT * FROM table1 LIMIT 10;"
-
-    user_request = "Get all records from table1"
-    response = fastapi_test_client.post(
-        f"/files/{file_db_model.id}/sql/query/generate",
-        json={"user_request": user_request},
-    )
-    assert response.status_code == 200
-    assert response.json() == {
-        "user_request": user_request,
-        "generated_query": "SELECT * FROM table1 LIMIT 10;",
-    }
+def test_sql_endpoints_openapi(fastapi_test_client):
+    """Disabled SQL endpoints are documented as deprecated and 410 only."""
+    paths = fastapi_test_client.app.openapi()["paths"]
+    for path, method in [
+        ("/files/{file_id}/sql/schemas", "get"),
+        ("/files/{file_id}/sql/query", "post"),
+        ("/files/{file_id}/sql/query/generate", "post"),
+    ]:
+        operation = paths[path][method]
+        assert operation["deprecated"] is True
+        assert set(operation["responses"]) - {"422"} == {"410"}
+        assert operation["responses"]["410"]["description"] == (
+            "SQL querying of files has been disabled."
+        )
 
 
 def test_get_file_content_encoding_fallback(
@@ -678,53 +669,6 @@ def test_generate_file_summary_no_llm(fastapi_test_client, mocker, file_db_model
     response = fastapi_test_client.post(f"/files/{file_db_model.id}/summaries")
     assert response.status_code == 503
     assert response.json()["detail"] == "No active LLM available."
-
-
-def test_run_sql_query_non_sql(fastapi_test_client, mocker, file_db_model):
-    """Test run_sql_query with non-SQL file."""
-    mock_get_file_from_db = mocker.patch("api.v1.files.get_file_from_db")
-    mock_get_file_from_db.return_value = file_db_model
-    mock_is_sql_file = mocker.patch("lib.duckdb_utils.is_sql_file")
-    mock_is_sql_file.return_value = False
-
-    response = fastapi_test_client.post(
-        f"/files/{file_db_model.id}/sql/query",
-        json={"query": "SELECT * FROM table1 LIMIT 10;"},
-    )
-    assert response.status_code == 400
-    assert response.json()["detail"] == "File is not a supported SQL format."
-
-
-def test_run_sql_query_limit_exceeded(fastapi_test_client, mocker, file_db_model):
-    """Test run_sql_query with LIMIT exceeding max."""
-    mock_get_file_from_db = mocker.patch("api.v1.files.get_file_from_db")
-    mock_get_file_from_db.return_value = file_db_model
-    mock_is_sql_file = mocker.patch("lib.duckdb_utils.is_sql_file")
-    mock_is_sql_file.return_value = True
-
-    response = fastapi_test_client.post(
-        f"/files/{file_db_model.id}/sql/query",
-        json={"query": "SELECT * FROM table1 LIMIT 20000;"},
-    )
-    assert response.status_code == 400
-    assert "LIMIT value cannot exceed" in response.json()["detail"]
-
-
-def test_run_sql_query_runtime_error(fastapi_test_client, mocker, file_db_model):
-    """Test run_sql_query handling runtime error."""
-    mock_get_file_from_db = mocker.patch("api.v1.files.get_file_from_db")
-    mock_get_file_from_db.return_value = file_db_model
-    mock_is_sql_file = mocker.patch("lib.duckdb_utils.is_sql_file")
-    mock_is_sql_file.return_value = True
-    mock_run_query = mocker.patch("lib.duckdb_utils.run_query")
-    mock_run_query.side_effect = RuntimeError("DuckDB error")
-
-    response = fastapi_test_client.post(
-        f"/files/{file_db_model.id}/sql/query",
-        json={"query": "SELECT * FROM table1 LIMIT 10;"},
-    )
-    assert response.status_code == 400
-    assert response.json()["detail"] == "DuckDB error"
 
 
 def test_get_file_chat_history_empty(fastapi_test_client, mocker):
