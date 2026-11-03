@@ -224,7 +224,11 @@ def test_generate_file_summary(
 
 
 @pytest.mark.parametrize(
-    "magic_text", ["SQLite 3.x database, last written using SQLite version 3045001", "DuckDB database file"]
+    "magic_text",
+    [
+        "SQLite 3.x database, last written using SQLite version 3045001",
+        "DuckDB database file",
+    ],
 )
 def test_generate_file_summary_database_file(
     fastapi_test_client, mocker, file_db_model, magic_text
@@ -241,7 +245,9 @@ def test_generate_file_summary_database_file(
     response = fastapi_test_client.post(f"/files/{file_db_model.id}/summaries")
 
     assert response.status_code == 400
-    assert response.json()["detail"] == "Summaries are not supported for database files."
+    assert (
+        response.json()["detail"] == "Summaries are not supported for database files."
+    )
     mock_get_active_llm.assert_not_called()
     mock_create_file_summary_in_db.assert_not_called()
     mock_add_task.assert_not_called()
