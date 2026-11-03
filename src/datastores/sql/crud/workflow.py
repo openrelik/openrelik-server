@@ -250,19 +250,6 @@ def update_workflow_template_in_db(db: Session, template: WorkflowTemplate) -> W
     return template_in_db
 
 
-def get_task_from_db(db: Session, task_id: str) -> Task:
-    """Get a task by ID.
-
-    Args:
-        db (Session): SQLAlchemy session object
-        task_id (str): ID of the task
-
-    Returns:
-        Task object
-    """
-    return db.get(Task, task_id)
-
-
 def get_task_by_uuid_from_db(db: Session, uuid_string: str) -> Task:
     """Get a task by Celery task ID.
 

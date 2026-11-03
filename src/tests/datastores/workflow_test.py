@@ -25,7 +25,6 @@ from datastores.sql.crud.workflow import (
     get_workflow_template_from_db,
     create_workflow_template_in_db,
     update_workflow_template_in_db,
-    get_task_from_db,
     get_task_by_uuid_from_db,
     create_task_in_db,
     create_task_report_in_db,
@@ -214,18 +213,6 @@ def test_update_workflow_template_in_db_clears_description(mocker):
     update_workflow_template_in_db(mock_db, mock_template_schema)
 
     assert mock_template_in_db.description is None
-
-
-def test_get_task_from_db(mocker):
-    """Test get_task_from_db."""
-    mock_db = mocker.MagicMock()
-    mock_task = mocker.MagicMock(spec=Task)
-    mock_db.get.return_value = mock_task
-
-    result = get_task_from_db(mock_db, "task_id")
-
-    mock_db.get.assert_called_once_with(Task, "task_id")
-    assert result == mock_task
 
 
 def test_get_task_by_uuid_from_db(mocker):
