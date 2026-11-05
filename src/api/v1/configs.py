@@ -33,5 +33,5 @@ def get_system_config():
         "agents_enabled": bool(
             config.get("experiments", {}).get("agents", {}).get("adk_server_url")
         ),
-        "artefacts_bucket": config.get("gcp", {}).get("artefacts_bucket", ""),
+        "artifacts_bucket": config.get("gcp", {}).get("artifacts_bucket", ""),
     }
